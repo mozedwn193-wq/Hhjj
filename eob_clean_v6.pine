@@ -1,0 +1,217 @@
+//@version=6
+indicator("Enhanced Order Blocks (EOB) Clean", shorttitle="EOB", overlay=true, max_boxes_count=100, max_lines_count=100)
+
+// ==========================================
+// INPUTS
+// ==========================================
+
+// Confirmation Options
+wick_close_confirm = input.bool(true, "Wick Close Confirmation", group="🔍 Confirmation")
+body_close_confirm = input.bool(false, "Body Close Confirmation", group="🔍 Confirmation")
+
+// EOB Features
+show_eq = input.bool(true, "Show EQ Lines", group="⚙️ Features")
+extend_eob = input.bool(true, "Extend EOBs", group="⚙️ Features")
+max_eobs = input.int(3, "Max EOBs", minval=1, maxval=5, group="⚙️ Features")
+mitigation_threshold = input.float(0.5, "Mitigation Level", minval=0.1, maxval=1.0, step=0.1, group="⚙️ Features")
+delete_mitigated = input.bool(true, "Delete Mitigated", group="⚙️ Features")
+
+// Visual Settings
+eob_width = input.int(2, "EOB Width", minval=1, maxval=5, group="👁️ Visual")
+
+// Colors
+bullish_color = input.color(color.new(color.green, 75), "Bullish Color", group="🎨 Colors")
+bearish_color = input.color(color.new(color.red, 75), "Bearish Color", group="🎨 Colors")
+mitigated_color = input.color(color.new(color.orange, 70), "Mitigated Color", group="🎨 Colors")
+eq_color = input.color(color.new(color.yellow, 60), "EQ Color", group="🎨 Colors")
+
+// ==========================================
+// EOB DETECTION FUNCTIONS
+// ==========================================
+
+// Bearish EOB detection
+is_bearish_eob() =>
+    // Previous candle: bullish with bottom wick
+    prev_bullish = close[1] > open[1]
+    prev_body = math.abs(close[1] - open[1])
+    prev_low_wick = open[1] - low[1]
+    
+    // Current candle: bearish
+    curr_bearish = close < open
+    
+    // Conditions
+    has_body = prev_body > ta.atr(14) * 0.1
+    has_wick = prev_low_wick > prev_body * 0.2
+    
+    // Engulfing
+    engulfing = if wick_close_confirm
+        close < low[1]
+    else if body_close_confirm
+        close < open[1]
+    else
+        close < close[1] and open > close[1]
+    
+    prev_bullish and has_body and has_wick and curr_bearish and engulfing
+
+// Bullish EOB detection
+is_bullish_eob() =>
+    // Previous candle: bearish with top wick
+    prev_bearish = close[1] < open[1]
+    prev_body = math.abs(close[1] - open[1])
+    prev_high_wick = high[1] - close[1]
+    
+    // Current candle: bullish
+    curr_bullish = close > open
+    
+    // Conditions
+    has_body = prev_body > ta.atr(14) * 0.1
+    has_wick = prev_high_wick > prev_body * 0.2
+    
+    // Engulfing
+    engulfing = if wick_close_confirm
+        close > high[1]
+    else if body_close_confirm
+        close > open[1]
+    else
+        close > close[1] and open < close[1]
+    
+    prev_bearish and has_body and has_wick and curr_bullish and engulfing
+
+// ==========================================
+// EOB STORAGE
+// ==========================================
+
+// Simple arrays for storage
+var array<box> bullish_boxes = array.new<box>()
+var array<box> bearish_boxes = array.new<box>()
+var array<line> eq_lines = array.new<line>()
+
+// ==========================================
+// MAIN LOGIC
+// ==========================================
+
+if barstate.isconfirmed
+    
+    // Clean up old EOBs if limit reached
+    while array.size(bearish_boxes) >= max_eobs
+        old_box = array.shift(bearish_boxes)
+        box.delete(old_box)
+    
+    while array.size(bullish_boxes) >= max_eobs
+        old_box = array.shift(bullish_boxes)
+        box.delete(old_box)
+    
+    // Create bearish EOB
+    if is_bearish_eob()
+        eob_box = box.new(
+            left=bar_index[1],
+            top=high[1],
+            right=bar_index + 10,
+            bottom=low[1],
+            bgcolor=bearish_color,
+            border_color=bearish_color,
+            border_width=eob_width,
+            extend=extend_eob ? extend.right : extend.none
+        )
+        array.push(bearish_boxes, eob_box)
+        
+        // EQ line
+        if show_eq
+            eq_level = (high[1] + low[1]) / 2
+            eq_line = line.new(
+                x1=bar_index[1],
+                y1=eq_level,
+                x2=bar_index + 10,
+                y2=eq_level,
+                color=eq_color,
+                width=1,
+                style=line.style_dashed,
+                extend=extend_eob ? extend.right : extend.none
+            )
+            array.push(eq_lines, eq_line)
+    
+    // Create bullish EOB
+    if is_bullish_eob()
+        eob_box = box.new(
+            left=bar_index[1],
+            top=high[1],
+            right=bar_index + 10,
+            bottom=low[1],
+            bgcolor=bullish_color,
+            border_color=bullish_color,
+            border_width=eob_width,
+            extend=extend_eob ? extend.right : extend.none
+        )
+        array.push(bullish_boxes, eob_box)
+        
+        // EQ line
+        if show_eq
+            eq_level = (high[1] + low[1]) / 2
+            eq_line = line.new(
+                x1=bar_index[1],
+                y1=eq_level,
+                x2=bar_index + 10,
+                y2=eq_level,
+                color=eq_color,
+                width=1,
+                style=line.style_dashed,
+                extend=extend_eob ? extend.right : extend.none
+            )
+            array.push(eq_lines, eq_line)
+
+// ==========================================
+// MITIGATION CHECK
+// ==========================================
+
+// Check bearish EOB mitigation
+if array.size(bearish_boxes) > 0
+    for i = array.size(bearish_boxes) - 1 to 0
+        eob_box = array.get(bearish_boxes, i)
+        box_top = box.get_top(eob_box)
+        box_bottom = box.get_bottom(eob_box)
+        
+        eob_range = box_top - box_bottom
+        mitigation_level = box_top - (eob_range * mitigation_threshold)
+        
+        if high >= mitigation_level
+            if delete_mitigated
+                box.delete(eob_box)
+                array.remove(bearish_boxes, i)
+            else
+                box.set_bgcolor(eob_box, mitigated_color)
+                box.set_border_color(eob_box, mitigated_color)
+
+// Check bullish EOB mitigation
+if array.size(bullish_boxes) > 0
+    for i = array.size(bullish_boxes) - 1 to 0
+        eob_box = array.get(bullish_boxes, i)
+        box_top = box.get_top(eob_box)
+        box_bottom = box.get_bottom(eob_box)
+        
+        eob_range = box_top - box_bottom
+        mitigation_level = box_bottom + (eob_range * mitigation_threshold)
+        
+        if low <= mitigation_level
+            if delete_mitigated
+                box.delete(eob_box)
+                array.remove(bullish_boxes, i)
+            else
+                box.set_bgcolor(eob_box, mitigated_color)
+                box.set_border_color(eob_box, mitigated_color)
+
+// ==========================================
+// ALERTS
+// ==========================================
+
+bearish_formed = is_bearish_eob()
+bullish_formed = is_bullish_eob()
+
+alertcondition(bearish_formed, "Bearish EOB", "Bearish EOB formed")
+alertcondition(bullish_formed, "Bullish EOB", "Bullish EOB formed")
+
+// ==========================================
+// VISUAL MARKERS
+// ==========================================
+
+plotshape(bearish_formed, "Bearish Signal", shape.triangledown, location.abovebar, color.red, size=size.tiny)
+plotshape(bullish_formed, "Bullish Signal", shape.triangleup, location.belowbar, color.green, size=size.tiny)
