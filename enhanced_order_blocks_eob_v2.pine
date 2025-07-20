@@ -1,0 +1,406 @@
+//@version=5
+indicator("Enhanced Order Blocks (EOB) v2.0 - Refined", shorttitle="EOB-v2", overlay=true, max_boxes_count=500, max_lines_count=500)
+
+// ==========================================
+// INPUT GROUPS - ENHANCED
+// ==========================================
+
+// Confirmation Options
+confirm_group = "🔍 CONFIRMATION OPTIONS"
+wick_close_confirm = input.bool(true, "Wick Close Confirmation", tooltip="Confirmation candle must close beyond the wick", group=confirm_group)
+body_close_confirm = input.bool(false, "Body Close Confirmation", tooltip="Confirmation candle must close beyond the body only", group=confirm_group)
+min_wick_ratio = input.float(0.25, "Minimum Wick Ratio", minval=0.1, maxval=0.8, step=0.05, tooltip="Minimum wick size as ratio of candle body", group=confirm_group)
+min_body_size = input.float(0.3, "Minimum Body Size (% of ATR)", minval=0.1, maxval=2.0, step=0.1, tooltip="Minimum setup candle body size", group=confirm_group)
+
+// MTF Overlays (Higher Timeframes)
+mtf_group = "📊 MTF OVERLAYS (HTF)"
+show_1w_eob = input.bool(false, "Show 1 Week EOB", group=mtf_group)
+show_1d_eob = input.bool(true, "Show 1 Day EOB", group=mtf_group)
+show_4h_eob = input.bool(true, "Show 4hr EOB", group=mtf_group)
+show_2h_eob = input.bool(false, "Show 2hr EOB", group=mtf_group)
+show_1h_eob = input.bool(true, "Show 1hr EOB", group=mtf_group)
+
+// LTF Options
+ltf_group = "⏰ LTF OPTIONS"
+show_30m_eob = input.bool(false, "Show 30 mins EOB", group=ltf_group)
+show_15m_eob = input.bool(true, "Show 15mins EOB", group=ltf_group)
+show_5m_eob = input.bool(false, "Show 5mins EOB", group=ltf_group)
+show_3m_eob = input.bool(false, "Show 3mins EOB", group=ltf_group)
+
+// HTF EOB Display on LTF
+htf_display_group = "🔄 HTF EOB DISPLAY"
+show_htf_saved_eobs = input.bool(true, "Show HTF Saved/Marked EOBs in Lower Timeframe", group=htf_display_group)
+htf_box_style = input.string("Solid", "HTF Box Style", options=["Solid", "Dashed", "Dotted"], group=htf_display_group)
+
+// Visual Settings
+visual_group = "👁️ VISUAL SETTINGS"
+eob_width = input.int(2, "EOB Border Width", minval=1, maxval=5, group=visual_group)
+show_eob_labels = input.bool(true, "Show EOB Labels", group=visual_group)
+label_size = input.string("Small", "Label Size", options=["Tiny", "Small", "Normal", "Large"], group=visual_group)
+
+// EOB Features
+features_group = "⚙️ EOB FEATURES"
+show_eq = input.bool(true, "Add EQ of EOBs", tooltip="Show equilibrium line of order blocks", group=features_group)
+extend_eob = input.bool(true, "Extended EOBs", tooltip="Extend EOB boxes to the right", group=features_group)
+extension_bars = input.int(50, "Extension Length (bars)", minval=10, maxval=200, group=features_group)
+mitigation_threshold = input.float(0.5, "Mitigated When", minval=0.1, maxval=1.0, step=0.1, tooltip="0.5 = 50% fill, 1.0 = Full fill", group=features_group)
+delete_mitigated = input.bool(false, "Delete Mitigated EOBs", tooltip="Remove EOBs when mitigated", group=features_group)
+show_mitigation_alerts = input.bool(true, "Show Mitigation Alerts", group=features_group)
+
+// Color Settings
+color_group = "🎨 COLOR SETTINGS"
+bullish_eob_color = input.color(color.new(color.green, 75), "Bullish EOB Color", group=color_group)
+bearish_eob_color = input.color(color.new(color.red, 75), "Bearish EOB Color", group=color_group)
+partially_mitigated_color = input.color(color.new(color.orange, 65), "Partially Mitigated Color", group=color_group)
+eq_line_color = input.color(color.new(color.yellow, 40), "EQ Line Color", group=color_group)
+htf_transparency = input.int(85, "HTF EOB Transparency", minval=50, maxval=95, group=color_group)
+
+// ==========================================
+// ENHANCED FUNCTIONS
+// ==========================================
+
+// Calculate ATR for body size validation
+atr_length = 14
+atr_value = ta.atr(atr_length)
+
+// Enhanced function to identify Bearish EOB with improved criteria
+is_bearish_eob_enhanced(setup_index, confirm_index) =>
+    // Setup candle data
+    s_open = open[setup_index]
+    s_close = close[setup_index]
+    s_high = high[setup_index]
+    s_low = low[setup_index]
+    
+    // Confirmation candle data
+    c_open = open[confirm_index]
+    c_close = close[confirm_index]
+    c_high = high[confirm_index]
+    c_low = low[confirm_index]
+    
+    // Setup candle validation
+    is_setup_bullish = s_close > s_open
+    body_size = math.abs(s_close - s_open)
+    bottom_wick = s_open - s_low
+    total_range = s_high - s_low
+    
+    // Enhanced wick criteria
+    has_significant_bottom_wick = bottom_wick >= (body_size * min_wick_ratio) and bottom_wick > 0
+    adequate_body_size = body_size >= (atr_value * min_body_size)
+    
+    // Confirmation candle validation
+    is_confirm_bearish = c_close < c_open
+    
+    // Enhanced engulfing logic
+    engulfing_condition = if wick_close_confirm
+        c_close < s_low and c_open > s_close // Close below setup low, open above setup close
+    else if body_close_confirm
+        c_close < s_open and c_open > s_close // Close below setup open
+    else
+        c_close < s_close and c_open > s_close // Default engulfing
+    
+    // Volume confirmation (if available)
+    volume_confirmation = na(volume) or volume[confirm_index] > ta.sma(volume, 10)
+    
+    is_setup_bullish and has_significant_bottom_wick and adequate_body_size and is_confirm_bearish and engulfing_condition and volume_confirmation
+
+// Enhanced function to identify Bullish EOB
+is_bullish_eob_enhanced(setup_index, confirm_index) =>
+    // Setup candle data
+    s_open = open[setup_index]
+    s_close = close[setup_index]
+    s_high = high[setup_index]
+    s_low = low[setup_index]
+    
+    // Confirmation candle data
+    c_open = open[confirm_index]
+    c_close = close[confirm_index]
+    c_high = high[confirm_index]
+    c_low = low[confirm_index]
+    
+    // Setup candle validation
+    is_setup_bearish = s_close < s_open
+    body_size = math.abs(s_close - s_open)
+    top_wick = s_high - s_close
+    total_range = s_high - s_low
+    
+    // Enhanced wick criteria
+    has_significant_top_wick = top_wick >= (body_size * min_wick_ratio) and top_wick > 0
+    adequate_body_size = body_size >= (atr_value * min_body_size)
+    
+    // Confirmation candle validation
+    is_confirm_bullish = c_close > c_open
+    
+    // Enhanced engulfing logic
+    engulfing_condition = if wick_close_confirm
+        c_close > s_high and c_open < s_close // Close above setup high, open below setup close
+    else if body_close_confirm
+        c_close > s_open and c_open < s_close // Close above setup open
+    else
+        c_close > s_close and c_open < s_close // Default engulfing
+    
+    // Volume confirmation (if available)
+    volume_confirmation = na(volume) or volume[confirm_index] > ta.sma(volume, 10)
+    
+    is_setup_bearish and has_significant_top_wick and adequate_body_size and is_confirm_bullish and engulfing_condition and volume_confirmation
+
+// Enhanced EOB box creation with better styling
+create_enhanced_eob_box(eob_top, eob_bottom, eob_left, eob_color, is_bullish, is_htf = false) =>
+    box_right = extend_eob ? bar_index + extension_bars : bar_index + 5
+    
+    // Adjust transparency for HTF boxes
+    final_color = is_htf ? color.new(color.rgb(color.r(eob_color), color.g(eob_color), color.b(eob_color)), htf_transparency) : eob_color
+    
+    // Border style based on settings
+    border_style = switch htf_box_style
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
+    
+    new_box = box.new(eob_left, eob_top, box_right, eob_bottom, 
+                      border_color=final_color, 
+                      bgcolor=final_color,
+                      border_width=eob_width,
+                      extend=extend_eob ? extend.right : extend.none)
+    
+    // Add label if enabled
+    if show_eob_labels and not is_htf
+        label_text = is_bullish ? "Bull EOB" : "Bear EOB"
+        label_y = is_bullish ? eob_bottom : eob_top
+        label_style = is_bullish ? label.style_label_up : label.style_label_down
+        
+        label_size_value = switch label_size
+            "Tiny" => size.tiny
+            "Small" => size.small
+            "Normal" => size.normal
+            "Large" => size.large
+            => size.small
+        
+        label.new(eob_left, label_y, label_text, 
+                  color=final_color, 
+                  textcolor=color.white, 
+                  style=label_style, 
+                  size=label_size_value)
+    
+    new_box
+
+// Enhanced EQ line creation
+create_enhanced_eq_line(eob_top, eob_bottom, eob_left, is_htf = false) =>
+    if show_eq
+        eq_level = (eob_top + eob_bottom) / 2
+        line_right = extend_eob ? bar_index + extension_bars : bar_index + 5
+        
+        eq_color = is_htf ? color.new(eq_line_color, 70) : eq_line_color
+        
+        line.new(eob_left, eq_level, line_right, eq_level,
+                 color=eq_color,
+                 width=1,
+                 style=line.style_dashed,
+                 extend=extend_eob ? extend.right : extend.none)
+
+// Enhanced mitigation check with partial mitigation tracking
+check_enhanced_mitigation(eob_top, eob_bottom, is_bullish) =>
+    eob_range = eob_top - eob_bottom
+    threshold_level = is_bullish ? eob_bottom + (eob_range * mitigation_threshold) : eob_top - (eob_range * mitigation_threshold)
+    
+    mitigation_percentage = if is_bullish
+        math.min(1.0, math.max(0.0, (high - eob_bottom) / eob_range))
+    else
+        math.min(1.0, math.max(0.0, (eob_top - low) / eob_range))
+    
+    [mitigation_percentage >= mitigation_threshold, mitigation_percentage]
+
+// Get enhanced HTF EOB data
+get_enhanced_htf_eob_data(tf) =>
+    request.security(syminfo.tickerid, tf, [
+        is_bearish_eob_enhanced(1, 0) ? 1 : (is_bullish_eob_enhanced(1, 0) ? 2 : 0),
+        high[1], low[1], open[1], close[1], bar_index[1], volume[1]
+    ], lookahead=barmerge.lookahead_off)
+
+// ==========================================
+// ENHANCED MAIN LOGIC
+// ==========================================
+
+// Storage arrays
+var box[] bullish_eobs = array.new<box>()
+var box[] bearish_eobs = array.new<box>()
+var line[] eq_lines = array.new<line>()
+var float[] eob_mitigation_levels = array.new<float>()
+
+// Current timeframe EOB detection with enhanced criteria
+if barstate.isconfirmed
+    // Enhanced Bearish EOB detection
+    if is_bearish_eob_enhanced(1, 0)
+        eob_top = high[1]
+        eob_bottom = low[1]
+        eob_left = bar_index[1]
+        
+        bearish_box = create_enhanced_eob_box(eob_top, eob_bottom, eob_left, bearish_eob_color, false)
+        array.push(bearish_eobs, bearish_box)
+        array.push(eob_mitigation_levels, 0.0)
+        
+        if show_eq
+            eq_line = create_enhanced_eq_line(eob_top, eob_bottom, eob_left)
+            array.push(eq_lines, eq_line)
+    
+    // Enhanced Bullish EOB detection
+    if is_bullish_eob_enhanced(1, 0)
+        eob_top = high[1]
+        eob_bottom = low[1]
+        eob_left = bar_index[1]
+        
+        bullish_box = create_enhanced_eob_box(eob_top, eob_bottom, eob_left, bullish_eob_color, true)
+        array.push(bullish_eobs, bullish_box)
+        array.push(eob_mitigation_levels, 0.0)
+        
+        if show_eq
+            eq_line = create_enhanced_eq_line(eob_top, eob_bottom, eob_left)
+            array.push(eq_lines, eq_line)
+
+// Enhanced Multi-timeframe EOB detection
+var box[] htf_boxes = array.new<box>()
+
+if show_htf_saved_eobs and barstate.isconfirmed
+    timeframes = array.new<string>()
+    
+    if show_1w_eob and timeframe.in_seconds() < timeframe.in_seconds("1W")
+        array.push(timeframes, "1W")
+    if show_1d_eob and timeframe.in_seconds() < timeframe.in_seconds("1D")
+        array.push(timeframes, "1D")
+    if show_4h_eob and timeframe.in_seconds() < timeframe.in_seconds("4H")
+        array.push(timeframes, "4H")
+    if show_2h_eob and timeframe.in_seconds() < timeframe.in_seconds("2H")
+        array.push(timeframes, "2H")
+    if show_1h_eob and timeframe.in_seconds() < timeframe.in_seconds("1H")
+        array.push(timeframes, "1H")
+    if show_30m_eob and timeframe.in_seconds() < timeframe.in_seconds("30")
+        array.push(timeframes, "30")
+    if show_15m_eob and timeframe.in_seconds() < timeframe.in_seconds("15")
+        array.push(timeframes, "15")
+    if show_5m_eob and timeframe.in_seconds() < timeframe.in_seconds("5")
+        array.push(timeframes, "5")
+    if show_3m_eob and timeframe.in_seconds() < timeframe.in_seconds("3")
+        array.push(timeframes, "3")
+    
+    // Process each valid timeframe
+    if array.size(timeframes) > 0
+        for i = 0 to array.size(timeframes) - 1
+            tf = array.get(timeframes, i)
+            [eob_type, htf_high, htf_low, htf_open, htf_close, htf_bar_index, htf_volume] = get_enhanced_htf_eob_data(tf)
+            
+            if eob_type != 0
+                is_bull = eob_type == 2
+                box_color = is_bull ? bullish_eob_color : bearish_eob_color
+                
+                htf_box = create_enhanced_eob_box(htf_high, htf_low, bar_index - 2, box_color, is_bull, true)
+                array.push(htf_boxes, htf_box)
+                
+                if show_eq
+                    eq_line = create_enhanced_eq_line(htf_high, htf_low, bar_index - 2, true)
+                    array.push(eq_lines, eq_line)
+
+// ==========================================
+// ENHANCED MITIGATION MANAGEMENT
+// ==========================================
+
+var bool mitigation_alert_triggered = false
+
+if barstate.isconfirmed
+    // Enhanced bullish EOB mitigation tracking
+    for i = array.size(bullish_eobs) - 1 to 0
+        eob_box = array.get(bullish_eobs, i)
+        if not na(eob_box)
+            box_top = box.get_top(eob_box)
+            box_bottom = box.get_bottom(eob_box)
+            
+            [is_mitigated, mitigation_pct] = check_enhanced_mitigation(box_top, box_bottom, true)
+            
+            if array.size(eob_mitigation_levels) > i
+                old_mitigation = array.get(eob_mitigation_levels, i)
+                array.set(eob_mitigation_levels, i, mitigation_pct)
+                
+                // Trigger alert on first mitigation
+                if show_mitigation_alerts and mitigation_pct > 0.1 and old_mitigation <= 0.1
+                    mitigation_alert_triggered := true
+            
+            if is_mitigated
+                if delete_mitigated
+                    box.delete(eob_box)
+                    array.remove(bullish_eobs, i)
+                    if array.size(eob_mitigation_levels) > i
+                        array.remove(eob_mitigation_levels, i)
+                else
+                    box.set_bgcolor(eob_box, partially_mitigated_color)
+                    box.set_border_color(eob_box, partially_mitigated_color)
+    
+    // Enhanced bearish EOB mitigation tracking
+    for i = array.size(bearish_eobs) - 1 to 0
+        eob_box = array.get(bearish_eobs, i)
+        if not na(eob_box)
+            box_top = box.get_top(eob_box)
+            box_bottom = box.get_bottom(eob_box)
+            
+            [is_mitigated, mitigation_pct] = check_enhanced_mitigation(box_top, box_bottom, false)
+            
+            if array.size(eob_mitigation_levels) > i
+                old_mitigation = array.get(eob_mitigation_levels, i)
+                array.set(eob_mitigation_levels, i, mitigation_pct)
+                
+                // Trigger alert on first mitigation
+                if show_mitigation_alerts and mitigation_pct > 0.1 and old_mitigation <= 0.1
+                    mitigation_alert_triggered := true
+            
+            if is_mitigated
+                if delete_mitigated
+                    box.delete(eob_box)
+                    array.remove(bearish_eobs, i)
+                    if array.size(eob_mitigation_levels) > i
+                        array.remove(eob_mitigation_levels, i)
+                else
+                    box.set_bgcolor(eob_box, partially_mitigated_color)
+                    box.set_border_color(eob_box, partially_mitigated_color)
+
+// ==========================================
+// ENHANCED ALERTS
+// ==========================================
+
+bearish_eob_formed = is_bearish_eob_enhanced(1, 0)
+bullish_eob_formed = is_bullish_eob_enhanced(1, 0)
+
+alertcondition(bearish_eob_formed, title="Enhanced Bearish EOB Formed", message="🔴 Enhanced Bearish EOB formed on {{ticker}} {{interval}} - High probability reversal zone!")
+alertcondition(bullish_eob_formed, title="Enhanced Bullish EOB Formed", message="🟢 Enhanced Bullish EOB formed on {{ticker}} {{interval}} - High probability reversal zone!")
+alertcondition(mitigation_alert_triggered, title="EOB Mitigation Alert", message="⚠️ EOB zone touched on {{ticker}} {{interval}} - Watch for reaction!")
+
+// ==========================================
+// ENHANCED PLOTTING
+// ==========================================
+
+// Enhanced plot markers
+plotshape(bearish_eob_formed, title="Bearish EOB Signal", location=location.abovebar, color=color.new(color.red, 0), style=shape.triangledown, size=size.small)
+plotshape(bullish_eob_formed, title="Bullish EOB Signal", location=location.belowbar, color=color.new(color.green, 0), style=shape.triangleup, size=size.small)
+
+// Enhanced information table with more details
+if barstate.islast and show_eob_labels
+    var table info_table = table.new(position.top_right, 3, 6, bgcolor=color.new(color.white, 80), border_width=1)
+    table.cell(info_table, 0, 0, "EOB Stats", text_color=color.black, text_size=size.small, bgcolor=color.new(color.blue, 80))
+    table.cell(info_table, 1, 0, "Count", text_color=color.black, text_size=size.small, bgcolor=color.new(color.blue, 80))
+    table.cell(info_table, 2, 0, "Active", text_color=color.black, text_size=size.small, bgcolor=color.new(color.blue, 80))
+    
+    table.cell(info_table, 0, 1, "Bullish", text_color=color.green, text_size=size.small)
+    table.cell(info_table, 1, 1, str.tostring(array.size(bullish_eobs)), text_color=color.black, text_size=size.small)
+    table.cell(info_table, 2, 1, "✓", text_color=color.green, text_size=size.small)
+    
+    table.cell(info_table, 0, 2, "Bearish", text_color=color.red, text_size=size.small)
+    table.cell(info_table, 1, 2, str.tostring(array.size(bearish_eobs)), text_color=color.black, text_size=size.small)
+    table.cell(info_table, 2, 2, "✓", text_color=color.red, text_size=size.small)
+    
+    table.cell(info_table, 0, 3, "HTF EOBs", text_color=color.blue, text_size=size.small)
+    table.cell(info_table, 1, 3, str.tostring(array.size(htf_boxes)), text_color=color.black, text_size=size.small)
+    table.cell(info_table, 2, 3, "✓", text_color=color.blue, text_size=size.small)
+    
+    table.cell(info_table, 0, 4, "Current TF", text_color=color.gray, text_size=size.small)
+    table.cell(info_table, 1, 4, timeframe.period, text_color=color.black, text_size=size.small)
+    table.cell(info_table, 2, 4, "📊", text_color=color.gray, text_size=size.small)
+    
+    table.cell(info_table, 0, 5, "ATR", text_color=color.purple, text_size=size.small)
+    table.cell(info_table, 1, 5, str.tostring(math.round(atr_value, 4)), text_color=color.black, text_size=size.small)
+    table.cell(info_table, 2, 5, "📏", text_color=color.purple, text_size=size.small)
