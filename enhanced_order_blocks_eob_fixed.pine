@@ -176,162 +176,163 @@ if barstate.isconfirmed
             eq_line = create_eq_line(eob_top, eob_bottom, eob_left)
             array.push(eq_lines, eq_line)
 
-// Multi-timeframe EOB detection (simplified to avoid tuple issues)
+// Multi-timeframe EOB detection - All request.security calls moved outside conditionals
+// Weekly data
+weekly_bearish_eob = request.security(syminfo.tickerid, "1W", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+weekly_bullish_eob = request.security(syminfo.tickerid, "1W", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+weekly_high = request.security(syminfo.tickerid, "1W", high[1], lookahead=barmerge.lookahead_off)
+weekly_low = request.security(syminfo.tickerid, "1W", low[1], lookahead=barmerge.lookahead_off)
+
+// Daily data
+daily_bearish_eob = request.security(syminfo.tickerid, "1D", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+daily_bullish_eob = request.security(syminfo.tickerid, "1D", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+daily_high = request.security(syminfo.tickerid, "1D", high[1], lookahead=barmerge.lookahead_off)
+daily_low = request.security(syminfo.tickerid, "1D", low[1], lookahead=barmerge.lookahead_off)
+
+// 4H data
+h4_bearish_eob = request.security(syminfo.tickerid, "4H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h4_bullish_eob = request.security(syminfo.tickerid, "4H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h4_high = request.security(syminfo.tickerid, "4H", high[1], lookahead=barmerge.lookahead_off)
+h4_low = request.security(syminfo.tickerid, "4H", low[1], lookahead=barmerge.lookahead_off)
+
+// 2H data
+h2_bearish_eob = request.security(syminfo.tickerid, "2H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h2_bullish_eob = request.security(syminfo.tickerid, "2H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h2_high = request.security(syminfo.tickerid, "2H", high[1], lookahead=barmerge.lookahead_off)
+h2_low = request.security(syminfo.tickerid, "2H", low[1], lookahead=barmerge.lookahead_off)
+
+// 1H data
+h1_bearish_eob = request.security(syminfo.tickerid, "1H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h1_bullish_eob = request.security(syminfo.tickerid, "1H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h1_high = request.security(syminfo.tickerid, "1H", high[1], lookahead=barmerge.lookahead_off)
+h1_low = request.security(syminfo.tickerid, "1H", low[1], lookahead=barmerge.lookahead_off)
+
+// 30M data
+m30_bearish_eob = request.security(syminfo.tickerid, "30", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+m30_bullish_eob = request.security(syminfo.tickerid, "30", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+m30_high = request.security(syminfo.tickerid, "30", high[1], lookahead=barmerge.lookahead_off)
+m30_low = request.security(syminfo.tickerid, "30", low[1], lookahead=barmerge.lookahead_off)
+
+// 15M data
+m15_bearish_eob = request.security(syminfo.tickerid, "15", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+m15_bullish_eob = request.security(syminfo.tickerid, "15", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+m15_high = request.security(syminfo.tickerid, "15", high[1], lookahead=barmerge.lookahead_off)
+m15_low = request.security(syminfo.tickerid, "15", low[1], lookahead=barmerge.lookahead_off)
+
+// 5M data
+m5_bearish_eob = request.security(syminfo.tickerid, "5", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+m5_bullish_eob = request.security(syminfo.tickerid, "5", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+m5_high = request.security(syminfo.tickerid, "5", high[1], lookahead=barmerge.lookahead_off)
+m5_low = request.security(syminfo.tickerid, "5", low[1], lookahead=barmerge.lookahead_off)
+
+// 3M data
+m3_bearish_eob = request.security(syminfo.tickerid, "3", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+m3_bullish_eob = request.security(syminfo.tickerid, "3", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+m3_high = request.security(syminfo.tickerid, "3", high[1], lookahead=barmerge.lookahead_off)
+m3_low = request.security(syminfo.tickerid, "3", low[1], lookahead=barmerge.lookahead_off)
+
+// Multi-timeframe EOB processing
 var box[] htf_boxes = array.new<box>()
 
 if show_htf_saved_eobs and barstate.isconfirmed
     // Weekly EOB
-    if show_1w_eob
-        weekly_bearish_eob = request.security(syminfo.tickerid, "1W", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        weekly_bullish_eob = request.security(syminfo.tickerid, "1W", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        weekly_high = request.security(syminfo.tickerid, "1W", high[1], lookahead=barmerge.lookahead_off)
-        weekly_low = request.security(syminfo.tickerid, "1W", low[1], lookahead=barmerge.lookahead_off)
-        
-        if weekly_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(weekly_high, weekly_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if weekly_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(weekly_high, weekly_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_1w_eob and weekly_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(weekly_high, weekly_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_1w_eob and weekly_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(weekly_high, weekly_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
     
     // Daily EOB
-    if show_1d_eob
-        daily_bearish_eob = request.security(syminfo.tickerid, "1D", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        daily_bullish_eob = request.security(syminfo.tickerid, "1D", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        daily_high = request.security(syminfo.tickerid, "1D", high[1], lookahead=barmerge.lookahead_off)
-        daily_low = request.security(syminfo.tickerid, "1D", low[1], lookahead=barmerge.lookahead_off)
-        
-        if daily_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(daily_high, daily_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if daily_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(daily_high, daily_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_1d_eob and daily_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(daily_high, daily_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_1d_eob and daily_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(daily_high, daily_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
     
     // 4H EOB
-    if show_4h_eob
-        h4_bearish_eob = request.security(syminfo.tickerid, "4H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        h4_bullish_eob = request.security(syminfo.tickerid, "4H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        h4_high = request.security(syminfo.tickerid, "4H", high[1], lookahead=barmerge.lookahead_off)
-        h4_low = request.security(syminfo.tickerid, "4H", low[1], lookahead=barmerge.lookahead_off)
-        
-        if h4_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(h4_high, h4_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if h4_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(h4_high, h4_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_4h_eob and h4_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(h4_high, h4_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_4h_eob and h4_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(h4_high, h4_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
     
     // 2H EOB
-    if show_2h_eob
-        h2_bearish_eob = request.security(syminfo.tickerid, "2H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        h2_bullish_eob = request.security(syminfo.tickerid, "2H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        h2_high = request.security(syminfo.tickerid, "2H", high[1], lookahead=barmerge.lookahead_off)
-        h2_low = request.security(syminfo.tickerid, "2H", low[1], lookahead=barmerge.lookahead_off)
-        
-        if h2_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(h2_high, h2_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if h2_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(h2_high, h2_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_2h_eob and h2_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(h2_high, h2_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_2h_eob and h2_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(h2_high, h2_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
     
     // 1H EOB
-    if show_1h_eob
-        h1_bearish_eob = request.security(syminfo.tickerid, "1H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        h1_bullish_eob = request.security(syminfo.tickerid, "1H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        h1_high = request.security(syminfo.tickerid, "1H", high[1], lookahead=barmerge.lookahead_off)
-        h1_low = request.security(syminfo.tickerid, "1H", low[1], lookahead=barmerge.lookahead_off)
-        
-        if h1_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(h1_high, h1_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if h1_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(h1_high, h1_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_1h_eob and h1_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(h1_high, h1_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_1h_eob and h1_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(h1_high, h1_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
     
     // 30M EOB
-    if show_30m_eob
-        m30_bearish_eob = request.security(syminfo.tickerid, "30", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        m30_bullish_eob = request.security(syminfo.tickerid, "30", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        m30_high = request.security(syminfo.tickerid, "30", high[1], lookahead=barmerge.lookahead_off)
-        m30_low = request.security(syminfo.tickerid, "30", low[1], lookahead=barmerge.lookahead_off)
-        
-        if m30_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(m30_high, m30_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if m30_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(m30_high, m30_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_30m_eob and m30_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(m30_high, m30_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_30m_eob and m30_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(m30_high, m30_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
     
     // 15M EOB
-    if show_15m_eob
-        m15_bearish_eob = request.security(syminfo.tickerid, "15", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        m15_bullish_eob = request.security(syminfo.tickerid, "15", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        m15_high = request.security(syminfo.tickerid, "15", high[1], lookahead=barmerge.lookahead_off)
-        m15_low = request.security(syminfo.tickerid, "15", low[1], lookahead=barmerge.lookahead_off)
-        
-        if m15_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(m15_high, m15_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if m15_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(m15_high, m15_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_15m_eob and m15_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(m15_high, m15_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_15m_eob and m15_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(m15_high, m15_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
     
     // 5M EOB
-    if show_5m_eob
-        m5_bearish_eob = request.security(syminfo.tickerid, "5", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        m5_bullish_eob = request.security(syminfo.tickerid, "5", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        m5_high = request.security(syminfo.tickerid, "5", high[1], lookahead=barmerge.lookahead_off)
-        m5_low = request.security(syminfo.tickerid, "5", low[1], lookahead=barmerge.lookahead_off)
-        
-        if m5_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(m5_high, m5_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if m5_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(m5_high, m5_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_5m_eob and m5_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(m5_high, m5_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_5m_eob and m5_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(m5_high, m5_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
     
     // 3M EOB
-    if show_3m_eob
-        m3_bearish_eob = request.security(syminfo.tickerid, "3", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        m3_bullish_eob = request.security(syminfo.tickerid, "3", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-        m3_high = request.security(syminfo.tickerid, "3", high[1], lookahead=barmerge.lookahead_off)
-        m3_low = request.security(syminfo.tickerid, "3", low[1], lookahead=barmerge.lookahead_off)
-        
-        if m3_bearish_eob
-            htf_color = color.new(bearish_eob_color, 85)
-            htf_box = create_eob_box(m3_high, m3_low, bar_index - 1, htf_color, false)
-            array.push(htf_boxes, htf_box)
-        
-        if m3_bullish_eob
-            htf_color = color.new(bullish_eob_color, 85)
-            htf_box = create_eob_box(m3_high, m3_low, bar_index - 1, htf_color, true)
-            array.push(htf_boxes, htf_box)
+    if show_3m_eob and m3_bearish_eob
+        htf_color = color.new(bearish_eob_color, 85)
+        htf_box = create_eob_box(m3_high, m3_low, bar_index - 1, htf_color, false)
+        array.push(htf_boxes, htf_box)
+    
+    if show_3m_eob and m3_bullish_eob
+        htf_color = color.new(bullish_eob_color, 85)
+        htf_box = create_eob_box(m3_high, m3_low, bar_index - 1, htf_color, true)
+        array.push(htf_boxes, htf_box)
 
 // ==========================================
 // MITIGATION MANAGEMENT
