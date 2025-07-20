@@ -190,22 +190,22 @@ daily_high = request.security(syminfo.tickerid, "1D", high[1], lookahead=barmerg
 daily_low = request.security(syminfo.tickerid, "1D", low[1], lookahead=barmerge.lookahead_off)
 
 // 4H data
-h4_bearish_eob = request.security(syminfo.tickerid, "4H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-h4_bullish_eob = request.security(syminfo.tickerid, "4H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-h4_high = request.security(syminfo.tickerid, "4H", high[1], lookahead=barmerge.lookahead_off)
-h4_low = request.security(syminfo.tickerid, "4H", low[1], lookahead=barmerge.lookahead_off)
+h4_bearish_eob = request.security(syminfo.tickerid, "240", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h4_bullish_eob = request.security(syminfo.tickerid, "240", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h4_high = request.security(syminfo.tickerid, "240", high[1], lookahead=barmerge.lookahead_off)
+h4_low = request.security(syminfo.tickerid, "240", low[1], lookahead=barmerge.lookahead_off)
 
 // 2H data
-h2_bearish_eob = request.security(syminfo.tickerid, "2H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-h2_bullish_eob = request.security(syminfo.tickerid, "2H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-h2_high = request.security(syminfo.tickerid, "2H", high[1], lookahead=barmerge.lookahead_off)
-h2_low = request.security(syminfo.tickerid, "2H", low[1], lookahead=barmerge.lookahead_off)
+h2_bearish_eob = request.security(syminfo.tickerid, "120", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h2_bullish_eob = request.security(syminfo.tickerid, "120", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h2_high = request.security(syminfo.tickerid, "120", high[1], lookahead=barmerge.lookahead_off)
+h2_low = request.security(syminfo.tickerid, "120", low[1], lookahead=barmerge.lookahead_off)
 
 // 1H data
-h1_bearish_eob = request.security(syminfo.tickerid, "1H", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
-h1_bullish_eob = request.security(syminfo.tickerid, "1H", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
-h1_high = request.security(syminfo.tickerid, "1H", high[1], lookahead=barmerge.lookahead_off)
-h1_low = request.security(syminfo.tickerid, "1H", low[1], lookahead=barmerge.lookahead_off)
+h1_bearish_eob = request.security(syminfo.tickerid, "60", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h1_bullish_eob = request.security(syminfo.tickerid, "60", is_bullish_eob(1, 0), lookahead=barmerge.lookahead_off)
+h1_high = request.security(syminfo.tickerid, "60", high[1], lookahead=barmerge.lookahead_off)
+h1_low = request.security(syminfo.tickerid, "60", low[1], lookahead=barmerge.lookahead_off)
 
 // 30M data
 m30_bearish_eob = request.security(syminfo.tickerid, "30", is_bearish_eob(1, 0), lookahead=barmerge.lookahead_off)
