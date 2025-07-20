@@ -103,60 +103,24 @@ if barstate.isconfirmed
     
     // Create bearish EOB
     if is_bearish_eob()
-        eob_box = box.new(
-            left=bar_index[1],
-            top=high[1],
-            right=bar_index + 10,
-            bottom=low[1],
-            bgcolor=bearish_color,
-            border_color=bearish_color,
-            border_width=eob_width,
-            extend=extend_eob ? extend.right : extend.none
-        )
+        eob_box = box.new(bar_index[1], high[1], bar_index + 10, low[1], bgcolor=bearish_color, border_color=bearish_color, border_width=eob_width, extend=extend_eob ? extend.right : extend.none)
         array.push(bearish_boxes, eob_box)
         
         // EQ line
         if show_eq
             eq_level = (high[1] + low[1]) / 2
-            eq_line = line.new(
-                x1=bar_index[1],
-                y1=eq_level,
-                x2=bar_index + 10,
-                y2=eq_level,
-                color=eq_color,
-                width=1,
-                style=line.style_dashed,
-                extend=extend_eob ? extend.right : extend.none
-            )
+            eq_line = line.new(bar_index[1], eq_level, bar_index + 10, eq_level, color=eq_color, width=1, style=line.style_dashed, extend=extend_eob ? extend.right : extend.none)
             array.push(eq_lines, eq_line)
     
     // Create bullish EOB
     if is_bullish_eob()
-        eob_box = box.new(
-            left=bar_index[1],
-            top=high[1],
-            right=bar_index + 10,
-            bottom=low[1],
-            bgcolor=bullish_color,
-            border_color=bullish_color,
-            border_width=eob_width,
-            extend=extend_eob ? extend.right : extend.none
-        )
+        eob_box = box.new(bar_index[1], high[1], bar_index + 10, low[1], bgcolor=bullish_color, border_color=bullish_color, border_width=eob_width, extend=extend_eob ? extend.right : extend.none)
         array.push(bullish_boxes, eob_box)
         
         // EQ line
         if show_eq
             eq_level = (high[1] + low[1]) / 2
-            eq_line = line.new(
-                x1=bar_index[1],
-                y1=eq_level,
-                x2=bar_index + 10,
-                y2=eq_level,
-                color=eq_color,
-                width=1,
-                style=line.style_dashed,
-                extend=extend_eob ? extend.right : extend.none
-            )
+            eq_line = line.new(bar_index[1], eq_level, bar_index + 10, eq_level, color=eq_color, width=1, style=line.style_dashed, extend=extend_eob ? extend.right : extend.none)
             array.push(eq_lines, eq_line)
 
 // ==========================================
