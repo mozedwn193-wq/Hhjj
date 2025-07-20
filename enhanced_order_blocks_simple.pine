@@ -164,34 +164,36 @@ if barstate.isconfirmed
 // Check for mitigation and update colors
 if barstate.isconfirmed
     // Check bullish EOBs
-    for i = array.size(bullish_eobs) - 1 to 0
-        eob_box = array.get(bullish_eobs, i)
-        if not na(eob_box)
-            box_top = box.get_top(eob_box)
-            box_bottom = box.get_bottom(eob_box)
-            
-            if check_mitigation(box_top, box_bottom, true)
-                if delete_mitigated
-                    box.delete(eob_box)
-                    array.remove(bullish_eobs, i)
-                else
-                    box.set_bgcolor(eob_box, partially_mitigated_color)
-                    box.set_border_color(eob_box, partially_mitigated_color)
+    if array.size(bullish_eobs) > 0
+        for i = array.size(bullish_eobs) - 1 to 0
+            eob_box = array.get(bullish_eobs, i)
+            if not na(eob_box)
+                box_top = box.get_top(eob_box)
+                box_bottom = box.get_bottom(eob_box)
+                
+                if check_mitigation(box_top, box_bottom, true)
+                    if delete_mitigated
+                        box.delete(eob_box)
+                        array.remove(bullish_eobs, i)
+                    else
+                        box.set_bgcolor(eob_box, partially_mitigated_color)
+                        box.set_border_color(eob_box, partially_mitigated_color)
     
     // Check bearish EOBs
-    for i = array.size(bearish_eobs) - 1 to 0
-        eob_box = array.get(bearish_eobs, i)
-        if not na(eob_box)
-            box_top = box.get_top(eob_box)
-            box_bottom = box.get_bottom(eob_box)
-            
-            if check_mitigation(box_top, box_bottom, false)
-                if delete_mitigated
-                    box.delete(eob_box)
-                    array.remove(bearish_eobs, i)
-                else
-                    box.set_bgcolor(eob_box, partially_mitigated_color)
-                    box.set_border_color(eob_box, partially_mitigated_color)
+    if array.size(bearish_eobs) > 0
+        for i = array.size(bearish_eobs) - 1 to 0
+            eob_box = array.get(bearish_eobs, i)
+            if not na(eob_box)
+                box_top = box.get_top(eob_box)
+                box_bottom = box.get_bottom(eob_box)
+                
+                if check_mitigation(box_top, box_bottom, false)
+                    if delete_mitigated
+                        box.delete(eob_box)
+                        array.remove(bearish_eobs, i)
+                    else
+                        box.set_bgcolor(eob_box, partially_mitigated_color)
+                        box.set_border_color(eob_box, partially_mitigated_color)
 
 // ==========================================
 // ALERTS
