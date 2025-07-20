@@ -211,10 +211,14 @@ check_enhanced_mitigation(eob_top, eob_bottom, is_bullish) =>
 
 // Get enhanced HTF EOB data
 get_enhanced_htf_eob_data(tf) =>
-    request.security(syminfo.tickerid, tf, [
-        is_bearish_eob_enhanced(1, 0) ? 1 : (is_bullish_eob_enhanced(1, 0) ? 2 : 0),
-        high[1], low[1], open[1], close[1], bar_index[1], volume[1]
-    ], lookahead=barmerge.lookahead_off)
+    htf_eob_type = request.security(syminfo.tickerid, tf, is_bearish_eob_enhanced(1, 0) ? 1 : (is_bullish_eob_enhanced(1, 0) ? 2 : 0), lookahead=barmerge.lookahead_off)
+    htf_high_val = request.security(syminfo.tickerid, tf, high[1], lookahead=barmerge.lookahead_off)
+    htf_low_val = request.security(syminfo.tickerid, tf, low[1], lookahead=barmerge.lookahead_off)
+    htf_open_val = request.security(syminfo.tickerid, tf, open[1], lookahead=barmerge.lookahead_off)
+    htf_close_val = request.security(syminfo.tickerid, tf, close[1], lookahead=barmerge.lookahead_off)
+    htf_bar_index_val = request.security(syminfo.tickerid, tf, bar_index[1], lookahead=barmerge.lookahead_off)
+    htf_volume_val = request.security(syminfo.tickerid, tf, volume[1], lookahead=barmerge.lookahead_off)
+    [htf_eob_type, htf_high_val, htf_low_val, htf_open_val, htf_close_val, htf_bar_index_val, htf_volume_val]
 
 // ==========================================
 // ENHANCED MAIN LOGIC
