@@ -1,0 +1,195 @@
+//@version=5
+indicator("Enhanced Order Blocks (EOB) - Working", shorttitle="EOB", overlay=true, max_boxes_count=500, max_lines_count=500)
+
+// ==========================================
+// INPUT GROUPS
+// ==========================================
+
+// Confirmation Options
+confirm_group = "🔍 CONFIRMATION OPTIONS"
+wick_close_confirm = input.bool(true, "Wick Close Confirmation", tooltip="Confirmation candle must close beyond the wick", group=confirm_group)
+body_close_confirm = input.bool(false, "Body Close Confirmation", tooltip="Confirmation candle must close beyond the body only", group=confirm_group)
+
+// EOB Features
+features_group = "⚙️ EOB FEATURES"
+show_eq = input.bool(true, "Add EQ of EOBs", tooltip="Show equilibrium line of order blocks", group=features_group)
+extend_eob = input.bool(true, "Extended EOBs", tooltip="Extend EOB boxes to the right", group=features_group)
+eob_width = input.int(2, "EOB Width", minval=1, maxval=5, group=features_group)
+mitigation_threshold = input.float(0.5, "Mitigated When", minval=0.1, maxval=1.0, step=0.1, tooltip="0.5 = 50% fill, 1.0 = Full fill", group=features_group)
+
+// Color Settings
+color_group = "🎨 COLOR SETTINGS"
+bullish_eob_color = input.color(color.new(color.green, 80), "Bullish EOB Color", group=color_group)
+bearish_eob_color = input.color(color.new(color.red, 80), "Bearish EOB Color", group=color_group)
+partially_mitigated_color = input.color(color.new(color.orange, 70), "Partially Mitigated Color", group=color_group)
+eq_line_color = input.color(color.new(color.yellow, 50), "EQ Line Color", group=color_group)
+
+// ==========================================
+// FUNCTIONS
+// ==========================================
+
+// Function to identify Bearish EOB
+is_bearish_eob(setup_candle_index, confirm_candle_index) =>
+    // Setup candle: Bullish with decent bottom wick
+    setup_open = open[setup_candle_index]
+    setup_close = close[setup_candle_index]
+    setup_high = high[setup_candle_index]
+    setup_low = low[setup_candle_index]
+    
+    // Confirmation candle: Bearish engulfing
+    confirm_open = open[confirm_candle_index]
+    confirm_close = close[confirm_candle_index]
+    
+    // Setup candle conditions
+    is_setup_bullish = setup_close > setup_open
+    body_size = math.abs(setup_close - setup_open)
+    has_bottom_wick = body_size > 0 and (setup_open - setup_low) > (body_size * 0.3) // Bottom wick at least 30% of body
+    
+    // Confirmation conditions
+    is_confirm_bearish = confirm_close < confirm_open
+    
+    // Engulfing condition based on user preference
+    engulfing_condition = if wick_close_confirm
+        confirm_close < setup_low // Close below entire setup candle including wick
+    else if body_close_confirm
+        confirm_close < setup_open // Close below setup candle body
+    else
+        confirm_close < setup_close // Default: close below setup close
+    
+    is_setup_bullish and has_bottom_wick and is_confirm_bearish and engulfing_condition
+
+// Function to identify Bullish EOB
+is_bullish_eob(setup_candle_index, confirm_candle_index) =>
+    // Setup candle: Bearish with decent top wick
+    setup_open = open[setup_candle_index]
+    setup_close = close[setup_candle_index]
+    setup_high = high[setup_candle_index]
+    setup_low = low[setup_candle_index]
+    
+    // Confirmation candle: Bullish engulfing
+    confirm_open = open[confirm_candle_index]
+    confirm_close = close[confirm_candle_index]
+    
+    // Setup candle conditions
+    is_setup_bearish = setup_close < setup_open
+    body_size = math.abs(setup_close - setup_open)
+    has_top_wick = body_size > 0 and (setup_high - setup_close) > (body_size * 0.3) // Top wick at least 30% of body
+    
+    // Confirmation conditions
+    is_confirm_bullish = confirm_close > confirm_open
+    
+    // Engulfing condition based on user preference
+    engulfing_condition = if wick_close_confirm
+        confirm_close > setup_high // Close above entire setup candle including wick
+    else if body_close_confirm
+        confirm_close > setup_open // Close above setup candle body
+    else
+        confirm_close > setup_close // Default: close above setup close
+    
+    is_setup_bearish and has_top_wick and is_confirm_bullish and engulfing_condition
+
+// ==========================================
+// MAIN LOGIC
+// ==========================================
+
+// Detect EOBs
+bearish_eob_signal = is_bearish_eob(1, 0)
+bullish_eob_signal = is_bullish_eob(1, 0)
+
+// Store EOB data when formed
+var float bearish_eob_top = na
+var float bearish_eob_bottom = na
+var int bearish_eob_bar = na
+var box bearish_eob_box = na
+var line bearish_eq_line = na
+
+var float bullish_eob_top = na
+var float bullish_eob_bottom = na
+var int bullish_eob_bar = na
+var box bullish_eob_box = na
+var line bullish_eq_line = na
+
+// Create Bearish EOB
+if bearish_eob_signal and barstate.isconfirmed
+    bearish_eob_top := high[1]
+    bearish_eob_bottom := low[1]
+    bearish_eob_bar := bar_index[1]
+    
+    // Create box
+    box_right = extend_eob ? bar_index + 20 : bar_index
+    bearish_eob_box := box.new(bearish_eob_bar, bearish_eob_top, box_right, bearish_eob_bottom, 
+                               border_color=bearish_eob_color, 
+                               bgcolor=bearish_eob_color,
+                               border_width=eob_width,
+                               extend=extend_eob ? extend.right : extend.none)
+    
+    // Create EQ line
+    if show_eq
+        eq_level = (bearish_eob_top + bearish_eob_bottom) / 2
+        line_right = extend_eob ? bar_index + 20 : bar_index
+        bearish_eq_line := line.new(bearish_eob_bar, eq_level, line_right, eq_level,
+                                    color=eq_line_color,
+                                    width=1,
+                                    style=line.style_dashed,
+                                    extend=extend_eob ? extend.right : extend.none)
+
+// Create Bullish EOB
+if bullish_eob_signal and barstate.isconfirmed
+    bullish_eob_top := high[1]
+    bullish_eob_bottom := low[1]
+    bullish_eob_bar := bar_index[1]
+    
+    // Create box
+    box_right = extend_eob ? bar_index + 20 : bar_index
+    bullish_eob_box := box.new(bullish_eob_bar, bullish_eob_top, box_right, bullish_eob_bottom, 
+                               border_color=bullish_eob_color, 
+                               bgcolor=bullish_eob_color,
+                               border_width=eob_width,
+                               extend=extend_eob ? extend.right : extend.none)
+    
+    // Create EQ line
+    if show_eq
+        eq_level = (bullish_eob_top + bullish_eob_bottom) / 2
+        line_right = extend_eob ? bar_index + 20 : bar_index
+        bullish_eq_line := line.new(bullish_eob_bar, eq_level, line_right, eq_level,
+                                    color=eq_line_color,
+                                    width=1,
+                                    style=line.style_dashed,
+                                    extend=extend_eob ? extend.right : extend.none)
+
+// Check mitigation for active bearish EOB
+if not na(bearish_eob_box) and not na(bearish_eob_top) and not na(bearish_eob_bottom)
+    eob_range = bearish_eob_top - bearish_eob_bottom
+    threshold_level = bearish_eob_top - (eob_range * mitigation_threshold)
+    
+    if high >= threshold_level
+        box.set_bgcolor(bearish_eob_box, partially_mitigated_color)
+        box.set_border_color(bearish_eob_box, partially_mitigated_color)
+
+// Check mitigation for active bullish EOB
+if not na(bullish_eob_box) and not na(bullish_eob_top) and not na(bullish_eob_bottom)
+    eob_range = bullish_eob_top - bullish_eob_bottom
+    threshold_level = bullish_eob_bottom + (eob_range * mitigation_threshold)
+    
+    if low <= threshold_level
+        box.set_bgcolor(bullish_eob_box, partially_mitigated_color)
+        box.set_border_color(bullish_eob_box, partially_mitigated_color)
+
+// ==========================================
+// ALERTS
+// ==========================================
+
+alertcondition(bearish_eob_signal, title="Bearish EOB Formed", message="🔴 Bearish Enhanced Order Block formed on {{ticker}} {{interval}}")
+alertcondition(bullish_eob_signal, title="Bullish EOB Formed", message="🟢 Bullish Enhanced Order Block formed on {{ticker}} {{interval}}")
+
+// ==========================================
+// PLOTTING
+// ==========================================
+
+// Plot markers for EOB formation
+plotshape(bearish_eob_signal, title="Bearish EOB", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.tiny)
+plotshape(bullish_eob_signal, title="Bullish EOB", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.tiny)
+
+// Simple information display
+plotchar(bearish_eob_signal, "Bearish EOB", "▼", location.abovebar, color.red, size=size.small)
+plotchar(bullish_eob_signal, "Bullish EOB", "▲", location.belowbar, color.green, size=size.small)
