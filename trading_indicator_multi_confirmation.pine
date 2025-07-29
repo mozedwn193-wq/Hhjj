@@ -795,7 +795,7 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
                 trend_status := "💪STR[" + str.tostring(bull_votes) + "v]"  // Multi-confirmed strong trend
             else if bullish_trend
                 trend_status := "📈BULL[" + str.tostring(bull_votes) + "v]" // Multi-confirmed bullish
-                        else
+            else
                 trend_status := "⚠️[" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"  // Weak/conflicting signals
             
             enhanced_label = 'BUY-' + tfText + str.tostring(trend_status)
@@ -816,7 +816,7 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
                 trend_status := "💪STR[" + str.tostring(bear_votes) + "v]"  // Multi-confirmed strong trend
             else if bearish_trend
                 trend_status := "📉BEAR[" + str.tostring(bear_votes) + "v]" // Multi-confirmed bearish
-                        else
+            else
                 trend_status := "⚠️[" + str.tostring(bear_votes) + "v" + str.tostring(bull_votes) + "]"  // Weak/conflicting signals
             
             enhanced_label = 'SELL-' + tfText + str.tostring(trend_status)
