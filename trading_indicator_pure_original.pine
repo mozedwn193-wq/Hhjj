@@ -1,0 +1,1200 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola
+
+//@version=6
+indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + EMAs', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+
+//==============================================================================
+// SIGNAL FILTERING SETTINGS (NEW - Added only at the top)
+//==============================================================================
+
+var g_FILTER = "🔧 Signal Filtering"
+enable_volume_filter = input.bool(false, "Enable Volume Filter", group=g_FILTER, tooltip="Only signals when volume is above average")
+volume_multiplier = input.float(1.2, "Volume Multiplier", minval=0.5, maxval=3.0, step=0.1, group=g_FILTER)
+enable_trend_filter = input.bool(false, "Enable Trend Alignment", group=g_FILTER, tooltip="Filter signals based on EMA trend")
+min_signal_strength = input.int(50, "Minimum Signal Strength (%)", minval=30, maxval=90, group=g_FILTER)
+
+// Basic variables for future filtering (not used yet)
+volume_avg = ta.sma(volume, 20)
+atr_value = ta.atr(14)
+
+//==============================================================================
+// SECTION 1: BREAKOUT DETECTION
+//==============================================================================
+
+// Inputs for Breakout Detection
+length = input(14, "Lookback Length", group="Breakout Detection")
+threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
+
+// Calculate candle range
+candleRange = high - low
+averageRange = ta.sma(candleRange, length)
+
+// Define conditions
+bullishBreakout = candleRange > (averageRange * threshold) and close > open
+bearishBreakout = candleRange > (averageRange * threshold) and close < open
+
+// Plot signals
+plotshape(series=bullishBreakout, location=location.belowbar, color=color.green, style=shape.labelup, title="Bullish Breakout")
+plotshape(series=bearishBreakout, location=location.abovebar, color=color.red, style=shape.labeldown, title="Bearish Breakout")
+
+// Highlight breakout candles
+bgcolor(bullishBreakout ? color.new(color.green, 80) : bearishBreakout ? color.new(color.red, 80) : na)
+
+//==============================================================================
+// SECTION 2: EMA ANALYSIS
+//==============================================================================
+
+// EMAs
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+// Dynamic Colors Based on Slope
+color20 = ema20 > ema20[1] ? color.lime : color.red
+color50 = ema50 > ema50[1] ? color.orange : color.maroon
+color100 = ema100 > ema100[1] ? color.aqua : color.navy
+color200 = ema200 > ema200[1] ? color.blue : color.gray
+
+// Plot EMAs
+plot(ema20, title="EMA 20", color=color20, linewidth=1)
+plot(ema50, title="EMA 50", color=color50, linewidth=1)
+plot(ema100, title="EMA 100", color=color100, linewidth=1)
+plot(ema200, title="EMA 200", color=color200, linewidth=1)
+
+// Labels on latest bar
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema20 : na, location=location.absolute, style=shape.labelup, text="EMA 20", color=color.new(color20, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema50 : na, location=location.absolute, style=shape.labelup, text="EMA 50", color=color.new(color50, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema100 : na, location=location.absolute, style=shape.labelup, text="EMA 100", color=color.new(color100, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema200 : na, location=location.absolute, style=shape.labelup, text="EMA 200", color=color.new(color200, 80), textcolor=color.white)
+
+//==============================================================================
+// SECTION 3: FAIR VALUE GAP (FVG) DETECTION - SESSION BASED
+//==============================================================================
+
+// Define session times
+sess = input.session("0932-1600", title="Session", tooltip="A 9:30 FVG can start at 9:30 but takes 3 candles to form, thus the 9:32 start time for the session. Adjust accordingly.", group="FVG Settings")
+// User input for box color
+boxColorUp = input.color(color.new(color.green, 80), "Box Color Up", group="FVG Settings")
+boxColorDn = input.color(color.new(color.red, 80), "Box Color Down", group="FVG Settings")
+max_days = input.int(3, title="Max # of days to draw", group="FVG Settings")
+drawOpenTime = input.bool(true, title="Draw 9:30 NY open vertical line", group="FVG Settings")
+drawOpenPrice = input.bool(true, title="Draw 9:30 opening price", group="FVG Settings")
+
+//lines, boxes and labels
+var timezone = "America/New_York"
+var boxes = array.new_box()
+var ny_open_labels = array.new_box()
+var labels = array.new_label()
+var ny_open_prices = array.new_line()
+var ny_open_times = array.new_line()
+var ny_930_labels = array.new_label()
+
+var box ny_open_label = na
+var box fvg_box = na
+var line ny_open_time = na
+var line ny_open_price = na
+var label ny_930_label = na
+var label fvg_lb = na
+var bool first_fvg_found = false
+
+boxColor = color.new(color.gray, 80)
+is_target_time = (hour(time, timezone) == 8 and minute == 30) // CME servers in Chicago (CST). 9:30 EST = 8:30 CST
+lowest_so_far = ta.lowest(50) - 5*ta.atr(14)
+
+// Calculations
+// Get day of week in text
+day_of_week_text() =>
+     dayofweek == dayofweek.monday    ? "Mon" :
+     dayofweek == dayofweek.tuesday   ? "Tue" :
+     dayofweek == dayofweek.wednesday ? "Wed" :
+     dayofweek == dayofweek.thursday  ? "Thu" :
+     dayofweek == dayofweek.friday    ? "Fri" :
+     dayofweek == dayofweek.saturday  ? "Sat" :
+     dayofweek == dayofweek.sunday    ? "Sun" : "N/A"
+
+// Box creation
+make_box(_left, _right, _top, _bottom, col) =>
+    box.new(left=_left, right=_right, top=_top, bottom=_bottom, border_color=color.new(col, 70), bgcolor=col, text="1st FVG - " + day_of_week_text(), text_halign = text.align_right, text_size=size.small, text_color = color.black)
+
+// Manage array of lines and labels
+manage_lines(li_time, li_price, lb_price, lb_930) =>
+    array.push(ny_open_times, li_time)
+    array.push(ny_open_prices, li_price)
+    array.push(ny_open_labels, lb_price)
+    array.push(ny_930_labels, lb_930)
+    if array.size(ny_open_times) > max_days
+        line.delete(array.shift(ny_open_prices))
+        line.delete(array.shift(ny_open_times))
+        box.delete(array.shift(ny_open_labels))
+        label.delete(array.shift(ny_930_labels))
+
+// Manage array of boxes
+manage_boxes(b) =>
+    array.push(boxes, b)
+    if array.size(boxes) > max_days
+        box.delete(array.shift(boxes))
+
+// Update FVG box
+update_box(b) =>
+    box.set_right(b, bar_index+10)
+
+//@function calculates session valid times
+in_session(sess) => not na(time(timeframe.period, sess, timezone))
+
+// Core Logic
+if in_session(sess) 
+    if not first_fvg_found
+        // FVG condition
+        fvgUp   = close[1] > open[1] and high[2] < low[0]
+        fvgDown = close[1] < open[1] and low[2] > high[0]
+        if fvgUp or fvgDown
+            first_fvg_found := true
+            boxColor := fvgUp ? boxColorUp : boxColorDn
+            // Define box coordinates
+            boxTop      = fvgUp ? high[2] : low[2]
+            boxBottom   = fvgUp ? low[0] : high[0]
+
+            // Create the box
+            fvg_box := make_box(bar_index-2, bar_index + 5, boxTop, boxBottom, boxColor)
+            manage_boxes(fvg_box)
+
+// Reset FVG flag at the end of the session
+if not in_session(sess) and in_session(sess)[1]
+    first_fvg_found := false
+
+// Extend the box to session end
+if first_fvg_found and na(fvg_box) == false
+    update_box(fvg_box)
+
+//Draw NY Open at 9:30 am EST / NY Time
+if is_target_time
+    if drawOpenTime
+        ny_open_time    := line.new(x1=time, y1=high, x2=time, y2=low, xloc=xloc.bar_time, color=color.gray, style=line.style_dashed, width=1, extend = extend.both)
+        ny_930_label    := label.new(x=bar_index, y=lowest_so_far, text="9:30", style=label.style_none, color=color.new(color.gray, 90), textcolor=color.black)
+        manage_lines(ny_open_time, ny_open_price, ny_open_label, ny_930_label)
+    if drawOpenPrice
+        ny_open_price   := line.new(x1=bar_index, y1=open, x2=bar_index + 10, y2=open, xloc=xloc.bar_index, color=color.gray, style=line.style_dotted, width=1, extend = extend.none)
+        ny_open_label   := box.new(left=bar_index+25, top=open+10, 
+         right=ny_open_price.get_x2()+25, 
+         bottom=open-10, 
+         text = day_of_week_text() + " NY Open - " + str.format("{0,number,#,###.00}", close), 
+         bgcolor=color.new(color.white, 100), 
+         text_halign = text.align_right, 
+         text_size = size.small, 
+         text_color = color.black, 
+         border_color = color.new(color.white, 50))
+    
+// Keep extended objects until end of the session
+if in_session(sess)
+    ny_open_label.set_right(bar_index + 55)
+    ny_open_price.set_x2(bar_index + 20)
+
+//==============================================================================
+// SECTION 4: MULTI-TIMEFRAME CRT (CONSOLIDATION RANGE TOUCH)
+//==============================================================================
+
+// Explicitly set max_bars_back for key variables
+max_bars_back(time, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(close, 5000)
+max_bars_back(open, 5000)
+
+// Inputs
+var g_TF = 'CRT Timeframes'
+use_tf1 = input.bool(true, '15 Minutes', inline = 'TF1', group = g_TF)
+tf1 = input.timeframe('15', '', inline = 'TF1', group = g_TF)
+tf1_color = input.color(color.new(#FF1493, 70), '', inline = 'TF1', group = g_TF)
+use_tf1_mid = input.bool(true, '50% Level', inline = 'TF1M', group = g_TF)
+tf1_mid_color = input.color(color.new(#FF1493, 50), '', inline = 'TF1M', group = g_TF)
+
+use_tf2 = input.bool(true, '1 Hour', inline = 'TF2', group = g_TF)
+tf2 = input.timeframe('60', '', inline = 'TF2', group = g_TF)
+tf2_color = input.color(color.new(#FF4500, 70), '', inline = 'TF2', group = g_TF)
+use_tf2_mid = input.bool(true, '50% Level', inline = 'TF2M', group = g_TF)
+tf2_mid_color = input.color(color.new(#FF4500, 50), '', inline = 'TF2M', group = g_TF)
+
+use_tf3 = input.bool(true, '2 Hours', inline = 'TF3', group = g_TF)
+tf3 = input.timeframe('120', '', inline = 'TF3', group = g_TF)
+tf3_color = input.color(color.new(#32CD32, 70), '', inline = 'TF3', group = g_TF)
+use_tf3_mid = input.bool(true, '50% Level', inline = 'TF3M', group = g_TF)
+tf3_mid_color = input.color(color.new(#32CD32, 50), '', inline = 'TF3M', group = g_TF)
+
+use_tf4 = input.bool(true, '4 Hours', inline = 'TF4', group = g_TF)
+tf4 = input.timeframe('240', '', inline = 'TF4', group = g_TF)
+tf4_color = input.color(color.new(#1E90FF, 70), '', inline = 'TF4', group = g_TF)
+use_tf4_mid = input.bool(true, '50% Level', inline = 'TF4M', group = g_TF)
+tf4_mid_color = input.color(color.new(#1E90FF, 50), '', inline = 'TF4M', group = g_TF)
+
+use_tf5 = input.bool(true, 'Daily', inline = 'TF5', group = g_TF)
+tf5 = input.timeframe('D', '', inline = 'TF5', group = g_TF)
+tf5_color = input.color(color.new(#9932CC, 70), '', inline = 'TF5', group = g_TF)
+use_tf5_mid = input.bool(true, '50% Level', inline = 'TF5M', group = g_TF)
+tf5_mid_color = input.color(color.new(#9932CC, 50), '', inline = 'TF5M', group = g_TF)
+
+use_tf6 = input.bool(true, 'Weekly', inline = 'TF6', group = g_TF)
+tf6 = input.timeframe('W', '', inline = 'TF6', group = g_TF)
+tf6_color = input.color(color.new(#FFD700, 70), '', inline = 'TF6', group = g_TF)
+use_tf6_mid = input.bool(true, '50% Level', inline = 'TF6M', group = g_TF)
+tf6_mid_color = input.color(color.new(#FFD700, 50), '', inline = 'TF6M', group = g_TF)
+
+use_tf7 = input.bool(true, 'Monthly', inline = 'TF7', group = g_TF)
+tf7 = input.timeframe('M', '', inline = 'TF7', group = g_TF)
+tf7_color = input.color(color.new(#FF69B4, 70), '', inline = 'TF7', group = g_TF)
+use_tf7_mid = input.bool(true, '50% Level', inline = 'TF7M', group = g_TF)
+tf7_mid_color = input.color(color.new(#FF69B4, 50), '', inline = 'TF7M', group = g_TF)
+
+var g_ALERT = 'CRT Alert Options'
+alert_on_m15 = input.bool(false, 'Alert on M15 touch', group = g_ALERT)
+alert_on_h1 = input.bool(false, 'Alert on H1 touch', group = g_ALERT)
+alert_on_h2 = input.bool(false, 'Alert on H2 touch', group = g_ALERT)
+alert_on_h4 = input.bool(false, 'Alert on H4 touch', group = g_ALERT)
+alert_on_daily = input.bool(false, 'Alert on Daily touch', group = g_ALERT)
+alert_on_weekly = input.bool(false, 'Alert on Weekly touch', group = g_ALERT)
+alert_on_monthly = input.bool(false, 'Alert on Monthly touch', group = g_ALERT)
+
+var g_OPT = 'CRT Options'
+minbars = input.int(1, 'Minimum Bars', group = g_OPT)
+maxbars = input.int(250, 'Maximum Bars', group = g_OPT)
+hllinewidth = input.int(2, 'High/Low Line Width', group = g_OPT)
+midlinewidth = input.int(1, 'Mid Line Width', group = g_OPT)
+
+var g_LABEL = 'CRT Label Options'
+bullishLabelStyle = input.string('Label Up', 'Bullish Label Style', options = ['None', 'Label Up', 'Label Down', 'Label Left', 'Label Right', 'Label Center', 'Triangle Up', 'Triangle Down', 'Triangle Left', 'Triangle Right', 'Flag', 'Circle', 'Square', 'Diamond', 'Cross', 'X-Cross', 'Arrow Up', 'Arrow Down'], group = g_LABEL)
+bearishLabelStyle = input.string('Label Down', 'Bearish Label Style', options = ['None', 'Label Up', 'Label Down', 'Label Left', 'Label Right', 'Label Center', 'Triangle Up', 'Triangle Down', 'Triangle Left', 'Triangle Right', 'Flag', 'Circle', 'Square', 'Diamond', 'Cross', 'X-Cross', 'Arrow Up', 'Arrow Down'], group = g_LABEL)
+labelSize = input.string('Small', 'Label Size', options = ['Auto', 'Tiny', 'Small', 'Normal', 'Large', 'Huge'], group = g_LABEL)
+
+bullishBgColor = input.color(color.new(color.green, 50), 'Bullish Background Color', group = g_LABEL)
+bullishTextColor = input.color(color.green, 'Bullish Text Color', group = g_LABEL)
+bearishBgColor = input.color(color.new(color.red, 50), 'Bearish Background Color', group = g_LABEL)
+bearishTextColor = input.color(color.red, 'Bearish Text Color', group = g_LABEL)
+
+show_m15_labels = input.bool(true, 'Show M15 Labels', group = g_LABEL)
+show_h1_labels = input.bool(true, 'Show H1 Labels', group = g_LABEL)
+show_h2_labels = input.bool(true, 'Show H2 Labels', group = g_LABEL)
+show_h4_labels = input.bool(true, 'Show H4 Labels', group = g_LABEL)
+show_daily_labels = input.bool(true, 'Show Daily Labels', group = g_LABEL)
+show_weekly_labels = input.bool(true, 'Show Weekly Labels', group = g_LABEL)
+show_monthly_labels = input.bool(true, 'Show Monthly Labels', group = g_LABEL)
+max_labels = input.int(50, 'Maximum number of labels to show', minval = 1, maxval = 500, group = g_LABEL)
+show_eol_labels = input.bool(true, 'Show End-of-Line Labels', group = g_LABEL)
+eol_label_offset = input.int(5, 'End-of-Line Label Offset', minval = 1, maxval = 50, group = g_LABEL)
+
+var g_TOUCH = 'CRT Touch Options'
+use_wick_touch = input.bool(true, 'Use Wick Touch', group = g_TOUCH)
+use_body_touch = input.bool(true, 'Use Body Touch', group = g_TOUCH)
+
+// Modified process_tf function
+process_tf(tf) =>
+    var float rangeHigh = na
+    var float rangeLow = na
+    var float rangeMid = na
+    var int rangeStart = 0
+    var bool inConsolidation = true
+    var bool bullishTouch = false
+    var bool bearishTouch = false
+
+    [tfOpen, tfHigh, tfLow, tfClose, tfTime] = request.security(syminfo.tickerid, tf, [open, high, low, close, time], barmerge.gaps_off, barmerge.lookahead_on)
+
+    newBar = ta.change(tfTime) != 0
+
+    tfUp = tfHigh
+    tfDown = tfLow
+    tfChildUp = tfOpen > tfClose ? tfOpen : tfClose
+    tfChildDown = tfOpen > tfClose ? tfClose : tfOpen
+
+    if newBar
+        upControl = tfChildUp > rangeHigh and bar_index - rangeStart > minbars and bar_index - rangeStart <= maxbars
+        downControl = tfChildDown < rangeLow and bar_index - rangeStart > minbars and bar_index - rangeStart <= maxbars
+
+        if upControl or downControl
+            inConsolidation := false
+            inConsolidation
+
+        if inConsolidation and tfChildDown <= rangeHigh and tfChildDown >= rangeLow and tfChildUp <= rangeHigh and tfChildUp >= rangeLow and bar_index > 1
+            rangeStart := rangeStart
+            rangeStart
+        else
+            rangeHigh := tfHigh
+            rangeLow := tfLow
+            rangeStart := bar_index
+            inConsolidation := true
+            inConsolidation
+ 
+        if not inConsolidation and (bar_index - rangeStart > maxbars or bar_index - rangeStart < minbars)
+            inConsolidation := true
+            inConsolidation
+
+        rangeMid := (rangeHigh + rangeLow) / 2
+        bullishTouch := false
+        bearishTouch := false
+        bearishTouch
+
+    if inConsolidation
+        bullishWickTouch = low < rangeLow and close > rangeLow and high < rangeHigh
+        bullishBodyTouch = open < rangeLow and close > rangeLow
+        bearishWickTouch = high > rangeHigh and close < rangeHigh and low > rangeLow
+        bearishBodyTouch = open > rangeHigh and close < rangeHigh
+
+        bullishTouch := use_wick_touch and bullishWickTouch or use_body_touch and bullishBodyTouch
+        bearishTouch := use_wick_touch and bearishWickTouch or use_body_touch and bearishBodyTouch
+        bearishTouch
+
+    [rangeHigh, rangeLow, rangeMid, rangeStart, inConsolidation, newBar, bullishTouch, bearishTouch]
+
+// Process data for each timeframe
+[high1, low1, mid1, start1, inRange1, newBar1, bullishTouch1, bearishTouch1] = process_tf(tf1)
+[high2, low2, mid2, start2, inRange2, newBar2, bullishTouch2, bearishTouch2] = process_tf(tf2)
+[high3, low3, mid3, start3, inRange3, newBar3, bullishTouch3, bearishTouch3] = process_tf(tf3)
+[high4, low4, mid4, start4, inRange4, newBar4, bullishTouch4, bearishTouch4] = process_tf(tf4)
+[high5, low5, mid5, start5, inRange5, newBar5, bullishTouch5, bearishTouch5] = process_tf(tf5)
+[high6, low6, mid6, start6, inRange6, newBar6, bullishTouch6, bearishTouch6] = process_tf(tf6)
+[high7, low7, mid7, start7, inRange7, newBar7, bullishTouch7, bearishTouch7] = process_tf(tf7)
+
+// Modified plot_lines function
+plot_lines(tfColor, midColor, high, low, mid, start, inRange, newBar, useMid, bullishTouch, bearishTouch, tfName) =>
+    var line highLine = na
+    var line lowLine = na
+    var line midLine = na
+
+    if newBar and inRange
+        if not na(highLine)
+            line.delete(highLine)
+            line.delete(lowLine)
+            line.delete(midLine)
+
+        validStart = math.max(start, 0)
+        highLine := line.new(validStart, high, bar_index, high, color = tfColor, width = hllinewidth)
+        lowLine := line.new(validStart, low, bar_index, low, color = tfColor, width = hllinewidth)
+        if useMid
+            midLine := line.new(validStart, mid, bar_index, mid, color = midColor, width = midlinewidth, style = line.style_dashed)
+            midLine
+
+        if show_eol_labels
+            label.new(bar_index + eol_label_offset, high, text = tfName + ' CRT High', color = color.new(tfColor, 70), textcolor = tfColor, style = label.style_none, size = size.small)
+            label.new(bar_index + eol_label_offset, low, text = tfName + ' CRT Low', color = color.new(tfColor, 70), textcolor = tfColor, style = label.style_none, size = size.small)
+
+    if not na(highLine) and inRange
+        line.set_x2(highLine, bar_index)
+        line.set_x2(lowLine, bar_index)
+        if useMid and not na(midLine)
+            line.set_x2(midLine, bar_index)
+
+    [bullishTouch, bearishTouch]
+
+// Plot lines for each timeframe
+if use_tf1
+    [bullishTouch1, bearishTouch1] = plot_lines(tf1_color, tf1_mid_color, high1, low1, mid1, start1, inRange1, newBar1, use_tf1_mid, bullishTouch1, bearishTouch1, 'M15')
+    [bullishTouch1, bearishTouch1]
+if use_tf2
+    [bullishTouch2, bearishTouch2] = plot_lines(tf2_color, tf2_mid_color, high2, low2, mid2, start2, inRange2, newBar2, use_tf2_mid, bullishTouch2, bearishTouch2, 'H1')
+    [bullishTouch2, bearishTouch2]
+if use_tf3
+    [bullishTouch3, bearishTouch3] = plot_lines(tf3_color, tf3_mid_color, high3, low3, mid3, start3, inRange3, newBar3, use_tf3_mid, bullishTouch3, bearishTouch3, 'H2')
+    [bullishTouch3, bearishTouch3]
+if use_tf4
+    [bullishTouch4, bearishTouch4] = plot_lines(tf4_color, tf4_mid_color, high4, low4, mid4, start4, inRange4, newBar4, use_tf4_mid, bullishTouch4, bearishTouch4, 'H4')
+    [bullishTouch4, bearishTouch4]
+if use_tf5
+    [bullishTouch5, bearishTouch5] = plot_lines(tf5_color, tf5_mid_color, high5, low5, mid5, start5, inRange5, newBar5, use_tf5_mid, bullishTouch5, bearishTouch5, 'D')
+    [bullishTouch5, bearishTouch5]
+if use_tf6
+    [bullishTouch6, bearishTouch6] = plot_lines(tf6_color, tf6_mid_color, high6, low6, mid6, start6, inRange6, newBar6, use_tf6_mid, bullishTouch6, bearishTouch6, 'W')
+    [bullishTouch6, bearishTouch6]
+if use_tf7
+    [bullishTouch7, bearishTouch7] = plot_lines(tf7_color, tf7_mid_color, high7, low7, mid7, start7, inRange7, newBar7, use_tf7_mid, bullishTouch7, bearishTouch7, 'M')
+    [bullishTouch7, bearishTouch7]
+
+// Function to convert string input to label style
+getLabelStyle(styleString) =>
+    switch styleString
+        'None' => label.style_none
+        'Label Up' => label.style_label_up
+        'Label Down' => label.style_label_down
+        'Label Left' => label.style_label_left
+        'Label Right' => label.style_label_right
+        'Label Center' => label.style_label_center
+        'Triangle Up' => label.style_triangleup
+        'Triangle Down' => label.style_triangledown
+        'Flag' => label.style_flag
+        'Circle' => label.style_circle
+        'Square' => label.style_square
+        'Diamond' => label.style_diamond
+        'Cross' => label.style_cross
+        'X-Cross' => label.style_xcross
+        'Arrow Up' => label.style_arrowup
+        'Arrow Down' => label.style_arrowdown
+        => label.style_label_up // default
+
+// Function to convert string input to size
+getLabelSize(sizeString) =>
+    switch sizeString
+        'Auto' => size.auto
+        'Tiny' => size.tiny
+        'Small' => size.small
+        'Normal' => size.normal
+        'Large' => size.large
+        'Huge' => size.huge
+        => size.auto // default
+
+// Optimized label management
+manageLabelCount(labelText, y, bgColor, textColor, style, size) =>
+    if array.size(labels) >= max_labels
+        label.delete(array.shift(labels))
+    newLabel = label.new(bar_index, y, labelText, color = bgColor, textcolor = textColor, style = style, size = size)
+    array.push(labels, newLabel)
+
+// Function to check and create labels for a timeframe
+checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
+    if show and bullishTouch
+        manageLabelCount('BT-' + tfText, low, bullishBgColor, bullishTextColor, getLabelStyle(bullishLabelStyle), getLabelSize(labelSize))
+    if show and bearishTouch
+        manageLabelCount('BT-' + tfText, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
+
+// Apply labels for each timeframe
+checkAndCreateLabel(show_m15_labels, bullishTouch1, bearishTouch1, 'M15')
+checkAndCreateLabel(show_h1_labels, bullishTouch2, bearishTouch2, 'H1')
+checkAndCreateLabel(show_h2_labels, bullishTouch3, bearishTouch3, 'H2')
+checkAndCreateLabel(show_h4_labels, bullishTouch4, bearishTouch4, 'H4')
+checkAndCreateLabel(show_daily_labels, bullishTouch5, bearishTouch5, 'D')
+checkAndCreateLabel(show_weekly_labels, bullishTouch6, bearishTouch6, 'W')
+checkAndCreateLabel(show_monthly_labels, bullishTouch7, bearishTouch7, 'M')
+
+// Alert conditions
+if alert_on_m15 and (bullishTouch1 or bearishTouch1)
+    alert('M15 touch detected', alert.freq_once_per_bar_close)
+
+if alert_on_h1 and (bullishTouch2 or bearishTouch2)
+    alert('H1 touch detected', alert.freq_once_per_bar_close)
+
+if alert_on_h2 and (bullishTouch3 or bearishTouch3)
+    alert('H2 touch detected', alert.freq_once_per_bar_close)
+
+if alert_on_h4 and (bullishTouch4 or bearishTouch4)
+    alert('H4 touch detected', alert.freq_once_per_bar_close)
+
+if alert_on_daily and (bullishTouch5 or bearishTouch5)
+    alert('Daily touch detected', alert.freq_once_per_bar_close)
+
+if alert_on_weekly and (bullishTouch6 or bearishTouch6)
+    alert('Weekly touch detected', alert.freq_once_per_bar_close)
+
+if alert_on_monthly and (bullishTouch7 or bearishTouch7)
+    alert('Monthly touch detected', alert.freq_once_per_bar_close)
+
+//==============================================================================
+// SECTION 5: ADVANCED FVG DETECTION WITH MITIGATION
+//==============================================================================
+
+//Settings
+thresholdPer = input.float(0, "Threshold %", minval = 0, maxval = 100, step = .1, inline = 'threshold', group="Advanced FVG")
+auto = input(false, "Auto", inline = 'threshold', group="Advanced FVG")
+
+showLast = input.int(0, 'Unmitigated Levels', minval = 0, group="Advanced FVG")
+mitigationLevels = input.bool(false, 'Mitigation Levels', group="Advanced FVG")
+
+tf = input.timeframe('', "Timeframe", group="Advanced FVG")
+
+//Style
+extend = input.int(20, 'Extend', minval = 0, inline = 'extend', group = 'Advanced FVG Style')
+dynamic = input(false, 'Dynamic', inline = 'extend', group = 'Advanced FVG Style')
+
+bullCss = input.color(color.new(#089981, 70), "Bullish FVG", group = 'Advanced FVG Style')
+bearCss = input.color(color.new(#f23645, 70), "Bearish FVG", group = 'Advanced FVG Style')
+
+//Dashboard
+showDash  = input(false, 'Show Dashboard', group = 'Advanced FVG Dashboard')
+dashLoc  = input.string('Top Right', 'Location', options = ['Top Right', 'Bottom Right', 'Bottom Left'], group = 'Advanced FVG Dashboard')
+textSize = input.string('Small', 'Size'        , options = ['Tiny', 'Small', 'Normal']                 , group = 'Advanced FVG Dashboard')
+
+//UDT's
+type fvg
+    float max
+    float min
+    bool  isbull
+    int   t = time
+
+//Methods/Functions
+n = bar_index
+
+method tosolid(color id)=> color.rgb(color.r(id),color.g(id),color.b(id))
+
+detect()=>
+    var fvg new_fvg = fvg.new(na, na, false, na)
+    threshold = auto ? ta.cum((high - low) / low) / bar_index : thresholdPer / 100
+
+    bull_fvg = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > threshold
+    bear_fvg = high < low[2] and close[1] < low[2] and (low[2] - high) / high > threshold
+    
+    if bull_fvg
+        new_fvg := fvg.new(low, high[2], true)
+    else if bear_fvg
+        new_fvg := fvg.new(low[2], high, false)
+
+    [bull_fvg, bear_fvg, new_fvg]
+
+//FVG's detection/display
+var float max_bull_fvg = na, var float min_bull_fvg = na, var bull_count = 0, var bull_mitigated = 0
+var float max_bear_fvg = na, var float min_bear_fvg = na, var bear_count = 0, var bear_mitigated = 0
+var t = 0
+
+var fvg_records = array.new<fvg>(0)
+var fvg_areas = array.new<box>(0)
+
+[bull_fvg, bear_fvg, new_fvg] = request.security(syminfo.tickerid, tf, detect())
+
+//Bull FVG's
+if bull_fvg and new_fvg.t != t
+    if dynamic
+        max_bull_fvg := new_fvg.max
+        min_bull_fvg := new_fvg.min
+    
+    //Populate FVG array
+    if not dynamic
+        fvg_areas.unshift(box.new(n-2, new_fvg.max, n+extend, new_fvg.min, na, bgcolor = bullCss))
+    fvg_records.unshift(new_fvg)
+
+    bull_count += 1
+    t := new_fvg.t
+else if dynamic
+    max_bull_fvg := math.max(math.min(close, max_bull_fvg), min_bull_fvg)
+
+//Bear FVG's
+if bear_fvg and new_fvg.t != t
+    if dynamic
+        max_bear_fvg := new_fvg.max
+        min_bear_fvg := new_fvg.min
+    
+    //Populate FVG array
+    if not dynamic
+        fvg_areas.unshift(box.new(n-2, new_fvg.max, n+extend, new_fvg.min, na, bgcolor = bearCss))
+    fvg_records.unshift(new_fvg)
+
+    bear_count += 1
+    t := new_fvg.t
+else if dynamic
+    min_bear_fvg := math.min(math.max(close, min_bear_fvg), max_bear_fvg) 
+
+//Unmitigated/Mitigated lines
+//Test for mitigation
+if fvg_records.size() > 0
+    for i = fvg_records.size()-1 to 0
+        get = fvg_records.get(i)
+
+        if get.isbull
+            if close < get.min
+                //Display line if mitigated
+                if mitigationLevels
+                    line.new(get.t
+                      , get.min
+                      , time
+                      , get.min
+                      , xloc.bar_time
+                      , color = bullCss
+                      , style = line.style_dashed)
+
+                //Delete box
+                if not dynamic
+                    area = fvg_areas.remove(i)
+                    area.delete()
+
+                fvg_records.remove(i)
+                bull_mitigated += 1
+        else if close > get.max
+            //Display line if mitigated
+            if mitigationLevels
+                line.new(get.t
+                  , get.max
+                  , time
+                  , get.max
+                  , xloc.bar_time
+                  , color = bearCss
+                  , style = line.style_dashed)
+
+            //Delete box
+            if not dynamic
+                area = fvg_areas.remove(i)
+                area.delete()
+            
+            fvg_records.remove(i)
+            bear_mitigated += 1
+
+//Unmitigated lines
+var unmitigated = array.new<line>(0)
+
+//Remove umitigated lines 
+if barstate.islast and showLast > 0 and fvg_records.size() > 0
+    if unmitigated.size() > 0 
+        for element in unmitigated
+            element.delete()
+        unmitigated.clear()
+
+    for i = 0 to math.min(showLast-1, fvg_records.size()-1)
+        get = fvg_records.get(i)
+
+        unmitigated.push(line.new(get.t
+          , get.isbull ? get.min : get.max 
+          , time
+          , get.isbull ? get.min : get.max
+          , xloc.bar_time
+          , color = get.isbull ? bullCss : bearCss))
+
+//Dashboard
+var table_position = dashLoc == 'Bottom Left' ? position.bottom_left 
+  : dashLoc == 'Top Right' ? position.top_right 
+  : position.bottom_right
+
+var table_size = textSize == 'Tiny' ? size.tiny 
+  : textSize == 'Small' ? size.small 
+  : size.normal
+
+var tb = table.new(table_position, 3, 3
+  , bgcolor = #1e222d
+  , border_color = #373a46
+  , border_width = 1
+  , frame_color = #373a46
+  , frame_width = 1)
+
+if showDash
+    if barstate.isfirst
+        tb.cell(1, 0, 'Bullish', text_color = bullCss.tosolid(), text_size = table_size)
+        tb.cell(2, 0, 'Bearish', text_color = bearCss.tosolid(), text_size = table_size)
+    
+        tb.cell(0, 1, 'Count', text_size = table_size, text_color = color.white)
+        tb.cell(0, 2, 'Mitigated', text_size = table_size, text_color = color.white)
+    
+    if barstate.islast
+        tb.cell(1, 1, str.tostring(bull_count), text_color = bullCss.tosolid(), text_size = table_size)
+        tb.cell(2, 1, str.tostring(bear_count), text_color = bearCss.tosolid(), text_size = table_size)
+        
+        tb.cell(1, 2, str.tostring(bull_mitigated / bull_count * 100, format.percent), text_color = bullCss.tosolid(), text_size = table_size)
+        tb.cell(2, 2, str.tostring(bear_mitigated / bear_count * 100, format.percent), text_color = bearCss.tosolid(), text_size = table_size)
+
+//Plots
+//Dynamic Bull FVG
+max_bull_plot = plot(max_bull_fvg, color = na)
+min_bull_plot = plot(min_bull_fvg, color = na)
+fill(max_bull_plot, min_bull_plot, color = bullCss)
+
+//Dynamic Bear FVG
+max_bear_plot = plot(max_bear_fvg, color = na)
+min_bear_plot = plot(min_bear_fvg, color = na)
+fill(max_bear_plot, min_bear_plot, color = bearCss)
+
+//Alerts
+alertcondition(bull_count > bull_count[1], 'Bullish FVG', 'Bullish FVG detected')
+alertcondition(bear_count > bear_count[1], 'Bearish FVG', 'Bearish FVG detected')
+
+alertcondition(bull_mitigated > bull_mitigated[1], 'Bullish FVG Mitigation', 'Bullish FVG mitigated')
+alertcondition(bear_mitigated > bear_mitigated[1], 'Bearish FVG Mitigation', 'Bearish FVG mitigated')
+
+//==============================================================================
+// SECTION 6: CISD (CHANGE IN STATE OF DELIVERY) DETECTION
+//==============================================================================
+
+// CISD Input Settings
+var string G_CISD_SETTINGS = "CISD Settings"
+showLabels = input.bool(true, "Show Labels", group=G_CISD_SETTINGS)
+lineColor = input.color(color.black, "CISD Line Color", group=G_CISD_SETTINGS)
+textColor = input.color(color.black, "Label Color", group=G_CISD_SETTINGS)
+lineWidth = input.int(2, "Line Width", minval=1, maxval=4, group=G_CISD_SETTINGS)
+lineStyle = input.string("Solid", "Line Style", options=["Solid", "Dashed", "Dotted"], group=G_CISD_SETTINGS)
+lineLength = input.int(15, "Line Extension (bars)", minval=5, maxval=50, group=G_CISD_SETTINGS)
+labelSizex = input.string("Small", "Label Size", options=["Tiny", "Small", "Normal", "Large"], group=G_CISD_SETTINGS)
+
+// Variables for CISD Detection
+var line[] cisdLines = array.new_line()
+var label[] cisdLabels = array.new_label()
+
+// Variables for sequence tracking
+var float sequenceStartPrice = na
+var int sequenceStartIndex = na
+var bool waitingForDisplacement = false
+var float[] priorBullishOpens = array.new_float()  // Store opens of prior bullish candles
+var float[] priorBearishOpens = array.new_float()  // Store opens of prior bearish candles
+var int lastBullishStart = na  // Index where last bullish sequence started
+var int lastBearishStart = na  // Index where last bearish sequence started
+
+// Liquidity Detection Variables
+var swingStrength = 3
+var float[] bslPrices = array.new_float()
+var float[] sslPrices = array.new_float()
+var int[] bslTimes = array.new_int()
+var int[] sslTimes = array.new_int()
+
+// Function to get label size from input
+getLabelSizex() =>
+    switch labelSizex
+        "Tiny" => size.tiny
+        "Small" => size.small
+        "Normal" => size.normal
+        "Large" => size.large
+        => size.small
+
+// Function to detect and manage liquidity levels
+manageLiquidityLevels() =>
+    float ph = ta.pivothigh(swingStrength, swingStrength)
+    float pl = ta.pivotlow(swingStrength, swingStrength)
+    
+    if not na(ph)
+        array.push(bslPrices, ph)
+        array.push(bslTimes, bar_index[swingStrength])
+    
+    if not na(pl)
+        array.push(sslPrices, pl)
+        array.push(sslTimes, bar_index[swingStrength])
+
+// Function to check for liquidity sweeps
+checkLiquiditySweep() =>
+    bool bslSwept = false
+    bool sslSwept = false
+    
+    if array.size(bslPrices) > 0
+        for i = array.size(bslPrices) - 1 to 0
+            if high > array.get(bslPrices, i)
+                bslSwept := true
+                array.remove(bslPrices, i)
+                array.remove(bslTimes, i)
+                break
+    
+    if array.size(sslPrices) > 0
+        for i = array.size(sslPrices) - 1 to 0
+            if low < array.get(sslPrices, i)
+                sslSwept := true
+                array.remove(sslPrices, i)
+                array.remove(sslTimes, i)
+                break
+    
+    [bslSwept, sslSwept]
+
+// Function to draw CISD
+drawCisd(startPrice, startIndex, isBull) =>
+    chosenStyle = switch lineStyle
+        "Solid" => line.style_solid
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
+    
+    newLine = line.new(startIndex, startPrice, bar_index + lineLength, startPrice,
+         color=lineColor,
+         style=chosenStyle,
+         width=lineWidth,
+         extend=extend.none)
+    array.push(cisdLines, newLine)
+    
+    if showLabels
+        newLabel = label.new(bar_index + 2, startPrice,
+             text=isBull ? "CISD+" : "CISD-",
+             style=label.style_none,
+             textcolor=textColor,
+             size=getLabelSizex(),
+             textalign=text.align_left)
+        array.push(cisdLabels, newLabel)
+
+// Function to find most recent sequence of same-direction candles
+findRecentSequence(bull) =>
+    var int count = 0
+    var float firstOpen = na
+    var int firstIndex = na
+    
+    if bull
+        if close > open  // Current candle is bullish
+            if count == 0 or close[1] <= open[1]  // Start of new sequence
+                count := 1
+                firstOpen := open
+                firstIndex := bar_index
+            else
+                count := count + 1
+        else
+            if count > 0  // End of sequence
+                firstOpen := na
+                firstIndex := na
+            count := 0
+    else
+        if close < open  // Current candle is bearish
+            if count == 0 or close[1] >= open[1]  // Start of new sequence
+                count := 1
+                firstOpen := open
+                firstIndex := bar_index
+            else
+                count := count + 1
+        else
+            if count > 0  // End of sequence
+                firstOpen := na
+                firstIndex := na
+            count := 0
+    
+    [count, firstOpen, firstIndex]
+
+// CISD Detection Logic
+if barstate.isconfirmed
+    // Update liquidity levels
+    manageLiquidityLevels()
+    [bslSwept, sslSwept] = checkLiquiditySweep()
+    
+    bool bull = close > open
+    bool bear = close < open
+
+    // Track consecutive candles
+    [bullCount, bullFirstOpen, bullFirstIndex] = findRecentSequence(true)
+    [bearCount, bearFirstOpen, bearFirstIndex] = findRecentSequence(false)
+
+    // When BSL is swept, look for most recent bullish sequence
+    if bslSwept and not waitingForDisplacement
+        if not na(bullFirstOpen)
+            sequenceStartPrice := bullFirstOpen
+            sequenceStartIndex := bullFirstIndex
+            waitingForDisplacement := true
+            array.clear(priorBullishOpens)
+            array.push(priorBullishOpens, bullFirstOpen)
+
+    // When SSL is swept, look for most recent bearish sequence
+    if sslSwept and not waitingForDisplacement
+        if not na(bearFirstOpen)
+            sequenceStartPrice := bearFirstOpen
+            sequenceStartIndex := bearFirstIndex
+            waitingForDisplacement := true
+            array.clear(priorBearishOpens)
+            array.push(priorBearishOpens, bearFirstOpen)
+
+    // Check for displacement after sweep
+    if waitingForDisplacement
+        if array.size(priorBullishOpens) > 0 and bear  // Check bearish displacement after BSL sweep
+            if close < array.get(priorBullishOpens, 0)
+                drawCisd(sequenceStartPrice, sequenceStartIndex, false)
+                waitingForDisplacement := false
+                array.clear(priorBullishOpens)
+        
+        if array.size(priorBearishOpens) > 0 and bull  // Check bullish displacement after SSL sweep
+            if close > array.get(priorBearishOpens, 0)
+                drawCisd(sequenceStartPrice, sequenceStartIndex, true)
+                waitingForDisplacement := false
+                array.clear(priorBearishOpens)
+
+    // Reset if too much time has passed
+    if bar_index - sequenceStartIndex > 20
+        waitingForDisplacement := false
+        array.clear(priorBullishOpens)
+        array.clear(priorBearishOpens)
+
+// Cleanup and maintain visual elements
+if barstate.islast
+    // Cleanup old labels
+    if array.size(cisdLabels) > 0
+        for i = array.size(cisdLabels) - 1 to 0
+            label currentLabel = array.get(cisdLabels, i)
+            if not na(currentLabel)
+                if bar_index - label.get_x(currentLabel) > 200
+                    label.delete(currentLabel)
+                    array.remove(cisdLabels, i)
+                else
+                    labelX = label.get_x(currentLabel)
+                    if labelX > bar_index + 2
+                        label.set_x(currentLabel, bar_index + 2)
+
+    // Cleanup and maintain lines
+    if array.size(cisdLines) > 0
+        for i = array.size(cisdLines) - 1 to 0
+            line currentLine = array.get(cisdLines, i)
+            if not na(currentLine)
+                if bar_index - line.get_x1(currentLine) > 200
+                    line.delete(currentLine)
+                    array.remove(cisdLines, i)
+                else
+                    line.set_x2(currentLine, line.get_x1(currentLine) + lineLength) 
+
+//==============================================================================
+// SECTION 7: CRT SPECIFIC TIME ANALYSIS
+//==============================================================================
+
+// Inputs for CRT Time Analysis
+enable_crt_h1_check = input.bool(true, title="Turn on CRT H1 test?", tooltip="Select 'True' to enable CRT H1 test", group="CRT Time Analysis", inline="1")
+
+green = input.color(#02fc7f, title="Green", group="CRT Time Analysis", inline = "1")
+red = input.color(#fd0901, title="Red", group="CRT Time Analysis", inline = "1")
+
+//logic erc
+check_large_candle_only = input.bool(true, title="Only check big candles?", tooltip="Select 'true' to check only large candles", group="CRT Time Analysis")
+max_wick_ratio = input.float(0.25, title="Maximum candle wick ratio (compared to the entire candle)", minval=0.01, maxval=1, step=0.01, tooltip="Apply when testing large candles.", group="CRT Time Analysis")
+
+// Higher Timeframe Check
+isHigherTimeframe = (timeframe.period == tf)
+
+// CRT hour
+hourEST1 = 6
+hourEST2 = 10
+hourEST3 = 14
+
+isTargetCandle = enable_crt_h1_check and (hour(time) == hourEST1 or hour(time) == hourEST2 or hour(time) == hourEST3)
+
+// Variables to Store High, Low, and Index
+var float crtHigh = na
+var float crtLow = na
+var int crtIndex = na
+
+if (isTargetCandle and isHigherTimeframe and barstate.isconfirmed)
+    crtHigh := high
+    crtLow := low
+    crtIndex := bar_index
+
+if (not na(crtHigh) and bar_index == crtIndex + 1)
+    if (low < crtHigh and high > crtHigh and close < crtHigh and barstate.isconfirmed)
+        line.new(x1=crtIndex, y1=crtHigh, x2=bar_index, y2=crtHigh, color=green, width=2, extend=extend.none)
+        alert("High CRT sweep!  " + "\nMã:" + syminfo.ticker + " " + timeframe.period + "\nAbout LTF wait for confirmation to place order", alert.freq_once_per_bar)
+
+if (not na(crtLow) and bar_index == crtIndex + 1)
+    if (high > crtLow and low < crtLow and close > crtLow and barstate.isconfirmed)
+        line.new(x1=crtIndex, y1=crtLow, x2=bar_index, y2=crtLow, color=red, width=2, extend=extend.none)
+        alert("Low CRT sweep!  " + "\nMã:" + syminfo.ticker + " " + timeframe.period + "\nAbout LTF wait for confirmation to place order", alert.freq_once_per_bar)
+
+barcolor(isTargetCandle and isHigherTimeframe ? color.new(color.red, 35) : na)
+
+// Calculate the length of the candle body and wick
+body_size = math.abs(close - open)
+upper_wick = high - math.max(open, close)
+lower_wick = math.min(open, close) - low
+total_wick_size = upper_wick + lower_wick
+total_candle_size = high - low
+
+// Conditions to determine large candles
+is_large_candle = (total_wick_size / total_candle_size) <= max_wick_ratio
+
+// Candle test condition
+should_check = check_large_candle_only ? is_large_candle : true
+
+// Color the large candle if testing a large candle
+barcolor(check_large_candle_only and is_large_candle ? (close > open ? color.green : color.red) : na)
+
+// Variable to store the high/low price and index of the candle being tested
+var float crtHighs = na
+var float crtLows = na
+var int crtIndexs = na
+
+// Save the price of the current candle if the test condition is met
+if (should_check and barstate.isconfirmed)
+    crtHighs := high
+    crtLows := low
+    crtIndexs := bar_index
+
+//draw line
+if (not na(crtHighs) and bar_index == crtIndexs + 1)
+    if (low < crtHighs and high > crtHighs and close < crtHighs and barstate.isconfirmed and close < open)
+        line.new(x1=crtIndexs, y1=crtHighs, x2=bar_index, y2=crtHighs, color=color.new(color.green, 0), width=2, extend=extend.none)
+        alert("Mức cao của nến CRT bị quét!  " + "\nMã:" + syminfo.ticker + " " + timeframe.period + "\nAbout LTF wait for confirmation to place order", alert.freq_once_per_bar)
+
+if (not na(crtLows) and bar_index == crtIndexs + 1)
+    if (high > crtLows and low < crtLows and close > crtLows and barstate.isconfirmed and close> open)
+        line.new(x1=crtIndexs, y1=crtLows, x2=bar_index, y2=crtLows, color=color.new(color.red, 0), width=2, extend=extend.none)
+        alert("Mức thấp của nến CRT bị quét!  " + "\nMã:" + syminfo.ticker + " " + timeframe.period + "\nAbout LTF wait for confirmation to place order", alert.freq_once_per_bar)
+
+//==============================================================================
+// SECTION 8: HTF CANDLE VISUALIZATION
+//==============================================================================
+
+// Function to create and manage boxes for HTF Candles
+type Candle
+    float o
+    float c
+    float h
+    float l
+    int o_time
+    int o_idx
+    int c_idx
+    int h_idx
+    int l_idx
+    string dow
+    box body
+    line wick_up
+    line wick_down
+    label dow_label
+
+type CandleSettings
+    bool show
+    string htf
+    int max_display
+
+type Settings
+    color bull_body
+    color bull_border
+    color bull_wick
+    color bear_body
+    color bear_border
+    color bear_wick
+    int offset
+    int buffer
+    int htf_buffer
+    int width
+
+type CandleSet
+    array<Candle> candles
+    CandleSettings settings
+
+type Helper
+    string name = 'Helper'
+
+Settings settings = Settings.new()
+
+var CandleSettings SettingsHTF3 = CandleSettings.new()
+var array<Candle> candles_3 = array.new<Candle>(0)
+var CandleSet htf3 = CandleSet.new()
+htf3.settings := SettingsHTF3
+htf3.candles := candles_3
+htf3.settings.show              := input.bool(true, 'HTF Candle', inline = 'htf3', group="HTF Candles")
+htf_3                           = input.timeframe('60', '', inline = 'htf3', group="HTF Candles")
+htf3.settings.htf := htf_3
+htf3.settings.max_display       := input.int(10, '', inline = 'htf3', group="HTF Candles")
+settings.bull_body              := color.green
+settings.bear_body              := color.red
+settings.bull_border            := color.black
+settings.bull_wick              := color.black
+settings.bear_wick              := color.black
+settings.offset                 := 10
+settings.buffer                 := 1
+settings.htf_buffer             := 10
+settings.width                  := 2
+
+Helper helper = Helper.new()
+color color_transparent = #ffffff00
+
+method HTFEnabled(Helper helper) =>
+    helper.name := 'HTFEnabled'
+    int enabled = 0
+    enabled := enabled + (htf3.settings.show ? 1 : 0)
+    enabled
+
+method CandleSetHigh(Helper helper, array<Candle> candles, float h) =>
+    helper.name := 'CandlesSetHigh'
+    float _h = h
+    if array.size(candles) > 0
+        for i = 0 to array.size(candles) - 1 by 1
+            Candle c = array.get(candles, i)
+            if c.h > _h
+                _h := c.h
+                _h
+    _h
+
+method CandleSetLow(Helper helper, array<Candle> candles, float l) =>
+    helper.name := 'CandlesSetLow'
+    float _l = l
+    if array.size(candles) > 0
+        for i = 0 to array.size(candles) - 1 by 1
+            Candle c = array.get(candles, i)
+            if c.l < _l
+                _l := c.l
+                _l
+    _l
+
+method CandlesHigh(Helper helper, array<Candle> candles) =>
+    helper.name := 'CandlesHigh'
+    h = 0.0
+    int cnt = 0
+    int last = helper.HTFEnabled()
+
+    if array.size(candles) > 0
+        for i = 0 to array.size(candles) - 1 by 1
+            Candle c = array.get(candles, i)
+            if c.h > h
+                h := c.h
+    h
+
+method CandlesLow(Helper helper, array<Candle> candles, float h) =>
+    helper.name := 'CandlesLow'
+    l = h
+    int cnt = 0
+    int last = helper.HTFEnabled()
+
+    if array.size(candles) > 0
+        for i = 0 to array.size(candles) - 1 by 1
+            Candle c = array.get(candles, i)
+            if c.l < l
+                l := c.l
+    l
+
+method Reorder(CandleSet candleSet, int offset) =>
+    size = candleSet.candles.size()
+    if size > 0
+        for i = size - 1 to 0 by 1
+            Candle candle = candleSet.candles.get(i)
+            t_buffer = offset + (settings.width + settings.buffer) * (size - i - 1)
+            box.set_left(candle.body, bar_index + t_buffer)
+            box.set_right(candle.body, bar_index + settings.width + t_buffer)
+            line.set_x1(candle.wick_up, bar_index + settings.width / 2 + t_buffer)
+            line.set_x2(candle.wick_up, bar_index + settings.width / 2 + t_buffer)
+            line.set_x1(candle.wick_down, bar_index + settings.width / 2 + t_buffer)
+            line.set_x2(candle.wick_down, bar_index + settings.width / 2 + t_buffer)
+
+    top = 0.0
+    bottom = 0.0
+    left = bar_index + offset + (settings.width + settings.buffer) * (size - 1) / 2
+
+method Monitor(CandleSet candleSet) =>
+    HTFBarTime = time(candleSet.settings.htf, 'america/New_York')
+    isNewHTFCandle = ta.change(HTFBarTime) > 0
+    if isNewHTFCandle
+        Candle candle = Candle.new()
+        candle.o := open
+        candle.c := close
+        candle.h := high
+        candle.l := low
+        candle.o_time := time
+        candle.o_idx := bar_index
+        candle.c_idx := bar_index
+        candle.h_idx := bar_index
+        candle.l_idx := bar_index
+        candle.dow := switch
+            =>
+                ''
+        log.info('dow: {1} |{0}|', candle.dow, candleSet.settings.htf)
+        bull = candle.c > candle.o
+        // Kiểm tra thời gian và thiết lập màu sắc
+        isSpecialTime = hour == 6 or hour == 10 or hour == 14
+        bodyColor = isSpecialTime ? color.new(color.purple, 0) : (bull ? settings.bull_body : settings.bear_body)
+        borderColor = isSpecialTime ? color.purple : (bull ? settings.bull_border : settings.bear_border)
+        wickColor = isSpecialTime ? color.purple : (bull ? settings.bull_wick : settings.bear_wick)
+        
+        candle.body := box.new(bar_index, math.max(candle.o, candle.c), bar_index + 2, math.min(candle.o, candle.c), borderColor, 1, bgcolor = bodyColor)
+        candle.wick_up := line.new(bar_index + 1, candle.h, bar_index, math.max(candle.o, candle.c), color = wickColor)
+        candle.wick_down := line.new(bar_index + 1, math.min(candle.o, candle.c), bar_index, candle.l, color = wickColor)
+        candleSet.candles.unshift(candle)
+        if candleSet.candles.size() > candleSet.settings.max_display
+            Candle delCandle = array.pop(candleSet.candles)
+            box.delete(delCandle.body)
+            line.delete(delCandle.wick_up)
+            line.delete(delCandle.wick_down)
+            delCandle.dow_label.delete()
+    candleSet
+
+method Update(CandleSet candleSet, int offset) =>
+    if candleSet.candles.size() > 0
+        Candle candle = candleSet.candles.first()
+        candle.h_idx := high > candle.h ? bar_index : candle.h_idx
+        candle.h := high > candle.h ? high : candle.h
+        candle.l_idx := low < candle.l ? bar_index : candle.l_idx
+        candle.l := low < candle.l ? low : candle.l
+        candle.c := close
+        candle.c_idx := bar_index
+        bull = candle.c > candle.o
+        box.set_top(candle.body, candle.o)
+        box.set_bottom(candle.body, candle.c)
+        box.set_bgcolor(candle.body, bull ? settings.bull_body : settings.bear_body)
+        box.set_border_color(candle.body, bull ? settings.bull_border : settings.bear_border)
+        line.set_color(candle.wick_up, bull ? settings.bull_wick : settings.bear_wick)
+        line.set_color(candle.wick_down, bull ? settings.bull_wick : settings.bear_wick)
+        line.set_y1(candle.wick_up, candle.h)
+        line.set_y2(candle.wick_up, math.max(candle.o, candle.c))
+        line.set_y1(candle.wick_down, candle.l)
+        line.set_y2(candle.wick_down, math.min(candle.o, candle.c))
+        if barstate.isrealtime or barstate.islast
+            candleSet.Reorder(offset)
+    candleSet
+
+int cnt = 0
+int last = helper.HTFEnabled()
+int offset = settings.offset
+if htf3.settings.show
+    htf3.Monitor().Update(offset)
+    cnt := cnt + 1
+    offset := offset + (cnt > 0 ? htf3.candles.size() * settings.width + (htf3.candles.size() > 0 ? (htf3.candles.size() - 1) * settings.buffer : 0) + settings.htf_buffer : 0)
+    offset
