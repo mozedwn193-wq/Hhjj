@@ -1729,7 +1729,7 @@ method Reorder(Helper helper, array<Candle> candles) =>
 method Monitor(Helper helper, CandleSet candleSet) =>
     helper.name := 'Monitor'
     
-             if candleSet.settings.show
+    if candleSet.settings.show
         [htf_open, htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
         
         if ta.change(htf_time)
@@ -1760,7 +1760,7 @@ method Monitor(Helper helper, CandleSet candleSet) =>
 method Update(Helper helper, CandleSet candleSet) =>
     helper.name := 'Update'
     
-             if candleSet.settings.show and array.size(candleSet.candles) > 0
+    if candleSet.settings.show and array.size(candleSet.candles) > 0
         [htf_open, htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
         
         Candle c = array.get(candleSet.candles, 0)
