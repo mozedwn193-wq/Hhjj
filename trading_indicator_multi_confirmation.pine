@@ -401,7 +401,7 @@ plot(ema200, title="EMA 200", color=color200, linewidth=1)
 
 // Enhanced Labels with Multi-Confirmation Info
 consensus_text_suffix = " [" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"
-plotshape(bar_index == ta.highest(bar_index, 1) ? ema20 : na, location=location.absolute, style=shape.labelup, text="EMA 20" + consensus_text_suffix, color=color.new(color20, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema20 : na, location=location.absolute, style=shape.labelup, text="EMA 20", color=color.new(color20, 80), textcolor=color.white)
 plotshape(bar_index == ta.highest(bar_index, 1) ? ema50 : na, location=location.absolute, style=shape.labelup, text="EMA 50", color=color.new(color50, 80), textcolor=color.white)
 plotshape(bar_index == ta.highest(bar_index, 1) ? ema100 : na, location=location.absolute, style=shape.labelup, text="EMA 100", color=color.new(color100, 80), textcolor=color.white)
 plotshape(bar_index == ta.highest(bar_index, 1) ? ema200 : na, location=location.absolute, style=shape.labelup, text="EMA 200", color=color.new(color200, 80), textcolor=color.white)
@@ -633,12 +633,7 @@ process_tf(tf) =>
     var bool bullishTouch = false
     var bool bearishTouch = false
 
-    tf_data = request.security(syminfo.tickerid, tf, [open, high, low, close, time], barmerge.gaps_off, barmerge.lookahead_on)
-    tfOpen = array.get(tf_data, 0)
-    tfHigh = array.get(tf_data, 1)
-    tfLow = array.get(tf_data, 2)
-    tfClose = array.get(tf_data, 3)
-    tfTime = array.get(tf_data, 4)
+    [tfOpen, tfHigh, tfLow, tfClose, tfTime] = request.security(syminfo.tickerid, tf, [open, high, low, close, time], barmerge.gaps_off, barmerge.lookahead_on)
 
     newBar = ta.change(tfTime) != 0
 
@@ -681,75 +676,19 @@ process_tf(tf) =>
     [rangeHigh, rangeLow, rangeMid, rangeStart, inConsolidation, newBar, bullishTouch, bearishTouch]
 
 // Process data for each timeframe
-tf_results_1 = process_tf(tf1)
-high1 = array.get(tf_results_1, 0)
-low1 = array.get(tf_results_1, 1)
-mid1 = array.get(tf_results_1, 2)
-start1 = array.get(tf_results_1, 3)
-inRange1 = array.get(tf_results_1, 4)
-newBar1 = array.get(tf_results_1, 5)
-bullishTouch1 = array.get(tf_results_1, 6)
-bearishTouch1 = array.get(tf_results_1, 7)
+[high1, low1, mid1, start1, inRange1, newBar1, bullishTouch1, bearishTouch1] = process_tf(tf1)
 
-tf_results_2 = process_tf(tf2)
-high2 = array.get(tf_results_2, 0)
-low2 = array.get(tf_results_2, 1)
-mid2 = array.get(tf_results_2, 2)
-start2 = array.get(tf_results_2, 3)
-inRange2 = array.get(tf_results_2, 4)
-newBar2 = array.get(tf_results_2, 5)
-bullishTouch2 = array.get(tf_results_2, 6)
-bearishTouch2 = array.get(tf_results_2, 7)
+[high2, low2, mid2, start2, inRange2, newBar2, bullishTouch2, bearishTouch2] = process_tf(tf2)
 
-tf_results_3 = process_tf(tf3)
-high3 = array.get(tf_results_3, 0)
-low3 = array.get(tf_results_3, 1)
-mid3 = array.get(tf_results_3, 2)
-start3 = array.get(tf_results_3, 3)
-inRange3 = array.get(tf_results_3, 4)
-newBar3 = array.get(tf_results_3, 5)
-bullishTouch3 = array.get(tf_results_3, 6)
-bearishTouch3 = array.get(tf_results_3, 7)
+[high3, low3, mid3, start3, inRange3, newBar3, bullishTouch3, bearishTouch3] = process_tf(tf3)
 
-tf_results_4 = process_tf(tf4)
-high4 = array.get(tf_results_4, 0)
-low4 = array.get(tf_results_4, 1)
-mid4 = array.get(tf_results_4, 2)
-start4 = array.get(tf_results_4, 3)
-inRange4 = array.get(tf_results_4, 4)
-newBar4 = array.get(tf_results_4, 5)
-bullishTouch4 = array.get(tf_results_4, 6)
-bearishTouch4 = array.get(tf_results_4, 7)
+[high4, low4, mid4, start4, inRange4, newBar4, bullishTouch4, bearishTouch4] = process_tf(tf4)
 
-tf_results_5 = process_tf(tf5)
-high5 = array.get(tf_results_5, 0)
-low5 = array.get(tf_results_5, 1)
-mid5 = array.get(tf_results_5, 2)
-start5 = array.get(tf_results_5, 3)
-inRange5 = array.get(tf_results_5, 4)
-newBar5 = array.get(tf_results_5, 5)
-bullishTouch5 = array.get(tf_results_5, 6)
-bearishTouch5 = array.get(tf_results_5, 7)
+[high5, low5, mid5, start5, inRange5, newBar5, bullishTouch5, bearishTouch5] = process_tf(tf5)
 
-tf_results_6 = process_tf(tf6)
-high6 = array.get(tf_results_6, 0)
-low6 = array.get(tf_results_6, 1)
-mid6 = array.get(tf_results_6, 2)
-start6 = array.get(tf_results_6, 3)
-inRange6 = array.get(tf_results_6, 4)
-newBar6 = array.get(tf_results_6, 5)
-bullishTouch6 = array.get(tf_results_6, 6)
-bearishTouch6 = array.get(tf_results_6, 7)
+[high6, low6, mid6, start6, inRange6, newBar6, bullishTouch6, bearishTouch6] = process_tf(tf6)
 
-tf_results_7 = process_tf(tf7)
-high7 = array.get(tf_results_7, 0)
-low7 = array.get(tf_results_7, 1)
-mid7 = array.get(tf_results_7, 2)
-start7 = array.get(tf_results_7, 3)
-inRange7 = array.get(tf_results_7, 4)
-newBar7 = array.get(tf_results_7, 5)
-bullishTouch7 = array.get(tf_results_7, 6)
-bearishTouch7 = array.get(tf_results_7, 7)
+[high7, low7, mid7, start7, inRange7, newBar7, bullishTouch7, bearishTouch7] = process_tf(tf7)
 
 // Original plot_lines function (UNCHANGED)
 plot_lines(tfColor, midColor, high, low, mid, start, inRange, newBar, useMid, bullishTouch, bearishTouch, tfName) =>
@@ -779,40 +718,23 @@ plot_lines(tfColor, midColor, high, low, mid, start, inRange, newBar, useMid, bu
         if useMid and not na(midLine)
             line.set_x2(midLine, bar_index)
 
-    plot_results = array.new<bool>()
-    array.push(plot_results, bullishTouch)
-    array.push(plot_results, bearishTouch)
-    plot_results
+    [bullishTouch, bearishTouch]
 
 // Plot lines for each timeframe (UNCHANGED)
 if use_tf1
-    plot_results_1 = plot_lines(tf1_color, tf1_mid_color, high1, low1, mid1, start1, inRange1, newBar1, use_tf1_mid, bullishTouch1, bearishTouch1, 'M15')
-    bullishTouch1 := array.get(plot_results_1, 0)
-    bearishTouch1 := array.get(plot_results_1, 1)
+    [bullishTouch1, bearishTouch1] = plot_lines(tf1_color, tf1_mid_color, high1, low1, mid1, start1, inRange1, newBar1, use_tf1_mid, bullishTouch1, bearishTouch1, 'M15')
 if use_tf2
-    plot_results_2 = plot_lines(tf2_color, tf2_mid_color, high2, low2, mid2, start2, inRange2, newBar2, use_tf2_mid, bullishTouch2, bearishTouch2, 'H1')
-    bullishTouch2 := array.get(plot_results_2, 0)
-    bearishTouch2 := array.get(plot_results_2, 1)
+    [bullishTouch2, bearishTouch2] = plot_lines(tf2_color, tf2_mid_color, high2, low2, mid2, start2, inRange2, newBar2, use_tf2_mid, bullishTouch2, bearishTouch2, 'H1')
 if use_tf3
-    plot_results_3 = plot_lines(tf3_color, tf3_mid_color, high3, low3, mid3, start3, inRange3, newBar3, use_tf3_mid, bullishTouch3, bearishTouch3, 'H2')
-    bullishTouch3 := array.get(plot_results_3, 0)
-    bearishTouch3 := array.get(plot_results_3, 1)
+    [bullishTouch3, bearishTouch3] = plot_lines(tf3_color, tf3_mid_color, high3, low3, mid3, start3, inRange3, newBar3, use_tf3_mid, bullishTouch3, bearishTouch3, 'H2')
 if use_tf4
-    plot_results_4 = plot_lines(tf4_color, tf4_mid_color, high4, low4, mid4, start4, inRange4, newBar4, use_tf4_mid, bullishTouch4, bearishTouch4, 'H4')
-    bullishTouch4 := array.get(plot_results_4, 0)
-    bearishTouch4 := array.get(plot_results_4, 1)
+    [bullishTouch4, bearishTouch4] = plot_lines(tf4_color, tf4_mid_color, high4, low4, mid4, start4, inRange4, newBar4, use_tf4_mid, bullishTouch4, bearishTouch4, 'H4')
 if use_tf5
-    plot_results_5 = plot_lines(tf5_color, tf5_mid_color, high5, low5, mid5, start5, inRange5, newBar5, use_tf5_mid, bullishTouch5, bearishTouch5, 'D')
-    bullishTouch5 := array.get(plot_results_5, 0)
-    bearishTouch5 := array.get(plot_results_5, 1)
+    [bullishTouch5, bearishTouch5] = plot_lines(tf5_color, tf5_mid_color, high5, low5, mid5, start5, inRange5, newBar5, use_tf5_mid, bullishTouch5, bearishTouch5, 'D')
 if use_tf6
-    plot_results_6 = plot_lines(tf6_color, tf6_mid_color, high6, low6, mid6, start6, inRange6, newBar6, use_tf6_mid, bullishTouch6, bearishTouch6, 'W')
-    bullishTouch6 := array.get(plot_results_6, 0)
-    bearishTouch6 := array.get(plot_results_6, 1)
+    [bullishTouch6, bearishTouch6] = plot_lines(tf6_color, tf6_mid_color, high6, low6, mid6, start6, inRange6, newBar6, use_tf6_mid, bullishTouch6, bearishTouch6, 'W')
 if use_tf7
-    plot_results_7 = plot_lines(tf7_color, tf7_mid_color, high7, low7, mid7, start7, inRange7, newBar7, use_tf7_mid, bullishTouch7, bearishTouch7, 'M')
-    bullishTouch7 := array.get(plot_results_7, 0)
-    bearishTouch7 := array.get(plot_results_7, 1)
+    [bullishTouch7, bearishTouch7] = plot_lines(tf7_color, tf7_mid_color, high7, low7, mid7, start7, inRange7, newBar7, use_tf7_mid, bullishTouch7, bearishTouch7, 'M')
 
 // Function to convert string input to label style (UNCHANGED)
 getLabelStyle(styleString) =>
@@ -876,7 +798,7 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
             else
                 trend_status := "⚠️[" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"  // Weak/conflicting signals
             
-            enhanced_label = 'BUY-' + tfText + trend_status
+                         enhanced_label = 'BUY-' + tfText + str.tostring(trend_status)
             manageLabelCount(enhanced_label, low, bullishBgColor, bullishTextColor, getLabelStyle(bullishLabelStyle), getLabelSize(labelSize))
     
     if show and bearishTouch and volume_ok
@@ -897,7 +819,7 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
             else
                 trend_status := "⚠️[" + str.tostring(bear_votes) + "v" + str.tostring(bull_votes) + "]"  // Weak/conflicting signals
             
-            enhanced_label = 'SELL-' + tfText + trend_status
+                         enhanced_label = 'SELL-' + tfText + str.tostring(trend_status)
             manageLabelCount(enhanced_label, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
 
 // Apply ENHANCED labels for each timeframe
@@ -1210,10 +1132,7 @@ var t = 0
 var fvg_records = array.new<fvg>(0)
 var fvg_areas = array.new<box>(0)
 
-fvg_data = request.security(syminfo.tickerid, tf, detect())
-bull_fvg = array.get(fvg_data, 0)
-bear_fvg = array.get(fvg_data, 1)
-new_fvg = array.get(fvg_data, 2)
+[bull_fvg, bear_fvg, new_fvg] = request.security(syminfo.tickerid, tf, detect())
 
 //Bull FVG's
 if bull_fvg and new_fvg.t != t
@@ -1502,23 +1421,14 @@ findRecentSequence(bull) =>
 if barstate.isconfirmed
     // Update liquidity levels
     manageLiquidityLevels()
-    cisd_sweep_data = checkLiquiditySweep()
-    bslSwept = array.get(cisd_sweep_data, 0)
-    sslSwept = array.get(cisd_sweep_data, 1)
+    [bslSwept, sslSwept] = checkLiquiditySweep()
     
     bool bull = close > open
     bool bear = close < open
 
     // Track consecutive candles
-    bull_seq_data = findRecentSequence(true)
-    bullCount = array.get(bull_seq_data, 0)
-    bullFirstOpen = array.get(bull_seq_data, 1)
-    bullFirstIndex = array.get(bull_seq_data, 2)
-    
-    bear_seq_data = findRecentSequence(false)
-    bearCount = array.get(bear_seq_data, 0)
-    bearFirstOpen = array.get(bear_seq_data, 1)
-    bearFirstIndex = array.get(bear_seq_data, 2)
+    [bullCount, bullFirstOpen, bullFirstIndex] = findRecentSequence(true)
+    [bearCount, bearFirstOpen, bearFirstIndex] = findRecentSequence(false)
 
     // When BSL is swept, look for most recent bullish sequence
     if bslSwept and not waitingForDisplacement
@@ -1819,13 +1729,8 @@ method Reorder(Helper helper, array<Candle> candles) =>
 method Monitor(Helper helper, CandleSet candleSet) =>
     helper.name := 'Monitor'
     
-    if candleSet.settings.show
-        htf_data = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
-        htf_open = array.get(htf_data, 0)
-        htf_high = array.get(htf_data, 1)
-        htf_low = array.get(htf_data, 2)
-        htf_close = array.get(htf_data, 3)
-        htf_time = array.get(htf_data, 4)
+             if candleSet.settings.show
+        [htf_open, htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
         
         if ta.change(htf_time)
             Candle c = Candle.new()
@@ -1855,13 +1760,8 @@ method Monitor(Helper helper, CandleSet candleSet) =>
 method Update(Helper helper, CandleSet candleSet) =>
     helper.name := 'Update'
     
-    if candleSet.settings.show and array.size(candleSet.candles) > 0
-        htf_data = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
-        htf_open = array.get(htf_data, 0)
-        htf_high = array.get(htf_data, 1)
-        htf_low = array.get(htf_data, 2)
-        htf_close = array.get(htf_data, 3)
-        htf_time = array.get(htf_data, 4)
+             if candleSet.settings.show and array.size(candleSet.candles) > 0
+        [htf_open, htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
         
         Candle c = array.get(candleSet.candles, 0)
         c.c := htf_close
