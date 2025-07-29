@@ -2,7 +2,7 @@
 // © Zidanola
 
 //@version=6
-indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + EMAs + MULTI-CONFIRMATION SYSTEM', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + 3x MACD + RSI DIVERGENCE + BOLLINGER BANDS', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
 
 //==============================================================================
 // ENHANCED SIGNAL FILTERING SETTINGS (Multiple Confirmation Methods)
@@ -16,12 +16,13 @@ enable_confirmation = input.bool(false, "Enable Signal Confirmation", group=g_FI
 min_signal_strength = input.int(50, "Minimum Signal Strength (%)", minval=30, maxval=90, group=g_FILTER)
 
 var g_TREND = "📈 Multi-Confirmation Trend Detection"
-use_rsi_trend = input.bool(true, "Use RSI for Early Trend Detection", group=g_TREND, tooltip="RSI helps detect momentum changes early")
-use_macd_trend = input.bool(true, "Use MACD for Trend Confirmation", group=g_TREND, tooltip="MACD crossovers detect trend changes")
+use_rsi_divergence = input.bool(true, "Use RSI Divergence Detection", group=g_TREND, tooltip="RSI divergence helps detect trend reversals")
+use_macd_trend = input.bool(true, "Use Triple MACD for Trend Confirmation", group=g_TREND, tooltip="3 MACD systems for comprehensive trend analysis")
 use_price_action = input.bool(true, "Use Price Action Signals", group=g_TREND, tooltip="Higher highs/lows and breakouts")
 use_volume_trend = input.bool(true, "Use Volume Trend Analysis", group=g_TREND, tooltip="Volume confirms trend strength")
 use_structure_analysis = input.bool(true, "Use Market Structure Analysis", group=g_TREND, tooltip="Analyzes market structure for trend confirmation")
 use_momentum_divergence = input.bool(true, "Use Momentum Divergence", group=g_TREND, tooltip="Detects trend exhaustion via divergence")
+use_bollinger_bands = input.bool(true, "Use Bollinger Bands Analysis", group=g_TREND, tooltip="BB squeeze and breakout detection")
 trend_sensitivity = input.string("Medium", "Trend Detection Sensitivity", options=["High", "Medium", "Low"], group=g_TREND, tooltip="High=Early signals, Low=Confirmed signals")
 
 // 🎯 MULTI-CONFIRMATION REVERSAL DETECTION SETTINGS (ENHANCED)
@@ -41,7 +42,7 @@ atr_value = ta.atr(14)
 //==============================================================================
 
 // Inputs for Breakout Detection
-length = input(14, "Lookback Length", group="Breakout Detection")
+length = input(14, "Lookbook Length", group="Breakout Detection")
 threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
 
 // Calculate candle range
@@ -63,45 +64,114 @@ bgcolor(bullishBreakout ? color.new(color.green, 80) : bearishBreakout ? color.n
 // SECTION 2: MULTI-CONFIRMATION TREND ANALYSIS SYSTEM
 //==============================================================================
 
-// Traditional EMAs (Just one component, not the main dependency)
-ema20 = ta.ema(close, 20)
-ema8 = ta.ema(close, 8)
-ema100 = ta.ema(close, 100)
-ema200 = ta.ema(close, 200)
+// 🚀 METHOD 1: RSI DIVERGENCE DETECTION
+rsi_length = input.int(14, "RSI Length", minval=2, group="RSI Divergence")
+rsi_source = input.source(close, "RSI Source", group="RSI Divergence")
+rsi_lookback = input.int(5, "Divergence Lookback", minval=2, maxval=20, group="RSI Divergence")
 
-// Traditional EMA trend (just one vote, not decisive)
-ema_bullish_trend = ema20 > ema8 and ema8 > ema100 and ema100 > ema200
-ema_bearish_trend = ema20 < ema8 and ema8 < ema100 and ema100 < ema200
+rsi = ta.rsi(rsi_source, rsi_length)
 
-// 🚀 METHOD 1: RSI-BASED TREND DETECTION
-rsi = ta.rsi(close, 14)
-rsi_bullish = rsi > 50 and rsi > rsi[1] and rsi[1] > rsi[2]
-rsi_bearish = rsi < 50 and rsi < rsi[1] and rsi[1] < rsi[2]
-rsi_oversold_bounce = rsi < 30 and rsi > rsi[1]
-rsi_overbought_drop = rsi > 70 and rsi < rsi[1]
+// Pivot detection for divergence
+pivot_left = input.int(5, "Pivot Left", minval=1, group="RSI Divergence")
+pivot_right = input.int(5, "Pivot Right", minval=1, group="RSI Divergence")
 
-// 📈 METHOD 2: DUAL MACD-BASED TREND DETECTION
-// MACD 1: Fast (13, 52, 18)
-[macd_line_1, signal_line_1, macd_histogram_1] = ta.macd(close, 13, 52, 18)
+// Find pivots
+ph = ta.pivothigh(rsi_lookback, rsi_lookback)
+pl = ta.pivotlow(rsi_lookback, rsi_lookback)
+ph_price = ta.pivothigh(high, rsi_lookback, rsi_lookback)
+pl_price = ta.pivotlow(low, rsi_lookback, rsi_lookback)
+
+// Divergence detection
+var float last_ph_rsi = na
+var float last_ph_price = na
+var int last_ph_bar = na
+var float last_pl_rsi = na
+var float last_pl_price = na
+var int last_pl_bar = na
+
+// Bullish divergence (price makes lower low, RSI makes higher low)
+bullish_divergence = false
+if not na(pl) and not na(pl_price)
+    if not na(last_pl_rsi) and not na(last_pl_price)
+        if pl_price < last_pl_price and pl > last_pl_rsi and bar_index - last_pl_bar <= 50
+            bullish_divergence := true
+    last_pl_rsi := pl
+    last_pl_price := pl_price
+    last_pl_bar := bar_index
+
+// Bearish divergence (price makes higher high, RSI makes lower high)
+bearish_divergence = false
+if not na(ph) and not na(ph_price)
+    if not na(last_ph_rsi) and not na(last_ph_price)
+        if ph_price > last_ph_price and ph < last_ph_rsi and bar_index - last_ph_bar <= 50
+            bearish_divergence := true
+    last_ph_rsi := ph
+    last_ph_price := ph_price
+    last_ph_bar := bar_index
+
+// RSI-based signals
+rsi_bullish = bullish_divergence or (rsi < 30 and rsi > rsi[1])
+rsi_bearish = bearish_divergence or (rsi > 70 and rsi < rsi[1])
+
+// 📈 METHOD 2: TRIPLE MACD SYSTEM
+// MACD 1: Fast (13, 7, 21)
+[macd_line_1, signal_line_1, macd_histogram_1] = ta.macd(close, 13, 7, 21)
 macd_1_bullish = macd_line_1 > signal_line_1 and macd_line_1 > macd_line_1[1]
 macd_1_bearish = macd_line_1 < signal_line_1 and macd_line_1 < macd_line_1[1]
 macd_1_bullish_cross = ta.crossover(macd_line_1, signal_line_1)
 macd_1_bearish_cross = ta.crossunder(macd_line_1, signal_line_1)
 
-// MACD 2: Slow (52, 208, 72)
-[macd_line_2, signal_line_2, macd_histogram_2] = ta.macd(close, 52, 208, 72)
+// MACD 2: Medium (13, 52, 18)
+[macd_line_2, signal_line_2, macd_histogram_2] = ta.macd(close, 13, 52, 18)
 macd_2_bullish = macd_line_2 > signal_line_2 and macd_line_2 > macd_line_2[1]
 macd_2_bearish = macd_line_2 < signal_line_2 and macd_line_2 < macd_line_2[1]
 macd_2_bullish_cross = ta.crossover(macd_line_2, signal_line_2)
 macd_2_bearish_cross = ta.crossunder(macd_line_2, signal_line_2)
 
-// Combined MACD signals
-macd_bullish = (macd_1_bullish or macd_1_bullish_cross) and (macd_2_bullish or macd_2_bullish_cross)
-macd_bearish = (macd_1_bearish or macd_1_bearish_cross) and (macd_2_bearish or macd_2_bearish_cross)
-macd_bullish_cross = macd_1_bullish_cross or macd_2_bullish_cross
-macd_bearish_cross = macd_1_bearish_cross or macd_2_bearish_cross
+// MACD 3: Slow (52, 208, 72)
+[macd_line_3, signal_line_3, macd_histogram_3] = ta.macd(close, 52, 208, 72)
+macd_3_bullish = macd_line_3 > signal_line_3 and macd_line_3 > macd_line_3[1]
+macd_3_bearish = macd_line_3 < signal_line_3 and macd_line_3 < macd_line_3[1]
+macd_3_bullish_cross = ta.crossover(macd_line_3, signal_line_3)
+macd_3_bearish_cross = ta.crossunder(macd_line_3, signal_line_3)
 
-// 🏗️ METHOD 3: MARKET STRUCTURE ANALYSIS (NEW - ENHANCED)
+// Combined MACD signals (require at least 2 out of 3 to agree)
+macd_bull_count = (macd_1_bullish or macd_1_bullish_cross ? 1 : 0) + (macd_2_bullish or macd_2_bullish_cross ? 1 : 0) + (macd_3_bullish or macd_3_bullish_cross ? 1 : 0)
+macd_bear_count = (macd_1_bearish or macd_1_bearish_cross ? 1 : 0) + (macd_2_bearish or macd_2_bearish_cross ? 1 : 0) + (macd_3_bearish or macd_3_bearish_cross ? 1 : 0)
+
+macd_bullish = macd_bull_count >= 2
+macd_bearish = macd_bear_count >= 2
+macd_bullish_cross = macd_1_bullish_cross or macd_2_bullish_cross or macd_3_bullish_cross
+macd_bearish_cross = macd_1_bearish_cross or macd_2_bearish_cross or macd_3_bearish_cross
+
+// 📊 METHOD 3: BOLLINGER BANDS ANALYSIS
+bb_length = input.int(20, "BB Length", minval=1, group="Bollinger Bands")
+bb_mult = input.float(2.0, "BB Multiplier", minval=0.1, step=0.1, group="Bollinger Bands")
+bb_source = input.source(close, "BB Source", group="Bollinger Bands")
+
+bb_basis = ta.sma(bb_source, bb_length)
+bb_dev = bb_mult * ta.stdev(bb_source, bb_length)
+bb_upper = bb_basis + bb_dev
+bb_lower = bb_basis - bb_dev
+
+// Plot Bollinger Bands
+plot(bb_upper, title="BB Upper", color=color.blue, linewidth=1)
+plot(bb_basis, title="BB Basis", color=color.orange, linewidth=1)
+plot(bb_lower, title="BB Lower", color=color.blue, linewidth=1)
+fill(plot(bb_upper), plot(bb_lower), color=color.new(color.blue, 95), title="BB Background")
+
+// BB Analysis
+bb_width = bb_upper - bb_lower
+bb_width_avg = ta.sma(bb_width, 20)
+bb_squeeze = bb_width < bb_width_avg * 0.8  // Squeeze when width is 80% of average
+bb_expansion = bb_width > bb_width_avg * 1.2  // Expansion when width is 120% of average
+
+bb_bullish = (close > bb_upper) or (close > bb_basis and close[1] <= bb_basis and bb_expansion)
+bb_bearish = (close < bb_lower) or (close < bb_basis and close[1] >= bb_basis and bb_expansion)
+bb_squeeze_breakout_bull = bb_squeeze[1] and not bb_squeeze and close > bb_basis
+bb_squeeze_breakout_bear = bb_squeeze[1] and not bb_squeeze and close < bb_basis
+
+// 🏗️ METHOD 4: MARKET STRUCTURE ANALYSIS (ENHANCED)
 calculate_market_structure() =>
     // Higher Highs and Higher Lows analysis (lookback periods)
     short_lookback = 5
@@ -126,42 +196,38 @@ calculate_market_structure() =>
     lh_long = high < ta.highest(high[1], long_lookback)
     ll_long = low < ta.lowest(low[1], long_lookback)
     
-    // Structure strength scoring
+    // Structure scoring system
     bullish_structure_score = 0
     bearish_structure_score = 0
     
     // Short-term structure votes
-    if hh_short or hl_short
+    if hh_short and hl_short
         bullish_structure_score += 1
-    if lh_short or ll_short
+    if lh_short and ll_short
         bearish_structure_score += 1
-    
-    // Medium-term structure votes (weighted more)
-    if hh_medium or hl_medium
+        
+    // Medium-term structure votes  
+    if hh_medium and hl_medium
         bullish_structure_score += 2
-    if lh_medium or ll_medium
+    if lh_medium and ll_medium
         bearish_structure_score += 2
-    
-    // Long-term structure votes (weighted most)
-    if hh_long or hl_long
+        
+    // Long-term structure votes
+    if hh_long and hl_long
         bullish_structure_score += 3
-    if lh_long or ll_long
+    if lh_long and ll_long
         bearish_structure_score += 3
     
-    // Structure trend determination
-    structure_bullish = bullish_structure_score > bearish_structure_score and bullish_structure_score >= 3
-    structure_bearish = bearish_structure_score > bullish_structure_score and bearish_structure_score >= 3
+    // Structure signals
+    structure_bullish = bullish_structure_score >= 3
+    structure_bearish = bearish_structure_score >= 3
     
-    // Breakout confirmation
-    resistance_break = close > ta.highest(high[1], 10)
-    support_break = close < ta.lowest(low[1], 10)
-    
-    [structure_bullish, structure_bearish, resistance_break, support_break, bullish_structure_score, bearish_structure_score]
+    [structure_bullish, structure_bearish, bullish_structure_score, bearish_structure_score]
 
-[structure_bullish, structure_bearish, resistance_break, support_break, bull_structure_score, bear_structure_score] = calculate_market_structure()
+[structure_bullish, structure_bearish, bull_structure_score, bear_structure_score] = calculate_market_structure()
 
-// 📊 METHOD 4: ADVANCED VOLUME PROFILE ANALYSIS (NEW)
-calculate_volume_profile() =>
+// 📊 METHOD 5: VOLUME ANALYSIS
+calculate_volume_analysis() =>
     // Volume trend analysis
     vol_sma_short = ta.sma(volume, 10)
     vol_sma_long = ta.sma(volume, 30)
@@ -181,9 +247,6 @@ calculate_volume_profile() =>
     volume_confirms_bull = up_vol_avg > down_vol_avg and volume_trend_up
     volume_confirms_bear = down_vol_avg > up_vol_avg and volume_trend_down
     
-    // Volume breakout confirmation
-    volume_breakout = volume > ta.sma(volume, 20) * 1.5
-    
     // On-Balance Volume (OBV) trend
     obv = ta.cum(close > close[1] ? volume : close < close[1] ? -volume : 0)
     obv_trend_bull = obv > ta.sma(obv, 20)
@@ -192,155 +255,52 @@ calculate_volume_profile() =>
     volume_bullish = volume_confirms_bull and obv_trend_bull
     volume_bearish = volume_confirms_bear and obv_trend_bear
     
-    [volume_bullish, volume_bearish, volume_breakout, obv_trend_bull, obv_trend_bear]
+    [volume_bullish, volume_bearish, obv_trend_bull, obv_trend_bear]
 
-[volume_bullish, volume_bearish, volume_breakout, obv_bull, obv_bear] = calculate_volume_profile()
+[volume_bullish, volume_bearish, obv_bull, obv_bear] = calculate_volume_analysis()
 
-// ⚡ METHOD 5: MOMENTUM DIVERGENCE ANALYSIS (NEW)
-calculate_momentum_divergence() =>
-    // Multiple momentum indicators
-    roc = ta.roc(close, 14)  // Rate of Change
-    mom = ta.mom(close, 14)  // Momentum
-    stoch_k = ta.stoch(close, high, low, 14)  // Stochastic
-    
-    // Price swing analysis
-    price_swing_high = ta.pivothigh(high, 5, 5)
-    price_swing_low = ta.pivotlow(low, 5, 5)
-    
-    // Momentum at swing points
-    var float last_high_price = na
-    var float last_high_roc = na
-    var float last_low_price = na
-    var float last_low_roc = na
-    
-    if not na(price_swing_high)
-        last_high_price := price_swing_high
-        last_high_roc := roc
-    
-    if not na(price_swing_low)
-        last_low_price := price_swing_low
-        last_low_roc := roc
-    
-    // Divergence detection
-    bullish_divergence = not na(last_low_price) and low < last_low_price and roc > last_low_roc
-    bearish_divergence = not na(last_high_price) and high > last_high_price and roc < last_high_roc
-    
-    // Momentum trend
-    momentum_bullish = roc > 0 and mom > 0 and stoch_k > 50
-    momentum_bearish = roc < 0 and mom < 0 and stoch_k < 50
-    
-    [momentum_bullish, momentum_bearish, bullish_divergence, bearish_divergence]
-
-[momentum_bullish, momentum_bearish, bullish_divergence, bearish_divergence] = calculate_momentum_divergence()
-
-// 📐 METHOD 6: MULTI-TIMEFRAME PRICE ACTION (NEW)
-calculate_htf_price_action() =>
-    // Get higher timeframe data (not just EMAs)
-    [htf_daily_close, htf_daily_high, htf_daily_low, htf_daily_open] = request.security(syminfo.tickerid, "1D", [close, high, low, open], barmerge.gaps_off, barmerge.lookahead_off)
-    [htf_weekly_close, htf_weekly_high, htf_weekly_low] = request.security(syminfo.tickerid, "1W", [close, high, low], barmerge.gaps_off, barmerge.lookahead_off)
-    [htf_4h_close, htf_4h_high, htf_4h_low] = request.security(syminfo.tickerid, "240", [close, high, low], barmerge.gaps_off, barmerge.lookahead_off)
-    
-    // HTF candle analysis (not EMA dependent)
-    daily_bullish_candle = htf_daily_close > htf_daily_open and (htf_daily_close - htf_daily_open) > (htf_daily_high - htf_daily_low) * 0.6
-    daily_bearish_candle = htf_daily_close < htf_daily_open and (htf_daily_open - htf_daily_close) > (htf_daily_high - htf_daily_low) * 0.6
-    
-    // HTF trend based on price action (not EMAs)
-    daily_uptrend = htf_daily_close > htf_daily_close[1] and htf_daily_close[1] > htf_daily_close[2]
-    daily_downtrend = htf_daily_close < htf_daily_close[1] and htf_daily_close[1] < htf_daily_close[2]
-    
-    weekly_uptrend = htf_weekly_close > htf_weekly_close[1]
-    weekly_downtrend = htf_weekly_close < htf_weekly_close[1]
-    
-    // HTF support/resistance levels
-    daily_above_mid = htf_daily_close > (htf_daily_high + htf_daily_low) / 2
-    daily_below_mid = htf_daily_close < (htf_daily_high + htf_daily_low) / 2
-    
-    // HTF trend strength (consecutive closes)
-    var int daily_bull_consecutive = 0
-    var int daily_bear_consecutive = 0
-    
-    if daily_uptrend
-        daily_bull_consecutive := daily_bull_consecutive + 1
-        daily_bear_consecutive := 0
-    else if daily_downtrend
-        daily_bear_consecutive := daily_bear_consecutive + 1
-        daily_bull_consecutive := 0
-    else
-        daily_bull_consecutive := 0
-        daily_bear_consecutive := 0
-    
-    // HTF trend maturity (for reversal detection)
-    htf_mature_bull = daily_bull_consecutive >= htf_trend_lookback
-    htf_mature_bear = daily_bear_consecutive >= htf_trend_lookback
-    
-    // HTF reversal signals (price action based)
-    htf_reversal_to_bear = htf_mature_bull and daily_bearish_candle and daily_below_mid
-    htf_reversal_to_bull = htf_mature_bear and daily_bullish_candle and daily_above_mid
-    
-    // HTF continuation signals
-    htf_continuation_bull = daily_uptrend and not htf_mature_bull and daily_above_mid
-    htf_continuation_bear = daily_downtrend and not htf_mature_bear and daily_below_mid
-    
-    [daily_uptrend, daily_downtrend, weekly_uptrend, weekly_downtrend, htf_reversal_to_bull, htf_reversal_to_bear, htf_continuation_bull, htf_continuation_bear, daily_bull_consecutive, daily_bear_consecutive]
-
-[daily_uptrend, daily_downtrend, weekly_uptrend, weekly_downtrend, htf_reversal_to_bull, htf_reversal_to_bear, htf_continuation_bull, htf_continuation_bear, daily_bull_count, daily_bear_count] = calculate_htf_price_action()
-
-// 🎯 MULTI-CONFIRMATION CONSENSUS SYSTEM (REPLACES EMA DEPENDENCY)
-
-// Count confirmation votes from each method
+// 🎯 MULTI-CONFIRMATION CONSENSUS SYSTEM
 calculate_trend_consensus() =>
     bullish_votes = 0
     bearish_votes = 0
     
-    // Method 1: RSI votes
-    if use_rsi_trend
-        if rsi_bullish or rsi_oversold_bounce
+    // Method 1: RSI Divergence votes
+    if use_rsi_divergence
+        if rsi_bullish
             bullish_votes += 1
-        if rsi_bearish or rsi_overbought_drop
+        if rsi_bearish
             bearish_votes += 1
     
-    // Method 2: MACD votes
+    // Method 2: Triple MACD votes
     if use_macd_trend
         if macd_bullish or macd_bullish_cross
             bullish_votes += 1
         if macd_bearish or macd_bearish_cross
             bearish_votes += 1
     
-    // Method 3: Market Structure votes
-    if use_structure_analysis
-        if structure_bullish or resistance_break
+    // Method 3: Bollinger Bands votes
+    if use_bollinger_bands
+        if bb_bullish or bb_squeeze_breakout_bull
             bullish_votes += 1
-        if structure_bearish or support_break
+        if bb_bearish or bb_squeeze_breakout_bear
             bearish_votes += 1
     
-    // Method 4: Volume Profile votes
+    // Method 4: Market Structure votes
+    if use_structure_analysis
+        if structure_bullish
+            bullish_votes += 1
+        if structure_bearish
+            bearish_votes += 1
+    
+    // Method 5: Volume Analysis votes
     if use_volume_trend
         if volume_bullish
             bullish_votes += 1
         if volume_bearish
             bearish_votes += 1
     
-    // Method 5: Momentum Divergence votes
-    if use_momentum_divergence
-        if momentum_bullish or bullish_divergence
-            bullish_votes += 1
-        if momentum_bearish or bearish_divergence
-            bearish_votes += 1
-    
-    // Method 6: HTF Price Action votes (strongest weight)
-    if daily_uptrend and weekly_uptrend
-        bullish_votes += 2  // Double weight for HTF alignment
-    if daily_downtrend and weekly_downtrend
-        bearish_votes += 2  // Double weight for HTF alignment
-    
-    // EMA gets only 1 vote (not decisive)
-    if ema_bullish_trend
-        bullish_votes += 1
-    if ema_bearish_trend
-        bearish_votes += 1
-    
     // Consensus determination
-    total_possible_votes = 8  // 6 methods + HTF double weight + EMA
+    total_possible_votes = 5
     consensus_threshold = math.max(min_confirmation_methods, 3)
     
     strong_bullish_consensus = bullish_votes >= consensus_threshold and bullish_votes > bearish_votes
@@ -354,78 +314,26 @@ calculate_trend_consensus() =>
 
 [bullish_consensus, bearish_consensus, bull_votes, bear_votes, trend_strength] = calculate_trend_consensus()
 
-// 🔄 MULTI-CONFIRMATION REVERSAL DETECTION (ENHANCED)
-
-// True reversal detection (requires multiple confirmations)
-true_bullish_reversal = bullish_consensus and not bullish_consensus[1] and 
-                       htf_reversal_to_bull and 
-                       (bullish_divergence or rsi_oversold_bounce) and
-                       bull_votes >= min_confirmation_methods
-
-true_bearish_reversal = bearish_consensus and not bearish_consensus[1] and 
-                       htf_reversal_to_bear and 
-                       (bearish_divergence or rsi_overbought_drop) and
-                       bear_votes >= min_confirmation_methods
-
-// Continuation detection (multiple confirmations of ongoing trend)
-bullish_continuation = bullish_consensus and htf_continuation_bull and bull_votes >= 4
-bearish_continuation = bearish_consensus and htf_continuation_bear and bear_votes >= 4
-
-// Final trend decisions (consensus-based, not EMA-dependent)
-bullish_trend = bullish_consensus
-bearish_trend = bearish_consensus
-sideways_trend = not bullish_consensus and not bearish_consensus
-
-// Strong trend detection (high consensus)
-strong_bullish_trend = bullish_consensus and bull_votes >= 6 and trend_strength >= 70
-strong_bearish_trend = bearish_consensus and bear_votes >= 6 and trend_strength >= 70
-
-// New trend beginning detection (proper reversal confirmation)
-new_bullish_trend = true_bullish_reversal
-new_bearish_trend = true_bearish_reversal
-
-// Enhanced Function to check if signal aligns with trend (MULTI-CONFIRMATION)
+// Enhanced Function to check if signal aligns with trend
 trend_aligned_signal(is_bullish_signal) =>
     if not enable_trend_filter
         true
     else if is_bullish_signal
-        // For bullish CRT signals: require consensus agreement
-        if enable_reversal_filter
-            bullish_trend or true_bullish_reversal or (bull_votes >= 3 and not bearish_consensus)
-        else
-            bullish_trend or new_bullish_trend or (bull_votes >= 2)
+        bullish_consensus or (bull_votes >= 2)
     else
-        // For bearish CRT signals: require consensus agreement
-        if enable_reversal_filter
-            bearish_trend or true_bearish_reversal or (bear_votes >= 3 and not bullish_consensus)
-        else
-            bearish_trend or new_bearish_trend or (bear_votes >= 2)
+        bearish_consensus or (bear_votes >= 2)
 
-// Dynamic Colors Based on Consensus (not just EMA slope)
-color20 = bullish_consensus ? color.lime : bearish_consensus ? color.red : color.gray
-color8 = ema8 > ema8[1] ? color.orange : color.maroon
-color100 = ema100 > ema100[1] ? color.aqua : color.navy
-color200 = ema200 > ema200[1] ? color.blue : color.gray
-
-// Plot EMAs (now just visual aids, not decision makers)
-plot(ema20, title="EMA 20", color=color20, linewidth=1)
-plot(ema8, title="EMA 8", color=color8, linewidth=1)
-plot(ema100, title="EMA 100", color=color100, linewidth=1)
-plot(ema200, title="EMA 200", color=color200, linewidth=1)
-
-// Enhanced Labels with Multi-Confirmation Info
-consensus_text_suffix = " [" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"
-plotshape(bar_index == ta.highest(bar_index, 1) ? ema20 : na, location=location.absolute, style=shape.labelup, text="EMA 20", color=color.new(color20, 80), textcolor=color.white)
-plotshape(bar_index == ta.highest(bar_index, 1) ? ema8 : na, location=location.absolute, style=shape.labelup, text="EMA 8", color=color.new(color8, 80), textcolor=color.white)
-plotshape(bar_index == ta.highest(bar_index, 1) ? ema100 : na, location=location.absolute, style=shape.labelup, text="EMA 100", color=color.new(color100, 80), textcolor=color.white)
-plotshape(bar_index == ta.highest(bar_index, 1) ? ema200 : na, location=location.absolute, style=shape.labelup, text="EMA 200", color=color.new(color200, 80), textcolor=color.white)
+// Final trend decisions
+bullish_trend = bullish_consensus
+bearish_trend = bearish_consensus
+sideways_trend = not bullish_consensus and not bearish_consensus
 
 //==============================================================================
 // SECTION 3: FAIR VALUE GAP (FVG) DETECTION - SESSION BASED
 //==============================================================================
 
 // Define session times
-sess = input.session("0932-1600", title="Session", tooltip="A 9:30 FVG can start at 9:30 but takes 3 candles to form, thus the 9:32 start time for the session. Adjust accordingly.", group="FVG Settings")
+sess = input.session("0932-1600", title="Session", tooltip="A 9:30 FVG can start at 9:30 but takes 3 candles to form", group="FVG Settings")
 // User input for box color
 boxColorUp = input.color(color.new(color.green, 80), "Box Color Up", group="FVG Settings")
 boxColorDn = input.color(color.new(color.red, 80), "Box Color Down", group="FVG Settings")
@@ -454,7 +362,6 @@ boxColor = color.new(color.gray, 80)
 is_target_time = (hour(time, timezone) == 8 and minute == 30) // CME servers in Chicago (CST). 9:30 EST = 8:30 CST
 lowest_so_far = ta.lowest(50) - 5*ta.atr(14)
 
-// Calculations
 // Get day of week in text
 day_of_week_text() =>
      dayofweek == dayofweek.monday    ? "Mon" :
@@ -541,6 +448,94 @@ if is_target_time
 if in_session(sess)
     box.set_right(ny_open_label, bar_index + 55)
     line.set_x2(ny_open_price, bar_index + 20)
+
+//==============================================================================
+// MULTI-CONFIRMATION ANALYSIS DASHBOARD
+//==============================================================================
+
+var g_MULTI_DASHBOARD = "🎯 Multi-Confirmation Dashboard"
+show_multi_dashboard = input.bool(true, "Show Multi-Confirmation Dashboard", group=g_MULTI_DASHBOARD)
+
+if show_multi_dashboard and barstate.islast
+    var table multi_table = table.new(position.top_right, 4, 7, bgcolor=color.new(color.black, 85), border_width=1)
+    
+    // Header
+    table.cell(multi_table, 0, 0, "🎯 MULTI-CONFIRMATION", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(multi_table, 1, 0, "BULLISH", text_color=color.lime, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(multi_table, 2, 0, "BEARISH", text_color=color.red, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(multi_table, 3, 0, "STATUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    
+    // RSI Divergence Analysis
+    table.cell(multi_table, 0, 1, "⚡ RSI DIV", text_color=color.white, text_size=size.small)
+    rsi_bull_text = rsi_bullish ? "✅" : "❌"
+    rsi_bear_text = rsi_bearish ? "✅" : "❌"
+    rsi_status = bullish_divergence ? "BULL DIV" : bearish_divergence ? "BEAR DIV" : rsi > 70 ? "OB" : rsi < 30 ? "OS" : "MID"
+    table.cell(multi_table, 1, 1, rsi_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 1, rsi_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 1, rsi_status, text_color=color.white, text_size=size.small)
+    
+    // Triple MACD Analysis
+    table.cell(multi_table, 0, 2, "📈 3x MACD", text_color=color.white, text_size=size.small)
+    macd_bull_text = (macd_bullish or macd_bullish_cross) ? "✅" : "❌"
+    macd_bear_text = (macd_bearish or macd_bearish_cross) ? "✅" : "❌"
+    macd_status = str.tostring(macd_bull_count) + ":" + str.tostring(macd_bear_count)
+    table.cell(multi_table, 1, 2, macd_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 2, macd_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 2, macd_status, text_color=color.white, text_size=size.small)
+    
+    // Bollinger Bands Analysis
+    table.cell(multi_table, 0, 3, "📊 BB", text_color=color.white, text_size=size.small)
+    bb_bull_text = (bb_bullish or bb_squeeze_breakout_bull) ? "✅" : "❌"
+    bb_bear_text = (bb_bearish or bb_squeeze_breakout_bear) ? "✅" : "❌"
+    bb_status = bb_squeeze ? "SQUEEZE" : bb_expansion ? "EXPAND" : "NORMAL"
+    table.cell(multi_table, 1, 3, bb_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 3, bb_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 3, bb_status, text_color=color.white, text_size=size.small)
+    
+    // Market Structure Analysis
+    table.cell(multi_table, 0, 4, "🏗️ Structure", text_color=color.white, text_size=size.small)
+    struct_bull_text = structure_bullish ? "✅" : "❌"
+    struct_bear_text = structure_bearish ? "✅" : "❌"
+    struct_status = str.tostring(bull_structure_score) + ":" + str.tostring(bear_structure_score)
+    table.cell(multi_table, 1, 4, struct_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 4, struct_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 4, struct_status, text_color=color.white, text_size=size.small)
+    
+    // Volume Analysis
+    table.cell(multi_table, 0, 5, "📊 Volume", text_color=color.white, text_size=size.small)
+    vol_bull_text = volume_bullish ? "✅" : "❌"
+    vol_bear_text = volume_bearish ? "✅" : "❌"
+    vol_status = obv_bull ? "OBV+" : obv_bear ? "OBV-" : "OBV="
+    table.cell(multi_table, 1, 5, vol_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 5, vol_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 5, vol_status, text_color=color.white, text_size=size.small)
+    
+    // Final Consensus
+    table.cell(multi_table, 0, 6, "🎯 CONSENSUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.purple, 70))
+    table.cell(multi_table, 1, 6, str.tostring(bull_votes), text_color=color.lime, text_size=size.normal, bgcolor=color.new(color.purple, 70))
+    table.cell(multi_table, 2, 6, str.tostring(bear_votes), text_color=color.red, text_size=size.normal, bgcolor=color.new(color.purple, 70))
+    table.cell(multi_table, 3, 6, str.tostring(trend_strength) + "%", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.purple, 70))
+
+// Show current trend status on chart
+var label trend_label = na
+if barstate.islast
+    if not na(trend_label)
+        label.delete(trend_label)
+    
+    trend_text = ""
+    trend_color = color.gray
+    
+    if bullish_consensus
+        trend_text := "📈 BULLISH CONSENSUS [" + str.tostring(bull_votes) + " votes]"
+        trend_color := color.new(color.lime, 20)
+    else if bearish_consensus
+        trend_text := "📉 BEARISH CONSENSUS [" + str.tostring(bear_votes) + " votes]"
+        trend_color := color.new(color.red, 20)
+    else
+        trend_text := "⚠️ NO CONSENSUS [" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"
+        trend_color := color.new(color.yellow, 30)
+    
+    trend_label := label.new(bar_index, high + ta.atr(14), text=trend_text, style=label.style_label_down, color=trend_color, textcolor=color.white, size=size.normal)
 
 //==============================================================================
 // SECTION 4: MULTI-TIMEFRAME CRT (ENHANCED WITH MULTI-CONFIRMATION FILTERING)
@@ -637,7 +632,7 @@ var g_TOUCH = 'CRT Touch Options'
 use_wick_touch = input.bool(true, 'Use Wick Touch', group = g_TOUCH)
 use_body_touch = input.bool(true, 'Use Body Touch', group = g_TOUCH)
 
-// Original process_tf function (UNCHANGED)
+// Process timeframe function
 process_tf(tf) =>
     var float rangeHigh = na
     var float rangeLow = na
@@ -691,20 +686,14 @@ process_tf(tf) =>
 
 // Process data for each timeframe
 [high1, low1, mid1, start1, inRange1, newBar1, bullishTouch1, bearishTouch1] = process_tf(tf1)
-
 [high2, low2, mid2, start2, inRange2, newBar2, bullishTouch2, bearishTouch2] = process_tf(tf2)
-
 [high3, low3, mid3, start3, inRange3, newBar3, bullishTouch3, bearishTouch3] = process_tf(tf3)
-
 [high4, low4, mid4, start4, inRange4, newBar4, bullishTouch4, bearishTouch4] = process_tf(tf4)
-
 [high5, low5, mid5, start5, inRange5, newBar5, bullishTouch5, bearishTouch5] = process_tf(tf5)
-
 [high6, low6, mid6, start6, inRange6, newBar6, bullishTouch6, bearishTouch6] = process_tf(tf6)
-
 [high7, low7, mid7, start7, inRange7, newBar7, bullishTouch7, bearishTouch7] = process_tf(tf7)
 
-// Original plot_lines function (UNCHANGED)
+// Plot lines function
 plot_lines(tfColor, midColor, high, low, mid, start, inRange, newBar, useMid, bullishTouch, bearishTouch, tfName) =>
     var line highLine = na
     var line lowLine = na
@@ -734,7 +723,7 @@ plot_lines(tfColor, midColor, high, low, mid, start, inRange, newBar, useMid, bu
 
     [bullishTouch, bearishTouch]
 
-// Plot lines for each timeframe (UNCHANGED)
+// Plot lines for each timeframe
 if use_tf1
     [bullishTouch1, bearishTouch1] = plot_lines(tf1_color, tf1_mid_color, high1, low1, mid1, start1, inRange1, newBar1, use_tf1_mid, bullishTouch1, bearishTouch1, 'M15')
 if use_tf2
@@ -750,7 +739,7 @@ if use_tf6
 if use_tf7
     [bullishTouch7, bearishTouch7] = plot_lines(tf7_color, tf7_mid_color, high7, low7, mid7, start7, inRange7, newBar7, use_tf7_mid, bullishTouch7, bearishTouch7, 'M')
 
-// Function to convert string input to label style (UNCHANGED)
+// Function to convert string input to label style
 getLabelStyle(styleString) =>
     switch styleString
         'None' => label.style_none
@@ -771,7 +760,7 @@ getLabelStyle(styleString) =>
         'Arrow Down' => label.style_arrowdown
         => label.style_label_up // default
 
-// Function to convert string input to size (UNCHANGED)
+// Function to convert string input to size
 getLabelSize(sizeString) =>
     switch sizeString
         'Auto' => size.auto
@@ -789,7 +778,7 @@ manageLabelCount(labelText, y, bgColor, textColor, style, size) =>
     newLabel = label.new(bar_index, y, labelText, color = bgColor, textcolor = textColor, style = style, size = size)
     array.push(labels, newLabel)
 
-// ENHANCED function with MULTI-CONFIRMATION SYSTEM (NO EMA DEPENDENCY)
+// ENHANCED function with MULTI-CONFIRMATION SYSTEM
 checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
     // Check volume condition if enabled
     volume_ok = not enable_volume_filter or (volume > volume_avg * volume_multiplier)
@@ -797,17 +786,8 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
     if show and bullishTouch and volume_ok
         // For bullish CRT signals, check multi-confirmation consensus
         if trend_aligned_signal(true)
-            // ENHANCED: Multi-confirmation status (not EMA-dependent)
             string trend_status = ""
-            if true_bullish_reversal
-                trend_status := "🔄REV[" + str.tostring(bull_votes) + "v]"  // Multi-confirmed reversal
-            else if bullish_continuation
-                trend_status := "➡️CONT[" + str.tostring(bull_votes) + "v]"  // Multi-confirmed continuation
-            else if new_bullish_trend
-                trend_status := "🚀NEW[" + str.tostring(bull_votes) + "v]"  // Multi-confirmed new trend
-            else if strong_bullish_trend
-                trend_status := "💪STR[" + str.tostring(bull_votes) + "v]"  // Multi-confirmed strong trend
-            else if bullish_trend
+            if bullish_consensus
                 trend_status := "📈BULL[" + str.tostring(bull_votes) + "v]" // Multi-confirmed bullish
             else
                 trend_status := "⚠️[" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"  // Weak/conflicting signals
@@ -818,17 +798,8 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
     if show and bearishTouch and volume_ok
         // For bearish CRT signals, check multi-confirmation consensus
         if trend_aligned_signal(false)
-            // ENHANCED: Multi-confirmation status (not EMA-dependent)
             string trend_status = ""
-            if true_bearish_reversal
-                trend_status := "🔄REV[" + str.tostring(bear_votes) + "v]"  // Multi-confirmed reversal
-            else if bearish_continuation
-                trend_status := "➡️CONT[" + str.tostring(bear_votes) + "v]"  // Multi-confirmed continuation
-            else if new_bearish_trend
-                trend_status := "🚀NEW[" + str.tostring(bear_votes) + "v]"  // Multi-confirmed new trend
-            else if strong_bearish_trend
-                trend_status := "💪STR[" + str.tostring(bear_votes) + "v]"  // Multi-confirmed strong trend
-            else if bearish_trend
+            if bearish_consensus
                 trend_status := "📉BEAR[" + str.tostring(bear_votes) + "v]" // Multi-confirmed bearish
             else
                 trend_status := "⚠️[" + str.tostring(bear_votes) + "v" + str.tostring(bull_votes) + "]"  // Weak/conflicting signals
@@ -849,969 +820,34 @@ checkAndCreateLabel(show_monthly_labels, bullishTouch7, bearishTouch7, 'M')
 if alert_on_m15 and ((bullishTouch1 and trend_aligned_signal(true)) or (bearishTouch1 and trend_aligned_signal(false)))
     trend_direction = bullishTouch1 ? "BULLISH" : "BEARISH"
     confirmation_votes = bullishTouch1 ? bull_votes : bear_votes
-    trend_type = ""
-    if bullishTouch1 and true_bullish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bearishTouch1 and true_bearish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bullishTouch1 and bullish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else if bearishTouch1 and bearish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else
-        trend_type := "CONSENSUS ALIGNED"
-    alert('M15 ' + trend_direction + ' touch detected - ' + trend_type + ' [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+    alert('M15 ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
 
 if alert_on_h1 and ((bullishTouch2 and trend_aligned_signal(true)) or (bearishTouch2 and trend_aligned_signal(false)))
     trend_direction = bullishTouch2 ? "BULLISH" : "BEARISH"
     confirmation_votes = bullishTouch2 ? bull_votes : bear_votes
-    trend_type = ""
-    if bullishTouch2 and true_bullish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bearishTouch2 and true_bearish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bullishTouch2 and bullish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else if bearishTouch2 and bearish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else
-        trend_type := "CONSENSUS ALIGNED"
-    alert('H1 ' + trend_direction + ' touch detected - ' + trend_type + ' [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+    alert('H1 ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
 
 if alert_on_h2 and ((bullishTouch3 and trend_aligned_signal(true)) or (bearishTouch3 and trend_aligned_signal(false)))
     trend_direction = bullishTouch3 ? "BULLISH" : "BEARISH"
     confirmation_votes = bullishTouch3 ? bull_votes : bear_votes
-    trend_type = ""
-    if bullishTouch3 and true_bullish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bearishTouch3 and true_bearish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bullishTouch3 and bullish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else if bearishTouch3 and bearish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else
-        trend_type := "CONSENSUS ALIGNED"
-    alert('H2 ' + trend_direction + ' touch detected - ' + trend_type + ' [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+    alert('H2 ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
 
 if alert_on_h4 and ((bullishTouch4 and trend_aligned_signal(true)) or (bearishTouch4 and trend_aligned_signal(false)))
     trend_direction = bullishTouch4 ? "BULLISH" : "BEARISH"
     confirmation_votes = bullishTouch4 ? bull_votes : bear_votes
-    trend_type = ""
-    if bullishTouch4 and true_bullish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bearishTouch4 and true_bearish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bullishTouch4 and bullish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else if bearishTouch4 and bearish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else
-        trend_type := "CONSENSUS ALIGNED"
-    alert('H4 ' + trend_direction + ' touch detected - ' + trend_type + ' [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+    alert('H4 ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
 
 if alert_on_daily and ((bullishTouch5 and trend_aligned_signal(true)) or (bearishTouch5 and trend_aligned_signal(false)))
     trend_direction = bullishTouch5 ? "BULLISH" : "BEARISH"
     confirmation_votes = bullishTouch5 ? bull_votes : bear_votes
-    trend_type = ""
-    if bullishTouch5 and true_bullish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bearishTouch5 and true_bearish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bullishTouch5 and bullish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else if bearishTouch5 and bearish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else
-        trend_type := "CONSENSUS ALIGNED"
-    alert('Daily ' + trend_direction + ' touch detected - ' + trend_type + ' [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+    alert('Daily ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
 
 if alert_on_weekly and ((bullishTouch6 and trend_aligned_signal(true)) or (bearishTouch6 and trend_aligned_signal(false)))
     trend_direction = bullishTouch6 ? "BULLISH" : "BEARISH"
     confirmation_votes = bullishTouch6 ? bull_votes : bear_votes
-    trend_type = ""
-    if bullishTouch6 and true_bullish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bearishTouch6 and true_bearish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bullishTouch6 and bullish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else if bearishTouch6 and bearish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else
-        trend_type := "CONSENSUS ALIGNED"
-    alert('Weekly ' + trend_direction + ' touch detected - ' + trend_type + ' [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+    alert('Weekly ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
 
 if alert_on_monthly and ((bullishTouch7 and trend_aligned_signal(true)) or (bearishTouch7 and trend_aligned_signal(false)))
     trend_direction = bullishTouch7 ? "BULLISH" : "BEARISH"
     confirmation_votes = bullishTouch7 ? bull_votes : bear_votes
-    trend_type = ""
-    if bullishTouch7 and true_bullish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bearishTouch7 and true_bearish_reversal
-        trend_type := "MULTI-CONFIRMED REVERSAL"
-    else if bullishTouch7 and bullish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else if bearishTouch7 and bearish_continuation
-        trend_type := "MULTI-CONFIRMED CONTINUATION"
-    else
-        trend_type := "CONSENSUS ALIGNED"
-    alert('Monthly ' + trend_direction + ' touch detected - ' + trend_type + ' [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
-
-//==============================================================================
-// ENHANCED TREND STATUS DISPLAY WITH MULTI-CONFIRMATION (NO EMA DEPENDENCY)
-//==============================================================================
-
-// Show current trend status on chart with multi-confirmation system
-var label trend_label = na
-if barstate.islast
-    if not na(trend_label)
-        label.delete(trend_label)
-    
-    trend_text = ""
-    trend_color = color.gray
-    
-    if true_bullish_reversal
-        trend_text := "🔄 MULTI-CONFIRMED BULLISH REVERSAL [" + str.tostring(bull_votes) + " votes]"
-        trend_color := color.new(color.lime, 0)
-    else if true_bearish_reversal
-        trend_text := "🔄 MULTI-CONFIRMED BEARISH REVERSAL [" + str.tostring(bear_votes) + " votes]"
-        trend_color := color.new(color.red, 0)
-    else if bullish_continuation
-        trend_text := "➡️ BULLISH CONTINUATION [" + str.tostring(bull_votes) + " votes]"
-        trend_color := color.new(color.green, 20)
-    else if bearish_continuation
-        trend_text := "➡️ BEARISH CONTINUATION [" + str.tostring(bear_votes) + " votes]"
-        trend_color := color.new(color.red, 20)
-    else if new_bullish_trend
-        trend_text := "🚀 NEW BULLISH TREND [" + str.tostring(bull_votes) + " votes]"
-        trend_color := color.new(color.lime, 0)
-    else if new_bearish_trend
-        trend_text := "🚀 NEW BEARISH TREND [" + str.tostring(bear_votes) + " votes]"
-        trend_color := color.new(color.red, 0)
-    else if strong_bullish_trend
-        trend_text := "💪 STRONG BULLISH CONSENSUS [" + str.tostring(bull_votes) + " votes]"
-        trend_color := color.new(color.lime, 20)
-    else if strong_bearish_trend
-        trend_text := "💪 STRONG BEARISH CONSENSUS [" + str.tostring(bear_votes) + " votes]"
-        trend_color := color.new(color.red, 20)
-    else if bullish_trend
-        trend_text := "📈 BULLISH CONSENSUS [" + str.tostring(bull_votes) + " votes]"
-        trend_color := color.new(color.green, 30)
-    else if bearish_trend
-        trend_text := "📉 BEARISH CONSENSUS [" + str.tostring(bear_votes) + " votes]"
-        trend_color := color.new(color.red, 30)
-    else
-        trend_text := "⚠️ NO CONSENSUS [" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"
-        trend_color := color.new(color.yellow, 30)
-    
-    trend_label := label.new(bar_index, high + ta.atr(14), text=trend_text, style=label.style_label_down, color=trend_color, textcolor=color.white, size=size.normal)
-
-//==============================================================================
-// MULTI-CONFIRMATION ANALYSIS DASHBOARD (NEW)
-//==============================================================================
-
-var g_MULTI_DASHBOARD = "🎯 Multi-Confirmation Dashboard"
-show_multi_dashboard = input.bool(true, "Show Multi-Confirmation Dashboard", group=g_MULTI_DASHBOARD)
-
-if show_multi_dashboard and barstate.islast
-    var table multi_table = table.new(position.top_right, 4, 8, bgcolor=color.new(color.black, 85), border_width=1)
-    
-    // Header
-    table.cell(multi_table, 0, 0, "🎯 MULTI-CONFIRMATION", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
-    table.cell(multi_table, 1, 0, "BULLISH", text_color=color.lime, text_size=size.normal, bgcolor=color.new(color.blue, 70))
-    table.cell(multi_table, 2, 0, "BEARISH", text_color=color.red, text_size=size.normal, bgcolor=color.new(color.blue, 70))
-    table.cell(multi_table, 3, 0, "STATUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
-    
-    // RSI Analysis
-    table.cell(multi_table, 0, 1, "⚡ RSI", text_color=color.white, text_size=size.small)
-    rsi_bull_text = (rsi_bullish or rsi_oversold_bounce) ? "✅" : "❌"
-    rsi_bear_text = (rsi_bearish or rsi_overbought_drop) ? "✅" : "❌"
-    rsi_status = rsi > 70 ? "OB" : rsi < 30 ? "OS" : "MID"
-    table.cell(multi_table, 1, 1, rsi_bull_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 2, 1, rsi_bear_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 3, 1, rsi_status, text_color=color.white, text_size=size.small)
-    
-    // MACD Analysis (Dual MACD System)
-    table.cell(multi_table, 0, 2, "📈 MACD", text_color=color.white, text_size=size.small)
-    macd_bull_text = (macd_bullish or macd_bullish_cross) ? "✅" : "❌"
-    macd_bear_text = (macd_bearish or macd_bearish_cross) ? "✅" : "❌"
-    macd_status = (macd_line_1 > signal_line_1 and macd_line_2 > signal_line_2) ? "++" : (macd_line_1 > signal_line_1 or macd_line_2 > signal_line_2) ? "+" : "--"
-    table.cell(multi_table, 1, 2, macd_bull_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 2, 2, macd_bear_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 3, 2, macd_status, text_color=color.white, text_size=size.small)
-    
-    // Market Structure Analysis
-    table.cell(multi_table, 0, 3, "🏗️ Structure", text_color=color.white, text_size=size.small)
-    struct_bull_text = (structure_bullish or resistance_break) ? "✅" : "❌"
-    struct_bear_text = (structure_bearish or support_break) ? "✅" : "❌"
-    struct_status = str.tostring(bull_structure_score) + ":" + str.tostring(bear_structure_score)
-    table.cell(multi_table, 1, 3, struct_bull_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 2, 3, struct_bear_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 3, 3, struct_status, text_color=color.white, text_size=size.small)
-    
-    // Volume Profile Analysis
-    table.cell(multi_table, 0, 4, "📊 Volume", text_color=color.white, text_size=size.small)
-    vol_bull_text = volume_bullish ? "✅" : "❌"
-    vol_bear_text = volume_bearish ? "✅" : "❌"
-    vol_status = obv_bull ? "OBV+" : obv_bear ? "OBV-" : "OBV="
-    table.cell(multi_table, 1, 4, vol_bull_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 2, 4, vol_bear_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 3, 4, vol_status, text_color=color.white, text_size=size.small)
-    
-    // Momentum Divergence Analysis
-    table.cell(multi_table, 0, 5, "⚡ Momentum", text_color=color.white, text_size=size.small)
-    mom_bull_text = (momentum_bullish or bullish_divergence) ? "✅" : "❌"
-    mom_bear_text = (momentum_bearish or bearish_divergence) ? "✅" : "❌"
-    mom_status = bullish_divergence ? "DIV+" : bearish_divergence ? "DIV-" : "SYNC"
-    table.cell(multi_table, 1, 5, mom_bull_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 2, 5, mom_bear_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 3, 5, mom_status, text_color=color.white, text_size=size.small)
-    
-    // HTF Price Action Analysis
-    table.cell(multi_table, 0, 6, "📐 HTF Action", text_color=color.white, text_size=size.small)
-    htf_bull_text = (daily_uptrend and weekly_uptrend) ? "✅" : "❌"
-    htf_bear_text = (daily_downtrend and weekly_downtrend) ? "✅" : "❌"
-    htf_status = str.tostring(daily_bull_count) + "D:" + str.tostring(daily_bear_count)
-    table.cell(multi_table, 1, 6, htf_bull_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 2, 6, htf_bear_text, text_color=color.white, text_size=size.small)
-    table.cell(multi_table, 3, 6, htf_status, text_color=color.white, text_size=size.small)
-    
-    // Final Consensus
-    table.cell(multi_table, 0, 7, "🎯 CONSENSUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.purple, 70))
-    table.cell(multi_table, 1, 7, str.tostring(bull_votes), text_color=color.lime, text_size=size.normal, bgcolor=color.new(color.purple, 70))
-    table.cell(multi_table, 2, 7, str.tostring(bear_votes), text_color=color.red, text_size=size.normal, bgcolor=color.new(color.purple, 70))
-    table.cell(multi_table, 3, 7, str.tostring(trend_strength) + "%", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.purple, 70))
-
-// NOTE: Sections 5-8 would continue with all original functionality preserved
-// This includes Advanced FVG, CISD, CRT Time Analysis, and HTF Candles
-// All sections maintain their original functionality while benefiting from the new multi-confirmation system
-
-//==============================================================================
-// SECTION 5: ADVANCED FVG DETECTION WITH MITIGATION
-//==============================================================================
-
-//Settings
-thresholdPer = input.float(0, "Threshold %", minval = 0, maxval = 100, step = .1, inline = 'threshold', group="Advanced FVG")
-auto = input(false, "Auto", inline = 'threshold', group="Advanced FVG")
-
-showLast = input.int(0, 'Unmitigated Levels', minval = 0, group="Advanced FVG")
-mitigationLevels = input.bool(false, 'Mitigation Levels', group="Advanced FVG")
-
-tf = input.timeframe('', "Timeframe", group="Advanced FVG")
-
-//Style
-extend = input.int(20, 'Extend', minval = 0, inline = 'extend', group = 'Advanced FVG Style')
-dynamic = input(false, 'Dynamic', inline = 'extend', group = 'Advanced FVG Style')
-
-bullCss = input.color(color.new(#089981, 70), "Bullish FVG", group = 'Advanced FVG Style')
-bearCss = input.color(color.new(#f23645, 70), "Bearish FVG", group = 'Advanced FVG Style')
-
-//Dashboard
-showDash  = input(false, 'Show Dashboard', group = 'Advanced FVG Dashboard')
-dashLoc  = input.string('Top Right', 'Location', options = ['Top Right', 'Bottom Right', 'Bottom Left'], group = 'Advanced FVG Dashboard')
-textSize = input.string('Small', 'Size'        , options = ['Tiny', 'Small', 'Normal']                 , group = 'Advanced FVG Dashboard')
-
-//UDT's
-type fvg
-    float max
-    float min
-    bool  isbull
-    int   t = time
-
-//Methods/Functions
-n = bar_index
-
-method tosolid(color id)=> color.rgb(color.r(id),color.g(id),color.b(id))
-
-detect()=>
-    var fvg new_fvg = fvg.new(na, na, false, na)
-    threshold = auto ? ta.cum((high - low) / low) / bar_index : thresholdPer / 100
-
-    bull_fvg = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > threshold
-    bear_fvg = high < low[2] and close[1] < low[2] and (low[2] - high) / high > threshold
-    
-    if bull_fvg
-        new_fvg := fvg.new(low, high[2], true)
-    else if bear_fvg
-        new_fvg := fvg.new(low[2], high, false)
-
-    [bull_fvg, bear_fvg, new_fvg]
-
-//FVG's detection/display
-var float max_bull_fvg = na, var float min_bull_fvg = na, var bull_count = 0, var bull_mitigated = 0
-var float max_bear_fvg = na, var float min_bear_fvg = na, var bear_count = 0, var bear_mitigated = 0
-var t = 0
-
-var fvg_records = array.new<fvg>(0)
-var fvg_areas = array.new<box>(0)
-
-[bull_fvg, bear_fvg, new_fvg] = request.security(syminfo.tickerid, tf, detect())
-
-//Bull FVG's
-if bull_fvg and new_fvg.t != t
-    if dynamic
-        max_bull_fvg := new_fvg.max
-        min_bull_fvg := new_fvg.min
-    
-    //Populate FVG array
-    if not dynamic
-        fvg_areas.unshift(box.new(n-2, new_fvg.max, n+extend, new_fvg.min, na, bgcolor = bullCss))
-    fvg_records.unshift(new_fvg)
-
-    bull_count += 1
-    t := new_fvg.t
-else if dynamic
-    max_bull_fvg := math.max(math.min(close, max_bull_fvg), min_bull_fvg)
-
-//Bear FVG's
-if bear_fvg and new_fvg.t != t
-    if dynamic
-        max_bear_fvg := new_fvg.max
-        min_bear_fvg := new_fvg.min
-    
-    //Populate FVG array
-    if not dynamic
-        fvg_areas.unshift(box.new(n-2, new_fvg.max, n+extend, new_fvg.min, na, bgcolor = bearCss))
-    fvg_records.unshift(new_fvg)
-
-    bear_count += 1
-    t := new_fvg.t
-else if dynamic
-    min_bear_fvg := math.min(math.max(close, min_bear_fvg), max_bear_fvg) 
-
-//Unmitigated/Mitigated lines
-//Test for mitigation
-if fvg_records.size() > 0
-    for i = fvg_records.size()-1 to 0
-        get = fvg_records.get(i)
-
-        if get.isbull
-            if close < get.min
-                //Display line if mitigated
-                if mitigationLevels
-                    line.new(get.t
-                      , get.min
-                      , time
-                      , get.min
-                      , xloc.bar_time
-                      , color = bullCss
-                      , style = line.style_dashed)
-
-                //Delete box
-                if not dynamic
-                    area = fvg_areas.remove(i)
-                    area.delete()
-
-                fvg_records.remove(i)
-                bull_mitigated += 1
-        else if close > get.max
-            //Display line if mitigated
-            if mitigationLevels
-                line.new(get.t
-                  , get.max
-                  , time
-                  , get.max
-                  , xloc.bar_time
-                  , color = bearCss
-                  , style = line.style_dashed)
-
-            //Delete box
-            if not dynamic
-                area = fvg_areas.remove(i)
-                area.delete()
-            
-            fvg_records.remove(i)
-            bear_mitigated += 1
-
-//Unmitigated lines
-var unmitigated = array.new<line>(0)
-
-//Remove umitigated lines 
-if barstate.islast and showLast > 0 and fvg_records.size() > 0
-    if unmitigated.size() > 0 
-        for element in unmitigated
-            element.delete()
-        unmitigated.clear()
-
-    for i = 0 to math.min(showLast-1, fvg_records.size()-1)
-        get = fvg_records.get(i)
-
-        unmitigated.push(line.new(get.t
-          , get.isbull ? get.min : get.max 
-          , time
-          , get.isbull ? get.min : get.max
-          , xloc.bar_time
-          , color = get.isbull ? bullCss : bearCss))
-
-//Dashboard
-var table_position = dashLoc == 'Bottom Left' ? position.bottom_left 
-  : dashLoc == 'Top Right' ? position.top_right 
-  : position.bottom_right
-
-var table_size = textSize == 'Tiny' ? size.tiny 
-  : textSize == 'Small' ? size.small 
-  : size.normal
-
-var tb = table.new(table_position, 3, 3
-  , bgcolor = #1e222d
-  , border_color = #373a46
-  , border_width = 1
-  , frame_color = #373a46
-  , frame_width = 1)
-
-if showDash
-    if barstate.isfirst
-        tb.cell(1, 0, 'Bullish', text_color = bullCss.tosolid(), text_size = table_size)
-        tb.cell(2, 0, 'Bearish', text_color = bearCss.tosolid(), text_size = table_size)
-    
-        tb.cell(0, 1, 'Count', text_size = table_size, text_color = color.white)
-        tb.cell(0, 2, 'Mitigated', text_size = table_size, text_color = color.white)
-    
-    if barstate.islast
-        tb.cell(1, 1, str.tostring(bull_count), text_color = bullCss.tosolid(), text_size = table_size)
-        tb.cell(2, 1, str.tostring(bear_count), text_color = bearCss.tosolid(), text_size = table_size)
-        
-        tb.cell(1, 2, str.tostring(bull_mitigated / bull_count * 100, format.percent), text_color = bullCss.tosolid(), text_size = table_size)
-        tb.cell(2, 2, str.tostring(bear_mitigated / bear_count * 100, format.percent), text_color = bearCss.tosolid(), text_size = table_size)
-
-//Plots
-//Dynamic Bull FVG
-max_bull_plot = plot(max_bull_fvg, color = na)
-min_bull_plot = plot(min_bull_fvg, color = na)
-fill(max_bull_plot, min_bull_plot, color = bullCss)
-
-//Dynamic Bear FVG
-max_bear_plot = plot(max_bear_fvg, color = na)
-min_bear_plot = plot(min_bear_fvg, color = na)
-fill(max_bear_plot, min_bear_plot, color = bearCss)
-
-//Alerts
-alertcondition(bull_count > bull_count[1], 'Bullish FVG', 'Bullish FVG detected')
-alertcondition(bear_count > bear_count[1], 'Bearish FVG', 'Bearish FVG detected')
-
-alertcondition(bull_mitigated > bull_mitigated[1], 'Bullish FVG Mitigation', 'Bullish FVG mitigated')
-alertcondition(bear_mitigated > bear_mitigated[1], 'Bearish FVG Mitigation', 'Bearish FVG mitigated')
-
-//==============================================================================
-// SECTION 6: CISD (CHANGE IN STATE OF DELIVERY) DETECTION
-//==============================================================================
-
-// CISD Input Settings
-var string G_CISD_SETTINGS = "CISD Settings"
-showLabels = input.bool(true, "Show Labels", group=G_CISD_SETTINGS)
-lineColor = input.color(color.black, "CISD Line Color", group=G_CISD_SETTINGS)
-textColor = input.color(color.black, "Label Color", group=G_CISD_SETTINGS)
-lineWidth = input.int(2, "Line Width", minval=1, maxval=4, group=G_CISD_SETTINGS)
-lineStyle = input.string("Solid", "Line Style", options=["Solid", "Dashed", "Dotted"], group=G_CISD_SETTINGS)
-lineLength = input.int(15, "Line Extension (bars)", minval=5, maxval=50, group=G_CISD_SETTINGS)
-labelSizex = input.string("Small", "Label Size", options=["Tiny", "Small", "Normal", "Large"], group=G_CISD_SETTINGS)
-
-// Variables for CISD Detection
-var line[] cisdLines = array.new_line()
-var label[] cisdLabels = array.new_label()
-
-// Variables for sequence tracking
-var float sequenceStartPrice = na
-var int sequenceStartIndex = na
-var bool waitingForDisplacement = false
-var float[] priorBullishOpens = array.new_float()  // Store opens of prior bullish candles
-var float[] priorBearishOpens = array.new_float()  // Store opens of prior bearish candles
-var int lastBullishStart = na  // Index where last bullish sequence started
-var int lastBearishStart = na  // Index where last bearish sequence started
-
-// Liquidity Detection Variables
-var swingStrength = 3
-var float[] bslPrices = array.new_float()
-var float[] sslPrices = array.new_float()
-var int[] bslTimes = array.new_int()
-var int[] sslTimes = array.new_int()
-
-// Function to get label size from input
-getLabelSizex() =>
-    switch labelSizex
-        "Tiny" => size.tiny
-        "Small" => size.small
-        "Normal" => size.normal
-        "Large" => size.large
-        => size.small
-
-// Function to detect and manage liquidity levels
-manageLiquidityLevels() =>
-    float ph = ta.pivothigh(swingStrength, swingStrength)
-    float pl = ta.pivotlow(swingStrength, swingStrength)
-    
-    if not na(ph)
-        array.push(bslPrices, ph)
-        array.push(bslTimes, bar_index[swingStrength])
-    
-    if not na(pl)
-        array.push(sslPrices, pl)
-        array.push(sslTimes, bar_index[swingStrength])
-
-// Function to check for liquidity sweeps
-checkLiquiditySweep() =>
-    bool bslSwept = false
-    bool sslSwept = false
-    
-    if array.size(bslPrices) > 0
-        for i = array.size(bslPrices) - 1 to 0
-            if high > array.get(bslPrices, i)
-                bslSwept := true
-                array.remove(bslPrices, i)
-                array.remove(bslTimes, i)
-                break
-    
-    if array.size(sslPrices) > 0
-        for i = array.size(sslPrices) - 1 to 0
-            if low < array.get(sslPrices, i)
-                sslSwept := true
-                array.remove(sslPrices, i)
-                array.remove(sslTimes, i)
-                break
-    
-    [bslSwept, sslSwept]
-
-// Function to draw CISD
-drawCisd(startPrice, startIndex, isBull) =>
-    chosenStyle = switch lineStyle
-        "Solid" => line.style_solid
-        "Dashed" => line.style_dashed
-        "Dotted" => line.style_dotted
-        => line.style_solid
-    
-    newLine = line.new(startIndex, startPrice, bar_index + lineLength, startPrice,
-         color=lineColor,
-         style=chosenStyle,
-         width=lineWidth,
-         extend=extend.none)
-    array.push(cisdLines, newLine)
-    
-    if showLabels
-        newLabel = label.new(bar_index + 2, startPrice,
-             text=isBull ? "CISD+" : "CISD-",
-             style=label.style_none,
-             textcolor=textColor,
-             size=getLabelSizex(),
-             textalign=text.align_left)
-        array.push(cisdLabels, newLabel)
-
-// Function to find most recent sequence of same-direction candles
-findRecentSequence(bull) =>
-    var int count = 0
-    var float firstOpen = na
-    var int firstIndex = na
-    
-    if bull
-        if close > open  // Current candle is bullish
-            if count == 0 or close[1] <= open[1]  // Start of new sequence
-                count := 1
-                firstOpen := open
-                firstIndex := bar_index
-            else
-                count := count + 1
-        else
-            if count > 0  // End of sequence
-                firstOpen := na
-                firstIndex := na
-            count := 0
-    else
-        if close < open  // Current candle is bearish
-            if count == 0 or close[1] >= open[1]  // Start of new sequence
-                count := 1
-                firstOpen := open
-                firstIndex := bar_index
-            else
-                count := count + 1
-        else
-            if count > 0  // End of sequence
-                firstOpen := na
-                firstIndex := na
-            count := 0
-    
-    [count, firstOpen, firstIndex]
-
-// CISD Detection Logic
-if barstate.isconfirmed
-    // Update liquidity levels
-    manageLiquidityLevels()
-    [bslSwept, sslSwept] = checkLiquiditySweep()
-    
-    bool bull = close > open
-    bool bear = close < open
-
-    // Track consecutive candles
-    [bullCount, bullFirstOpen, bullFirstIndex] = findRecentSequence(true)
-    [bearCount, bearFirstOpen, bearFirstIndex] = findRecentSequence(false)
-
-    // When BSL is swept, look for most recent bullish sequence
-    if bslSwept and not waitingForDisplacement
-        if not na(bullFirstOpen)
-            sequenceStartPrice := bullFirstOpen
-            sequenceStartIndex := bullFirstIndex
-            waitingForDisplacement := true
-            array.clear(priorBullishOpens)
-            array.push(priorBullishOpens, bullFirstOpen)
-
-    // When SSL is swept, look for most recent bearish sequence
-    if sslSwept and not waitingForDisplacement
-        if not na(bearFirstOpen)
-            sequenceStartPrice := bearFirstOpen
-            sequenceStartIndex := bearFirstIndex
-            waitingForDisplacement := true
-            array.clear(priorBearishOpens)
-            array.push(priorBearishOpens, bearFirstOpen)
-
-    // Check for displacement after sweep
-    if waitingForDisplacement
-        if array.size(priorBullishOpens) > 0 and bear  // Check bearish displacement after BSL sweep
-            if close < array.get(priorBullishOpens, 0)
-                drawCisd(sequenceStartPrice, sequenceStartIndex, false)
-                waitingForDisplacement := false
-                array.clear(priorBullishOpens)
-        
-        if array.size(priorBearishOpens) > 0 and bull  // Check bullish displacement after SSL sweep
-            if close > array.get(priorBearishOpens, 0)
-                drawCisd(sequenceStartPrice, sequenceStartIndex, true)
-                waitingForDisplacement := false
-                array.clear(priorBearishOpens)
-
-    // Reset if too much time has passed
-    if bar_index - sequenceStartIndex > 20
-        waitingForDisplacement := false
-        array.clear(priorBullishOpens)
-        array.clear(priorBearishOpens)
-
-// Cleanup and maintain visual elements
-if barstate.islast
-    // Cleanup old labels
-    if array.size(cisdLabels) > 0
-        for i = array.size(cisdLabels) - 1 to 0
-            label currentLabel = array.get(cisdLabels, i)
-            if not na(currentLabel)
-                if bar_index - label.get_x(currentLabel) > 200
-                    label.delete(currentLabel)
-                    array.remove(cisdLabels, i)
-                else
-                    labelX = label.get_x(currentLabel)
-                    if labelX > bar_index + 2
-                        label.set_x(currentLabel, bar_index + 2)
-
-    // Cleanup and maintain lines
-    if array.size(cisdLines) > 0
-        for i = array.size(cisdLines) - 1 to 0
-            line currentLine = array.get(cisdLines, i)
-            if not na(currentLine)
-                if bar_index - line.get_x1(currentLine) > 200
-                    line.delete(currentLine)
-                    array.remove(cisdLines, i)
-                else
-                    line.set_x2(currentLine, line.get_x1(currentLine) + lineLength) 
-
-//==============================================================================
-// SECTION 7: CRT SPECIFIC TIME ANALYSIS
-//==============================================================================
-
-// Inputs for CRT Time Analysis
-enable_crt_h1_check = input.bool(true, title="Turn on CRT H1 test?", tooltip="Select 'True' to enable CRT H1 test", group="CRT Time Analysis", inline="1")
-
-green = input.color(#02fc7f, title="Green", group="CRT Time Analysis", inline = "1")
-red = input.color(#fd0901, title="Red", group="CRT Time Analysis", inline = "1")
-
-//logic erc
-check_large_candle_only = input.bool(true, title="Only check big candles?", tooltip="Select 'true' to check only large candles", group="CRT Time Analysis")
-max_wick_ratio = input.float(0.25, title="Maximum candle wick ratio (compared to the entire candle)", minval=0.01, maxval=1, step=0.01, tooltip="Apply when testing large candles.", group="CRT Time Analysis")
-
-// Higher Timeframe Check
-isHigherTimeframe = (timeframe.period == tf)
-
-// CRT hour
-hourEST1 = 6
-hourEST2 = 10
-hourEST3 = 14
-
-isTargetCandle = enable_crt_h1_check and (hour(time) == hourEST1 or hour(time) == hourEST2 or hour(time) == hourEST3)
-
-// Variables to Store High, Low, and Index
-var float crtHigh = na
-var float crtLow = na
-var int crtIndex = na
-
-if (isTargetCandle and isHigherTimeframe and barstate.isconfirmed)
-    crtHigh := high
-    crtLow := low
-    crtIndex := bar_index
-
-if (not na(crtHigh) and bar_index == crtIndex + 1)
-    if (low < crtHigh and high > crtHigh and close < crtHigh and barstate.isconfirmed)
-        line.new(x1=crtIndex, y1=crtHigh, x2=bar_index, y2=crtHigh, color=green, width=2, extend=extend.none)
-        alert("High CRT sweep!  " + "\nMã:" + syminfo.ticker + " " + timeframe.period + "\nAbout LTF wait for confirmation to place order", alert.freq_once_per_bar)
-
-if (not na(crtLow) and bar_index == crtIndex + 1)
-    if (high > crtLow and low < crtLow and close > crtLow and barstate.isconfirmed)
-        line.new(x1=crtIndex, y1=crtLow, x2=bar_index, y2=crtLow, color=red, width=2, extend=extend.none)
-        alert("Low CRT sweep!  " + "\nMã:" + syminfo.ticker + " " + timeframe.period + "\nAbout LTF wait for confirmation to place order", alert.freq_once_per_bar)
-
-barcolor(isTargetCandle and isHigherTimeframe ? color.new(color.red, 35) : na)
-
-// Calculate the length of the candle body and wick
-body_size = math.abs(close - open)
-upper_wick = high - math.max(open, close)
-lower_wick = math.min(open, close) - low
-total_wick_size = upper_wick + lower_wick
-total_candle_size = high - low
-
-// Conditions to determine large candles
-is_large_candle = (total_wick_size / total_candle_size) <= max_wick_ratio
-
-// Candle test condition
-should_check = check_large_candle_only ? is_large_candle : true
-
-// Color the large candle if testing a large candle
-barcolor(check_large_candle_only and is_large_candle ? (close > open ? color.green : color.red) : na)
-
-// Variable to store the high/low price and index of the candle being tested
-var float crtHighs = na
-var float crtLows = na
-var int crtIndexs = na
-
-// Save the price of the current candle if the test condition is met
-if (should_check and barstate.isconfirmed)
-    crtHighs := high
-    crtLows := low
-    crtIndexs := bar_index
-
-//draw line
-if (not na(crtHighs) and bar_index == crtIndexs + 1)
-    if (low < crtHighs and high > crtHighs and close < crtHighs and barstate.isconfirmed and close < open)
-        line.new(x1=crtIndexs, y1=crtHighs, x2=bar_index, y2=crtHighs, color=color.new(color.green, 0), width=2, extend=extend.none)
-        alert("Mức cao của nến CRT bị quét!  " + "\nMã:" + syminfo.ticker + " " + timeframe.period + "\nAbout LTF wait for confirmation to place order", alert.freq_once_per_bar)
-
-if (not na(crtLows) and bar_index == crtIndexs + 1)
-    if (high > crtLows and low < crtLows and close > crtLows and barstate.isconfirmed and close> open)
-        line.new(x1=crtIndexs, y1=crtLows, x2=bar_index, y2=crtLows, color=color.new(color.red, 0), width=2, extend=extend.none)
-        alert("Mức thấp của nến CRT bị quét!  " + "\nMã:" + syminfo.ticker + " " + timeframe.period + "\nAbout LTF wait for confirmation to place order", alert.freq_once_per_bar)
-
-//==============================================================================
-// SECTION 8: HTF CANDLE VISUALIZATION
-//==============================================================================
-
-// Function to create and manage boxes for HTF Candles
-type Candle
-    float o
-    float c
-    float h
-    float l
-    int o_time
-    int o_idx
-    int c_idx
-    int h_idx
-    int l_idx
-    string dow
-    box body
-    line wick_up
-    line wick_down
-    label dow_label
-
-type CandleSettings
-    bool show
-    string htf
-    int max_display
-
-type Settings
-    color bull_body
-    color bull_border
-    color bull_wick
-    color bear_body
-    color bear_border
-    color bear_wick
-    int offset
-    int buffer
-    int htf_buffer
-    int width
-
-type CandleSet
-    array<Candle> candles
-    CandleSettings settings
-
-type Helper
-    string name = 'Helper'
-
-Settings settings = Settings.new()
-
-var CandleSettings SettingsHTF3 = CandleSettings.new()
-var array<Candle> candles_3 = array.new<Candle>(0)
-var CandleSet htf3 = CandleSet.new()
-htf3.settings := SettingsHTF3
-htf3.candles := candles_3
-htf3.settings.show              := input.bool(true, 'HTF Candle', inline = 'htf3', group="HTF Candles")
-htf_3                           = input.timeframe('60', '', inline = 'htf3', group="HTF Candles")
-htf3.settings.htf := htf_3
-htf3.settings.max_display       := input.int(10, '', inline = 'htf3', group="HTF Candles")
-settings.bull_body              := color.green
-settings.bear_body              := color.red
-settings.bull_border            := color.black
-settings.bull_wick              := color.black
-settings.bear_wick              := color.black
-settings.offset                 := 10
-settings.buffer                 := 1
-settings.htf_buffer             := 10
-settings.width                  := 2
-
-Helper helper = Helper.new()
-color color_transparent = #ffffff00
-
-method HTFEnabled(Helper helper) =>
-    helper.name := 'HTFEnabled'
-    int enabled = 0
-    enabled := enabled + (htf3.settings.show ? 1 : 0)
-    enabled
-
-method CandleSetHigh(Helper helper, array<Candle> candles, float h) =>
-    helper.name := 'CandlesSetHigh'
-    float _h = h
-    if array.size(candles) > 0
-        for i = 0 to array.size(candles) - 1 by 1
-            Candle c = array.get(candles, i)
-            if c.h > _h
-                _h := c.h
-    _h
-
-method CandleSetLow(Helper helper, array<Candle> candles, float l) =>
-    helper.name := 'CandlesSetLow'
-    float _l = l
-    if array.size(candles) > 0
-        for i = 0 to array.size(candles) - 1 by 1
-            Candle c = array.get(candles, i)
-            if c.l < _l
-                _l := c.l
-    _l
-
-method CandlesHigh(Helper helper, array<Candle> candles) =>
-    helper.name := 'CandlesHigh'
-    h = 0.0
-    int cnt = 0
-    int last = helper.HTFEnabled()
-
-    if array.size(candles) > 0
-        for i = 0 to array.size(candles) - 1 by 1
-            Candle c = array.get(candles, i)
-            cnt += 1
-            if cnt == 1
-                h := c.h
-            else
-                h := math.max(h, c.h)
-            if cnt == last
-                break
-    h
-
-method CandlesLow(Helper helper, array<Candle> candles) =>
-    helper.name := 'CandlesLow'
-    l = 0.0
-    int cnt = 0
-    int last = helper.HTFEnabled()
-
-    if array.size(candles) > 0
-        for i = 0 to array.size(candles) - 1 by 1
-            Candle c = array.get(candles, i)
-            cnt += 1
-            if cnt == 1
-                l := c.l
-            else
-                l := math.min(l, c.l)
-            if cnt == last
-                break
-    l
-
-method Reorder(Helper helper, array<Candle> candles) =>
-    helper.name := 'Reorder'
-    if array.size(candles) > 0
-        for i = 0 to array.size(candles) - 1 by 1
-            Candle c = array.get(candles, i)
-            if not na(c.body)
-                box.set_left(c.body, c.o_idx - settings.offset)
-                box.set_right(c.body, c.c_idx + settings.offset)
-            
-            if not na(c.wick_up)
-                line.set_x1(c.wick_up, c.h_idx)
-                line.set_x2(c.wick_up, c.h_idx)
-            
-            if not na(c.wick_down)
-                line.set_x1(c.wick_down, c.l_idx)
-                line.set_x2(c.wick_down, c.l_idx)
-
-method Monitor(Helper helper, CandleSet candleSet) =>
-    helper.name := 'Monitor'
-    
-    if candleSet.settings.show
-        [htf_open, htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
-        
-        if ta.change(htf_time) != 0
-            Candle c = Candle.new()
-            c.o := htf_open
-            c.h := htf_high
-            c.l := htf_low
-            c.c := htf_close
-            c.o_time := htf_time
-            c.o_idx := bar_index
-            c.c_idx := bar_index
-            c.h_idx := bar_index
-            c.l_idx := bar_index
-            
-            if array.size(candleSet.candles) >= candleSet.settings.max_display
-                old_candle = array.pop(candleSet.candles)
-                if not na(old_candle.body)
-                    box.delete(old_candle.body)
-                if not na(old_candle.wick_up)
-                    line.delete(old_candle.wick_up)
-                if not na(old_candle.wick_down)
-                    line.delete(old_candle.wick_down)
-                if not na(old_candle.dow_label)
-                    label.delete(old_candle.dow_label)
-            
-            array.unshift(candleSet.candles, c)
-
-method Update(Helper helper, CandleSet candleSet) =>
-    helper.name := 'Update'
-    
-    if candleSet.settings.show and array.size(candleSet.candles) > 0
-        [htf_open, htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
-        
-        Candle c = array.get(candleSet.candles, 0)
-        c.c := htf_close
-        c.h := htf_high
-        c.l := htf_low
-        c.c_idx := bar_index
-        
-        if htf_high == high
-            c.h_idx := bar_index
-        if htf_low == low
-            c.l_idx := bar_index
-        
-        // Update visual elements
-        if not na(c.body)
-            box.delete(c.body)
-        if not na(c.wick_up)
-            line.delete(c.wick_up)
-        if not na(c.wick_down)
-            line.delete(c.wick_down)
-        
-        // Create new visual elements
-        body_color = c.c >= c.o ? settings.bull_body : settings.bear_body
-        border_color = c.c >= c.o ? settings.bull_border : settings.bull_border
-        
-        c.body := box.new(c.o_idx - settings.offset, math.max(c.o, c.c), c.c_idx + settings.offset, math.min(c.o, c.c), 
-                         border_color=border_color, bgcolor=body_color, border_width=settings.width)
-        
-        if c.h > math.max(c.o, c.c)
-            wick_color = c.c >= c.o ? settings.bull_wick : settings.bear_wick
-            c.wick_up := line.new(c.h_idx, c.h, c.h_idx, math.max(c.o, c.c), color=wick_color, width=settings.width)
-        
-        if c.l < math.min(c.o, c.c)
-            wick_color = c.c >= c.o ? settings.bull_wick : settings.bear_wick
-            c.wick_down := line.new(c.l_idx, c.l, c.l_idx, math.min(c.o, c.c), color=wick_color, width=settings.width)
-
-// Monitor and update HTF candles
-helper.Monitor(htf3)
-helper.Update(htf3)
-helper.Reorder(htf3.candles)
+    alert('Monthly ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
