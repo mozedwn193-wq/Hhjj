@@ -65,13 +65,13 @@ bgcolor(bullishBreakout ? color.new(color.green, 80) : bearishBreakout ? color.n
 
 // Traditional EMAs (Just one component, not the main dependency)
 ema20 = ta.ema(close, 20)
-ema50 = ta.ema(close, 50)
+ema8 = ta.ema(close, 8)
 ema100 = ta.ema(close, 100)
 ema200 = ta.ema(close, 200)
 
 // Traditional EMA trend (just one vote, not decisive)
-ema_bullish_trend = ema20 > ema50 and ema50 > ema100 and ema100 > ema200
-ema_bearish_trend = ema20 < ema50 and ema50 < ema100 and ema100 < ema200
+ema_bullish_trend = ema20 > ema8 and ema8 > ema100 and ema100 > ema200
+ema_bearish_trend = ema20 < ema8 and ema8 < ema100 and ema100 < ema200
 
 // 🚀 METHOD 1: RSI-BASED TREND DETECTION
 rsi = ta.rsi(close, 14)
@@ -80,12 +80,26 @@ rsi_bearish = rsi < 50 and rsi < rsi[1] and rsi[1] < rsi[2]
 rsi_oversold_bounce = rsi < 30 and rsi > rsi[1]
 rsi_overbought_drop = rsi > 70 and rsi < rsi[1]
 
-// 📈 METHOD 2: MACD-BASED TREND DETECTION
-[macd_line, signal_line, macd_histogram] = ta.macd(close, 12, 26, 9)
-macd_bullish = macd_line > signal_line and macd_line > macd_line[1]
-macd_bearish = macd_line < signal_line and macd_line < macd_line[1]
-macd_bullish_cross = ta.crossover(macd_line, signal_line)
-macd_bearish_cross = ta.crossunder(macd_line, signal_line)
+// 📈 METHOD 2: DUAL MACD-BASED TREND DETECTION
+// MACD 1: Fast (13, 52, 18)
+[macd_line_1, signal_line_1, macd_histogram_1] = ta.macd(close, 13, 52, 18)
+macd_1_bullish = macd_line_1 > signal_line_1 and macd_line_1 > macd_line_1[1]
+macd_1_bearish = macd_line_1 < signal_line_1 and macd_line_1 < macd_line_1[1]
+macd_1_bullish_cross = ta.crossover(macd_line_1, signal_line_1)
+macd_1_bearish_cross = ta.crossunder(macd_line_1, signal_line_1)
+
+// MACD 2: Slow (52, 208, 72)
+[macd_line_2, signal_line_2, macd_histogram_2] = ta.macd(close, 52, 208, 72)
+macd_2_bullish = macd_line_2 > signal_line_2 and macd_line_2 > macd_line_2[1]
+macd_2_bearish = macd_line_2 < signal_line_2 and macd_line_2 < macd_line_2[1]
+macd_2_bullish_cross = ta.crossover(macd_line_2, signal_line_2)
+macd_2_bearish_cross = ta.crossunder(macd_line_2, signal_line_2)
+
+// Combined MACD signals
+macd_bullish = (macd_1_bullish or macd_1_bullish_cross) and (macd_2_bullish or macd_2_bullish_cross)
+macd_bearish = (macd_1_bearish or macd_1_bearish_cross) and (macd_2_bearish or macd_2_bearish_cross)
+macd_bullish_cross = macd_1_bullish_cross or macd_2_bullish_cross
+macd_bearish_cross = macd_1_bearish_cross or macd_2_bearish_cross
 
 // 🏗️ METHOD 3: MARKET STRUCTURE ANALYSIS (NEW - ENHANCED)
 calculate_market_structure() =>
@@ -389,20 +403,20 @@ trend_aligned_signal(is_bullish_signal) =>
 
 // Dynamic Colors Based on Consensus (not just EMA slope)
 color20 = bullish_consensus ? color.lime : bearish_consensus ? color.red : color.gray
-color50 = ema50 > ema50[1] ? color.orange : color.maroon
+color8 = ema8 > ema8[1] ? color.orange : color.maroon
 color100 = ema100 > ema100[1] ? color.aqua : color.navy
 color200 = ema200 > ema200[1] ? color.blue : color.gray
 
 // Plot EMAs (now just visual aids, not decision makers)
 plot(ema20, title="EMA 20", color=color20, linewidth=1)
-plot(ema50, title="EMA 50", color=color50, linewidth=1)
+plot(ema8, title="EMA 8", color=color8, linewidth=1)
 plot(ema100, title="EMA 100", color=color100, linewidth=1)
 plot(ema200, title="EMA 200", color=color200, linewidth=1)
 
 // Enhanced Labels with Multi-Confirmation Info
 consensus_text_suffix = " [" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"
 plotshape(bar_index == ta.highest(bar_index, 1) ? ema20 : na, location=location.absolute, style=shape.labelup, text="EMA 20", color=color.new(color20, 80), textcolor=color.white)
-plotshape(bar_index == ta.highest(bar_index, 1) ? ema50 : na, location=location.absolute, style=shape.labelup, text="EMA 50", color=color.new(color50, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema8 : na, location=location.absolute, style=shape.labelup, text="EMA 8", color=color.new(color8, 80), textcolor=color.white)
 plotshape(bar_index == ta.highest(bar_index, 1) ? ema100 : na, location=location.absolute, style=shape.labelup, text="EMA 100", color=color.new(color100, 80), textcolor=color.white)
 plotshape(bar_index == ta.highest(bar_index, 1) ? ema200 : na, location=location.absolute, style=shape.labelup, text="EMA 200", color=color.new(color200, 80), textcolor=color.white)
 
@@ -1018,11 +1032,11 @@ if show_multi_dashboard and barstate.islast
     table.cell(multi_table, 2, 1, rsi_bear_text, text_color=color.white, text_size=size.small)
     table.cell(multi_table, 3, 1, rsi_status, text_color=color.white, text_size=size.small)
     
-    // MACD Analysis
+    // MACD Analysis (Dual MACD System)
     table.cell(multi_table, 0, 2, "📈 MACD", text_color=color.white, text_size=size.small)
     macd_bull_text = (macd_bullish or macd_bullish_cross) ? "✅" : "❌"
     macd_bear_text = (macd_bearish or macd_bearish_cross) ? "✅" : "❌"
-    macd_status = macd_line > signal_line ? "+" : "-"
+    macd_status = (macd_line_1 > signal_line_1 and macd_line_2 > signal_line_2) ? "++" : (macd_line_1 > signal_line_1 or macd_line_2 > signal_line_2) ? "+" : "--"
     table.cell(multi_table, 1, 2, macd_bull_text, text_color=color.white, text_size=size.small)
     table.cell(multi_table, 2, 2, macd_bear_text, text_color=color.white, text_size=size.small)
     table.cell(multi_table, 3, 2, macd_status, text_color=color.white, text_size=size.small)
