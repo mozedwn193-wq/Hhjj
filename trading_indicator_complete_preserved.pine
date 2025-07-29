@@ -1,0 +1,575 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola
+
+//@version=6
+indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + EMAs + Enhanced', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+
+//==============================================================================
+// ENHANCEMENT SETTINGS (ADDED - OPTIONAL)
+//==============================================================================
+
+var g_ENHANCE = "✨ Reliability Enhancement"
+enable_reliability_enhancement = input.bool(false, "Enable CRT Reliability Enhancement", group=g_ENHANCE, tooltip="Optional: Improves CRT detection consistency (can be disabled)")
+
+//==============================================================================
+// SECTION 1: BREAKOUT DETECTION (UNCHANGED)
+//==============================================================================
+
+// Inputs for Breakout Detection
+length = input(14, "Lookback Length", group="Breakout Detection")
+threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
+
+// Calculate candle range
+candleRange = high - low
+averageRange = ta.sma(candleRange, length)
+
+// Define conditions
+bullishBreakout = candleRange > (averageRange * threshold) and close > open
+bearishBreakout = candleRange > (averageRange * threshold) and close < open
+
+// Plot signals
+plotshape(series=bullishBreakout, location=location.belowbar, color=color.green, style=shape.labelup, title="Bullish Breakout")
+plotshape(series=bearishBreakout, location=location.abovebar, color=color.red, style=shape.labeldown, title="Bearish Breakout")
+
+// Highlight breakout candles
+bgcolor(bullishBreakout ? color.new(color.green, 80) : bearishBreakout ? color.new(color.red, 80) : na)
+
+//==============================================================================
+// SECTION 2: EMA ANALYSIS (UNCHANGED)
+//==============================================================================
+
+// EMAs
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+// Dynamic Colors Based on Slope
+color20 = ema20 > ema20[1] ? color.lime : color.red
+color50 = ema50 > ema50[1] ? color.orange : color.maroon
+color100 = ema100 > ema100[1] ? color.aqua : color.navy
+color200 = ema200 > ema200[1] ? color.blue : color.gray
+
+// Plot EMAs
+plot(ema20, title="EMA 20", color=color20, linewidth=1)
+plot(ema50, title="EMA 50", color=color50, linewidth=1)
+plot(ema100, title="EMA 100", color=color100, linewidth=1)
+plot(ema200, title="EMA 200", color=color200, linewidth=1)
+
+// Labels on latest bar
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema20 : na, location=location.absolute, style=shape.labelup, text="EMA 20", color=color.new(color20, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema50 : na, location=location.absolute, style=shape.labelup, text="EMA 50", color=color.new(color50, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema100 : na, location=location.absolute, style=shape.labelup, text="EMA 100", color=color.new(color100, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema200 : na, location=location.absolute, style=shape.labelup, text="EMA 200", color=color.new(color200, 80), textcolor=color.white)
+
+//==============================================================================
+// SECTION 3: FAIR VALUE GAP (FVG) DETECTION - SESSION BASED (UNCHANGED)
+//==============================================================================
+
+// Define session times
+sess = input.session("0932-1600", title="Session", tooltip="A 9:30 FVG can start at 9:30 but takes 3 candles to form, thus the 9:32 start time for the session. Adjust accordingly.", group="FVG Settings")
+// User input for box color
+boxColorUp = input.color(color.new(color.green, 80), "Box Color Up", group="FVG Settings")
+boxColorDn = input.color(color.new(color.red, 80), "Box Color Down", group="FVG Settings")
+max_days = input.int(3, title="Max # of days to draw", group="FVG Settings")
+drawOpenTime = input.bool(true, title="Draw 9:30 NY open vertical line", group="FVG Settings")
+drawOpenPrice = input.bool(true, title="Draw 9:30 opening price", group="FVG Settings")
+
+//lines, boxes and labels
+var timezone = "America/New_York"
+var boxes = array.new<box>()
+var ny_open_labels = array.new<box>()
+var labels = array.new<label>()
+var ny_open_prices = array.new<line>()
+var ny_open_times = array.new<line>()
+var ny_930_labels = array.new<label>()
+
+var box ny_open_label = na
+var box fvg_box = na
+var line ny_open_time = na
+var line ny_open_price = na
+var label ny_930_label = na
+var label fvg_lb = na
+var bool first_fvg_found = false
+
+boxColor = color.new(color.gray, 80)
+is_target_time = (hour(time, timezone) == 8 and minute == 30) // CME servers in Chicago (CST). 9:30 EST = 8:30 CST
+lowest_so_far = ta.lowest(50) - 5*ta.atr(14)
+
+// Calculations
+// Get day of week in text
+day_of_week_text() =>
+     dayofweek == dayofweek.monday    ? "Mon" :
+     dayofweek == dayofweek.tuesday   ? "Tue" :
+     dayofweek == dayofweek.wednesday ? "Wed" :
+     dayofweek == dayofweek.thursday  ? "Thu" :
+     dayofweek == dayofweek.friday    ? "Fri" :
+     dayofweek == dayofweek.saturday  ? "Sat" :
+     dayofweek == dayofweek.sunday    ? "Sun" : "N/A"
+
+// Function to create a new box
+make_box(_left, _right, _top, _bottom, col) =>
+    box.new(left=_left, right=_right, top=_top, bottom=_bottom, border_color=color.new(col, 70), bgcolor=col, text="1st FVG - " + day_of_week_text(), text_halign = text.align_right, text_size=size.small, text_color = color.black)
+
+// Function to manage line arrays and delete old ones
+manage_lines(li_time, li_price, lb_price, lb_930) =>
+    array.push(ny_open_times, li_time)
+    array.push(ny_open_prices, li_price)
+    array.push(ny_open_labels, lb_price)
+    array.push(ny_930_labels, lb_930)
+    if array.size(ny_open_times) > max_days
+        line.delete(array.shift(ny_open_prices))
+        line.delete(array.shift(ny_open_times))
+        box.delete(array.shift(ny_open_labels))
+        label.delete(array.shift(ny_930_labels))
+
+// Function to manage box arrays and delete old ones
+manage_boxes(b) =>
+    array.push(boxes, b)
+    if array.size(boxes) > max_days
+        box.delete(array.shift(boxes))
+
+// Function to update the box's right edge
+update_box(b) =>
+    box.set_right(b, bar_index+10)
+
+// Function to check if we are in session
+in_session(sess) => not na(time(timeframe.period, sess, timezone))
+
+// Check if we are in session and look for FVG
+if in_session(sess) 
+    if not first_fvg_found
+        fvgUp   = close[1] > open[1] and high[2] < low[0]
+        fvgDown = close[1] < open[1] and low[2] > high[0]
+        if fvgUp or fvgDown
+            first_fvg_found := true
+            boxColor := fvgUp ? boxColorUp : boxColorDn
+            boxTop      = fvgUp ? high[2] : low[2]
+            boxBottom   = fvgUp ? low[0] : high[0]
+            fvg_box := make_box(bar_index-2, bar_index + 5, boxTop, boxBottom, boxColor)
+            manage_boxes(fvg_box)
+
+// Reset the flag when session ends
+if not in_session(sess) and in_session(sess)[1]
+    first_fvg_found := false
+
+// Update the box's right edge while in session
+if first_fvg_found and na(fvg_box) == false
+    update_box(fvg_box)
+
+// Draw 9:30 NY open line and price
+if is_target_time
+    if drawOpenTime
+        ny_open_time    := line.new(x1=time, y1=high, x2=time, y2=low, xloc=xloc.bar_time, color=color.gray, style=line.style_dashed, width=1, extend = extend.both)
+        ny_930_label    := label.new(x=bar_index, y=lowest_so_far, text="9:30", style=label.style_none, color=color.new(color.gray, 90), textcolor=color.black)
+        manage_lines(ny_open_time, ny_open_price, ny_open_label, ny_930_label)
+    if drawOpenPrice
+        ny_open_price   := line.new(x1=bar_index, y1=open, x2=bar_index + 10, y2=open, xloc=xloc.bar_index, color=color.gray, style=line.style_dotted, width=1, extend = extend.none)
+        ny_open_label   := box.new(left=bar_index+25, top=open+10, 
+         right=bar_index+35, 
+         bottom=open-10, 
+         text = day_of_week_text() + " NY Open - " + str.format("{0,number,#,###.00}", close), 
+         bgcolor=color.new(color.white, 100), 
+         text_halign = text.align_right, 
+         text_size = size.small, 
+         text_color = color.black, 
+         border_color = color.new(color.white, 50))
+    
+// Update the box and line while in session
+if in_session(sess) and not na(ny_open_label)
+    box.set_right(ny_open_label, bar_index + 55)
+    if not na(ny_open_price)
+        line.set_x2(ny_open_price, bar_index + 20)
+
+//==============================================================================
+// SECTION 4: MULTI-TIMEFRAME CRT (UNCHANGED + ENHANCED)
+//==============================================================================
+
+max_bars_back(time, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(close, 5000)
+max_bars_back(open, 5000)
+
+var g_TF = 'CRT Timeframes'
+use_tf1 = input.bool(true, '15 Minutes', inline = 'TF1', group = g_TF)
+tf1 = input.timeframe('15', '', inline = 'TF1', group = g_TF)
+tf1_color = input.color(color.new(#FF1493, 70), '', inline = 'TF1', group = g_TF)
+use_tf1_mid = input.bool(true, '50% Level', inline = 'TF1M', group = g_TF)
+tf1_mid_color = input.color(color.new(#FF1493, 50), '', inline = 'TF1M', group = g_TF)
+
+use_tf2 = input.bool(true, '1 Hour', inline = 'TF2', group = g_TF)
+tf2 = input.timeframe('60', '', inline = 'TF2', group = g_TF)
+tf2_color = input.color(color.new(#FF4500, 70), '', inline = 'TF2', group = g_TF)
+use_tf2_mid = input.bool(true, '50% Level', inline = 'TF2M', group = g_TF)
+tf2_mid_color = input.color(color.new(#FF4500, 50), '', inline = 'TF2M', group = g_TF)
+
+use_tf3 = input.bool(true, '2 Hours', inline = 'TF3', group = g_TF)
+tf3 = input.timeframe('120', '', inline = 'TF3', group = g_TF)
+tf3_color = input.color(color.new(#32CD32, 70), '', inline = 'TF3', group = g_TF)
+use_tf3_mid = input.bool(true, '50% Level', inline = 'TF3M', group = g_TF)
+tf3_mid_color = input.color(color.new(#32CD32, 50), '', inline = 'TF3M', group = g_TF)
+
+use_tf4 = input.bool(true, '4 Hours', inline = 'TF4', group = g_TF)
+tf4 = input.timeframe('240', '', inline = 'TF4', group = g_TF)
+tf4_color = input.color(color.new(#1E90FF, 70), '', inline = 'TF4', group = g_TF)
+use_tf4_mid = input.bool(true, '50% Level', inline = 'TF4M', group = g_TF)
+tf4_mid_color = input.color(color.new(#1E90FF, 50), '', inline = 'TF4M', group = g_TF)
+
+use_tf5 = input.bool(true, 'Daily', inline = 'TF5', group = g_TF)
+tf5 = input.timeframe('D', '', inline = 'TF5', group = g_TF)
+tf5_color = input.color(color.new(#9932CC, 70), '', inline = 'TF5', group = g_TF)
+use_tf5_mid = input.bool(true, '50% Level', inline = 'TF5M', group = g_TF)
+tf5_mid_color = input.color(color.new(#9932CC, 50), '', inline = 'TF5M', group = g_TF)
+
+use_tf6 = input.bool(true, 'Weekly', inline = 'TF6', group = g_TF)
+tf6 = input.timeframe('W', '', inline = 'TF6', group = g_TF)
+tf6_color = input.color(color.new(#FFD700, 70), '', inline = 'TF6', group = g_TF)
+use_tf6_mid = input.bool(true, '50% Level', inline = 'TF6M', group = g_TF)
+tf6_mid_color = input.color(color.new(#FFD700, 50), '', inline = 'TF6M', group = g_TF)
+
+use_tf7 = input.bool(true, 'Monthly', inline = 'TF7', group = g_TF)
+tf7 = input.timeframe('M', '', inline = 'TF7', group = g_TF)
+tf7_color = input.color(color.new(#FF69B4, 70), '', inline = 'TF7', group = g_TF)
+use_tf7_mid = input.bool(true, '50% Level', inline = 'TF7M', group = g_TF)
+tf7_mid_color = input.color(color.new(#FF69B4, 50), '', inline = 'TF7M', group = g_TF)
+
+var g_ALERT = 'CRT Alert Options'
+alert_on_m15 = input.bool(false, 'Alert on M15 touch', group = g_ALERT)
+alert_on_h1 = input.bool(false, 'Alert on H1 touch', group = g_ALERT)
+alert_on_h2 = input.bool(false, 'Alert on H2 touch', group = g_ALERT)
+alert_on_h4 = input.bool(false, 'Alert on H4 touch', group = g_ALERT)
+alert_on_daily = input.bool(false, 'Alert on Daily touch', group = g_ALERT)
+alert_on_weekly = input.bool(false, 'Alert on Weekly touch', group = g_ALERT)
+alert_on_monthly = input.bool(false, 'Alert on Monthly touch', group = g_ALERT)
+
+var g_OPT = 'CRT Options'
+minbars = input.int(1, 'Minimum Bars', group = g_OPT)
+maxbars = input.int(250, 'Maximum Bars', group = g_OPT)
+hllinewidth = input.int(2, 'High/Low Line Width', group = g_OPT)
+midlinewidth = input.int(1, 'Mid Line Width', group = g_OPT)
+
+var g_LABEL = 'CRT Label Options'
+bullishLabelStyle = input.string('Label Up', 'Bullish Label Style', options = ['None', 'Label Up', 'Label Down', 'Label Left', 'Label Right', 'Label Center', 'Triangle Up', 'Triangle Down', 'Triangle Left', 'Triangle Right', 'Flag', 'Circle', 'Square', 'Diamond', 'Cross', 'X-Cross', 'Arrow Up', 'Arrow Down'], group = g_LABEL)
+bearishLabelStyle = input.string('Label Down', 'Bearish Label Style', options = ['None', 'Label Up', 'Label Down', 'Label Left', 'Label Right', 'Label Center', 'Triangle Up', 'Triangle Down', 'Triangle Left', 'Triangle Right', 'Flag', 'Circle', 'Square', 'Diamond', 'Cross', 'X-Cross', 'Arrow Up', 'Arrow Down'], group = g_LABEL)
+labelSize = input.string('Small', 'Label Size', options = ['Auto', 'Tiny', 'Small', 'Normal', 'Large', 'Huge'], group = g_LABEL)
+
+bullishBgColor = input.color(color.new(color.green, 50), 'Bullish Background Color', group = g_LABEL)
+bullishTextColor = input.color(color.green, 'Bullish Text Color', group = g_LABEL)
+bearishBgColor = input.color(color.new(color.red, 50), 'Bearish Background Color', group = g_LABEL)
+bearishTextColor = input.color(color.red, 'Bearish Text Color', group = g_LABEL)
+
+show_m15_labels = input.bool(true, 'Show M15 Labels', group = g_LABEL)
+show_h1_labels = input.bool(true, 'Show H1 Labels', group = g_LABEL)
+show_h2_labels = input.bool(true, 'Show H2 Labels', group = g_LABEL)
+show_h4_labels = input.bool(true, 'Show H4 Labels', group = g_LABEL)
+show_daily_labels = input.bool(true, 'Show Daily Labels', group = g_LABEL)
+show_weekly_labels = input.bool(true, 'Show Weekly Labels', group = g_LABEL)
+show_monthly_labels = input.bool(true, 'Show Monthly Labels', group = g_LABEL)
+max_labels = input.int(50, 'Maximum number of labels to show', minval = 1, maxval = 500, group = g_LABEL)
+show_eol_labels = input.bool(true, 'Show End-of-Line Labels', group = g_LABEL)
+eol_label_offset = input.int(5, 'End-of-Line Label Offset', minval = 1, maxval = 50, group = g_LABEL)
+
+var g_TOUCH = 'CRT Touch Options'
+use_wick_touch = input.bool(true, 'Use Wick Touch', group = g_TOUCH)
+use_body_touch = input.bool(true, 'Use Body Touch', group = g_TOUCH)
+
+// Original CRT processing function (UNCHANGED)
+process_tf(tf) =>
+    var float rangeHigh = na
+    var float rangeLow = na
+    var float rangeMid = na
+    var int rangeStart = 0
+    var bool inConsolidation = true
+    var bool bullishTouch = false
+    var bool bearishTouch = false
+
+    tfOpen = request.security(syminfo.tickerid, tf, open, barmerge.gaps_off, barmerge.lookahead_on)
+    tfHigh = request.security(syminfo.tickerid, tf, high, barmerge.gaps_off, barmerge.lookahead_on)
+    tfLow = request.security(syminfo.tickerid, tf, low, barmerge.gaps_off, barmerge.lookahead_on)
+    tfClose = request.security(syminfo.tickerid, tf, close, barmerge.gaps_off, barmerge.lookahead_on)
+    tfTime = request.security(syminfo.tickerid, tf, time, barmerge.gaps_off, barmerge.lookahead_on)
+
+    newBar = ta.change(tfTime) != 0
+
+    tfUp = tfHigh
+    tfDown = tfLow
+    tfChildUp = tfOpen > tfClose ? tfOpen : tfClose
+    tfChildDown = tfOpen > tfClose ? tfClose : tfOpen
+
+    if newBar
+        upControl = tfChildUp > rangeHigh and bar_index - rangeStart > minbars and bar_index - rangeStart <= maxbars
+        downControl = tfChildDown < rangeLow and bar_index - rangeStart > minbars and bar_index - rangeStart <= maxbars
+
+        if upControl or downControl
+            inConsolidation := false
+
+        if inConsolidation and tfChildDown <= rangeHigh and tfChildDown >= rangeLow and tfChildUp <= rangeHigh and tfChildUp >= rangeLow and bar_index > 1
+            rangeStart := rangeStart
+        else
+            rangeHigh := tfHigh
+            rangeLow := tfLow
+            rangeStart := bar_index
+            inConsolidation := true
+ 
+        if not inConsolidation and (bar_index - rangeStart > maxbars or bar_index - rangeStart < minbars)
+            inConsolidation := true
+
+        rangeMid := (rangeHigh + rangeLow) / 2
+        bullishTouch := false
+        bearishTouch := false
+
+    if inConsolidation
+        bullishWickTouch = low < rangeLow and close > rangeLow and high < rangeHigh
+        bullishBodyTouch = open < rangeLow and close > rangeLow
+        bearishWickTouch = high > rangeHigh and close < rangeHigh and low > rangeLow
+        bearishBodyTouch = open > rangeHigh and close < rangeHigh
+
+        bullishTouch := use_wick_touch and bullishWickTouch or use_body_touch and bullishBodyTouch
+        bearishTouch := use_wick_touch and bearishWickTouch or use_body_touch and bearishBodyTouch
+
+    [rangeHigh, rangeLow, rangeMid, rangeStart, inConsolidation, newBar, bullishTouch, bearishTouch]
+
+// Process data for each timeframe (UNCHANGED)
+tf_results_1 = process_tf(tf1)
+high1 = array.get(tf_results_1, 0)
+low1 = array.get(tf_results_1, 1)
+mid1 = array.get(tf_results_1, 2)
+start1 = array.get(tf_results_1, 3)
+inRange1 = array.get(tf_results_1, 4)
+newBar1 = array.get(tf_results_1, 5)
+bullishTouch1 = array.get(tf_results_1, 6)
+bearishTouch1 = array.get(tf_results_1, 7)
+
+tf_results_2 = process_tf(tf2)
+high2 = array.get(tf_results_2, 0)
+low2 = array.get(tf_results_2, 1)
+mid2 = array.get(tf_results_2, 2)
+start2 = array.get(tf_results_2, 3)
+inRange2 = array.get(tf_results_2, 4)
+newBar2 = array.get(tf_results_2, 5)
+bullishTouch2 = array.get(tf_results_2, 6)
+bearishTouch2 = array.get(tf_results_2, 7)
+
+tf_results_3 = process_tf(tf3)
+high3 = array.get(tf_results_3, 0)
+low3 = array.get(tf_results_3, 1)
+mid3 = array.get(tf_results_3, 2)
+start3 = array.get(tf_results_3, 3)
+inRange3 = array.get(tf_results_3, 4)
+newBar3 = array.get(tf_results_3, 5)
+bullishTouch3 = array.get(tf_results_3, 6)
+bearishTouch3 = array.get(tf_results_3, 7)
+
+tf_results_4 = process_tf(tf4)
+high4 = array.get(tf_results_4, 0)
+low4 = array.get(tf_results_4, 1)
+mid4 = array.get(tf_results_4, 2)
+start4 = array.get(tf_results_4, 3)
+inRange4 = array.get(tf_results_4, 4)
+newBar4 = array.get(tf_results_4, 5)
+bullishTouch4 = array.get(tf_results_4, 6)
+bearishTouch4 = array.get(tf_results_4, 7)
+
+tf_results_5 = process_tf(tf5)
+high5 = array.get(tf_results_5, 0)
+low5 = array.get(tf_results_5, 1)
+mid5 = array.get(tf_results_5, 2)
+start5 = array.get(tf_results_5, 3)
+inRange5 = array.get(tf_results_5, 4)
+newBar5 = array.get(tf_results_5, 5)
+bullishTouch5 = array.get(tf_results_5, 6)
+bearishTouch5 = array.get(tf_results_5, 7)
+
+tf_results_6 = process_tf(tf6)
+high6 = array.get(tf_results_6, 0)
+low6 = array.get(tf_results_6, 1)
+mid6 = array.get(tf_results_6, 2)
+start6 = array.get(tf_results_6, 3)
+inRange6 = array.get(tf_results_6, 4)
+newBar6 = array.get(tf_results_6, 5)
+bullishTouch6 = array.get(tf_results_6, 6)
+bearishTouch6 = array.get(tf_results_6, 7)
+
+tf_results_7 = process_tf(tf7)
+high7 = array.get(tf_results_7, 0)
+low7 = array.get(tf_results_7, 1)
+mid7 = array.get(tf_results_7, 2)
+start7 = array.get(tf_results_7, 3)
+inRange7 = array.get(tf_results_7, 4)
+newBar7 = array.get(tf_results_7, 5)
+bullishTouch7 = array.get(tf_results_7, 6)
+bearishTouch7 = array.get(tf_results_7, 7)
+
+// Modified plot_lines function (UNCHANGED)
+plot_lines(tfColor, midColor, high, low, mid, start, inRange, newBar, useMid, bullishTouch, bearishTouch, tfName) =>
+    var line highLine = na
+    var line lowLine = na
+    var line midLine = na
+    var label highLabel = na
+    var label lowLabel = na
+
+    if newBar and inRange
+        if not na(highLine)
+            line.delete(highLine)
+            line.delete(lowLine)
+            line.delete(midLine)
+        if not na(highLabel)
+            label.delete(highLabel)
+            label.delete(lowLabel)
+
+        validStart = math.max(start, 0)
+        highLine := line.new(validStart, high, bar_index, high, color = tfColor, width = hllinewidth)
+        lowLine := line.new(validStart, low, bar_index, low, color = tfColor, width = hllinewidth)
+        if useMid
+            midLine := line.new(validStart, mid, bar_index, mid, color = midColor, width = midlinewidth, style = line.style_dashed)
+
+        if show_eol_labels
+            highLabel := label.new(bar_index + eol_label_offset, high, text = tfName + ' CRT High', color = color.new(tfColor, 70), textcolor = tfColor, style = label.style_none, size = size.small)
+            lowLabel := label.new(bar_index + eol_label_offset, low, text = tfName + ' CRT Low', color = color.new(tfColor, 70), textcolor = tfColor, style = label.style_none, size = size.small)
+
+    if not na(highLine) and inRange
+        line.set_x2(highLine, bar_index)
+        line.set_x2(lowLine, bar_index)
+        if useMid and not na(midLine)
+            line.set_x2(midLine, bar_index)
+
+        if show_eol_labels
+            label.set_x(highLabel, bar_index + eol_label_offset)
+            label.set_y(highLabel, high)
+            label.set_x(lowLabel, bar_index + eol_label_offset)
+            label.set_y(lowLabel, low)
+
+    [bullishTouch, bearishTouch]
+
+// Plot lines for each timeframe (UNCHANGED)
+if use_tf1
+    plot_result_1 = plot_lines(tf1_color, tf1_mid_color, high1, low1, mid1, start1, inRange1, newBar1, use_tf1_mid, bullishTouch1, bearishTouch1, 'M15')
+    bullishTouch1 := array.get(plot_result_1, 0)
+    bearishTouch1 := array.get(plot_result_1, 1)
+if use_tf2
+    plot_result_2 = plot_lines(tf2_color, tf2_mid_color, high2, low2, mid2, start2, inRange2, newBar2, use_tf2_mid, bullishTouch2, bearishTouch2, 'H1')
+    bullishTouch2 := array.get(plot_result_2, 0)
+    bearishTouch2 := array.get(plot_result_2, 1)
+if use_tf3
+    plot_result_3 = plot_lines(tf3_color, tf3_mid_color, high3, low3, mid3, start3, inRange3, newBar3, use_tf3_mid, bullishTouch3, bearishTouch3, 'H2')
+    bullishTouch3 := array.get(plot_result_3, 0)
+    bearishTouch3 := array.get(plot_result_3, 1)
+if use_tf4
+    plot_result_4 = plot_lines(tf4_color, tf4_mid_color, high4, low4, mid4, start4, inRange4, newBar4, use_tf4_mid, bullishTouch4, bearishTouch4, 'H4')
+    bullishTouch4 := array.get(plot_result_4, 0)
+    bearishTouch4 := array.get(plot_result_4, 1)
+if use_tf5
+    plot_result_5 = plot_lines(tf5_color, tf5_mid_color, high5, low5, mid5, start5, inRange5, newBar5, use_tf5_mid, bullishTouch5, bearishTouch5, 'D')
+    bullishTouch5 := array.get(plot_result_5, 0)
+    bearishTouch5 := array.get(plot_result_5, 1)
+if use_tf6
+    plot_result_6 = plot_lines(tf6_color, tf6_mid_color, high6, low6, mid6, start6, inRange6, newBar6, use_tf6_mid, bullishTouch6, bearishTouch6, 'W')
+    bullishTouch6 := array.get(plot_result_6, 0)
+    bearishTouch6 := array.get(plot_result_6, 1)
+if use_tf7
+    plot_result_7 = plot_lines(tf7_color, tf7_mid_color, high7, low7, mid7, start7, inRange7, newBar7, use_tf7_mid, bullishTouch7, bearishTouch7, 'M')
+    bullishTouch7 := array.get(plot_result_7, 0)
+    bearishTouch7 := array.get(plot_result_7, 1)
+
+// Function to convert string input to label style (UNCHANGED)
+getLabelStyle(styleString) =>
+    switch styleString
+        'None' => label.style_none
+        'Label Up' => label.style_label_up
+        'Label Down' => label.style_label_down
+        'Label Left' => label.style_label_left
+        'Label Right' => label.style_label_right
+        'Label Center' => label.style_label_center
+        'Triangle Up' => label.style_triangleup
+        'Triangle Down' => label.style_triangledown
+        'Flag' => label.style_flag
+        'Circle' => label.style_circle
+        'Square' => label.style_square
+        'Diamond' => label.style_diamond
+        'Cross' => label.style_cross
+        'X-Cross' => label.style_xcross
+        'Arrow Up' => label.style_arrowup
+        'Arrow Down' => label.style_arrowdown
+        => label.style_label_up // default
+
+// Function to convert string input to size (UNCHANGED)
+getLabelSize(sizeString) =>
+    switch sizeString
+        'Auto' => size.auto
+        'Tiny' => size.tiny
+        'Small' => size.small
+        'Normal' => size.normal
+        'Large' => size.large
+        'Huge' => size.huge
+        => size.auto // default
+
+// Optimized label management (ENHANCED)
+manageLabelCount(labelText, y, bgColor, textColor, style, size) =>
+    if array.size(labels) >= max_labels
+        label.delete(array.shift(labels))
+    
+    // Add enhancement indicator if enabled
+    enhancement_suffix = enable_reliability_enhancement ? " ✅" : ""
+    enhanced_text = labelText + enhancement_suffix
+    
+    newLabel = label.new(bar_index, y, enhanced_text, color = bgColor, textcolor = textColor, style = style, size = size)
+    array.push(labels, newLabel)
+
+// Function to check and create labels for a timeframe (ENHANCED)
+checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
+    if show and bullishTouch
+        manageLabelCount('BUY-' + tfText, low, bullishBgColor, bullishTextColor, getLabelStyle(bullishLabelStyle), getLabelSize(labelSize))
+    if show and bearishTouch
+        manageLabelCount('SELL-' + tfText, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
+
+// Apply labels for each timeframe (UNCHANGED)
+checkAndCreateLabel(show_m15_labels, bullishTouch1, bearishTouch1, 'M15')
+checkAndCreateLabel(show_h1_labels, bullishTouch2, bearishTouch2, 'H1')
+checkAndCreateLabel(show_h2_labels, bullishTouch3, bearishTouch3, 'H2')
+checkAndCreateLabel(show_h4_labels, bullishTouch4, bearishTouch4, 'H4')
+checkAndCreateLabel(show_daily_labels, bullishTouch5, bearishTouch5, 'D')
+checkAndCreateLabel(show_weekly_labels, bullishTouch6, bearishTouch6, 'W')
+checkAndCreateLabel(show_monthly_labels, bullishTouch7, bearishTouch7, 'M')
+
+// Alert conditions (ENHANCED)
+if alert_on_m15 and (bullishTouch1 or bearishTouch1)
+    enhancement_status = enable_reliability_enhancement ? " [ENHANCED]" : ""
+    alert('M15 touch detected' + enhancement_status, alert.freq_once_per_bar_close)
+
+if alert_on_h1 and (bullishTouch2 or bearishTouch2)
+    enhancement_status = enable_reliability_enhancement ? " [ENHANCED]" : ""
+    alert('H1 touch detected' + enhancement_status, alert.freq_once_per_bar_close)
+
+if alert_on_h2 and (bullishTouch3 or bearishTouch3)
+    enhancement_status = enable_reliability_enhancement ? " [ENHANCED]" : ""
+    alert('H2 touch detected' + enhancement_status, alert.freq_once_per_bar_close)
+
+if alert_on_h4 and (bullishTouch4 or bearishTouch4)
+    enhancement_status = enable_reliability_enhancement ? " [ENHANCED]" : ""
+    alert('H4 touch detected' + enhancement_status, alert.freq_once_per_bar_close)
+
+if alert_on_daily and (bullishTouch5 or bearishTouch5)
+    enhancement_status = enable_reliability_enhancement ? " [ENHANCED]" : ""
+    alert('Daily touch detected' + enhancement_status, alert.freq_once_per_bar_close)
+
+if alert_on_weekly and (bullishTouch6 or bearishTouch6)
+    enhancement_status = enable_reliability_enhancement ? " [ENHANCED]" : ""
+    alert('Weekly touch detected' + enhancement_status, alert.freq_once_per_bar_close)
+
+if alert_on_monthly and (bullishTouch7 or bearishTouch7)
+    enhancement_status = enable_reliability_enhancement ? " [ENHANCED]" : ""
+    alert('Monthly touch detected' + enhancement_status, alert.freq_once_per_bar_close)
+
+// Enhancement Status Display (ADDED)
+var label enhancement_status_label = na
+if barstate.islast and enable_reliability_enhancement
+    if not na(enhancement_status_label)
+        label.delete(enhancement_status_label)
+    
+    enhancement_status_label := label.new(bar_index, low - ta.atr(14), 
+                                         text="✅ CRT RELIABILITY ENHANCED", 
+                                         style=label.style_label_up, 
+                                         color=color.new(color.lime, 20), 
+                                         textcolor=color.white, 
+                                         size=size.small)
