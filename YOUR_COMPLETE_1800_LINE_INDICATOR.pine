@@ -1732,7 +1732,7 @@ method Monitor(Helper helper, CandleSet candleSet) =>
     if candleSet.settings.show
         [htf_open, htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, candleSet.settings.htf, [open, high, low, close, time])
         
-        if ta.change(htf_time)
+        if ta.change(htf_time) != 0
             Candle c = Candle.new()
             c.o := htf_open
             c.h := htf_high
