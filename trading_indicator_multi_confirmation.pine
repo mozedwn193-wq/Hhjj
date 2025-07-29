@@ -798,7 +798,7 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
             else
                 trend_status := "⚠️[" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"  // Weak/conflicting signals
             
-            enhanced_label = 'BUY-' + tfText + str.tostring(trend_status)
+            enhanced_label = 'BUY-' + tfText + trend_status
             manageLabelCount(enhanced_label, low, bullishBgColor, bullishTextColor, getLabelStyle(bullishLabelStyle), getLabelSize(labelSize))
     
     if show and bearishTouch and volume_ok
@@ -819,7 +819,7 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
             else
                 trend_status := "⚠️[" + str.tostring(bear_votes) + "v" + str.tostring(bull_votes) + "]"  // Weak/conflicting signals
             
-            enhanced_label = 'SELL-' + tfText + str.tostring(trend_status)
+            enhanced_label = 'SELL-' + tfText + trend_status
             manageLabelCount(enhanced_label, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
 
 // Apply ENHANCED labels for each timeframe
