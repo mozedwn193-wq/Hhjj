@@ -47,18 +47,18 @@ if not hp_drawn and barstate.islast
             y_up = hpA + divisor
             line.new(bar_index, y_up, bar_index + hpExt, y_up,
                      xloc.bar_index, extend.none, upCol, upStyle, hpWidth)
-            label.new(bar_index + hpExt, y_up,
+            label.new(x=bar_index + hpExt, y=y_up,
                       text="U+" + str.tostring(n) + " " + str.tostring(y_up, "#.##"),
-                      xloc.bar_index, yloc.price,
+                      xloc=xloc.bar_index, yloc=yloc.price,
                       style=label.style_label_right,
                       color=upCol, textcolor=color.white, size=size.tiny)
         if showDn
             y_dn = hpA - divisor
             line.new(bar_index, y_dn, bar_index + hpExt, y_dn,
                      xloc.bar_index, extend.none, dnCol, dnStyle, hpWidth)
-            label.new(bar_index + hpExt, y_dn,
+            label.new(x=bar_index + hpExt, y=y_dn,
                       text="D" + str.tostring(n) + " " + str.tostring(y_dn, "#.##"),
-                      xloc.bar_index, yloc.price,
+                      xloc=xloc.bar_index, yloc=yloc.price,
                       style=label.style_label_right,
                       color=dnCol, textcolor=color.white, size=size.tiny)
     hp_drawn := true
@@ -107,8 +107,9 @@ f_draw(arr, clr) =>
         anchor_value = f_anchor(x)
         line.new(bar_index, anchor_value, bar_index + hpExt, anchor_value,
                  xloc.bar_index, extend.none, clr, dnStyle, 1)
-        label.new(bar_index + hpExt, anchor_value, text=str.tostring(anchor_value, "#.##"),
-                  xloc.bar_index, yloc.price,
+        label.new(x=bar_index + hpExt, y=anchor_value, 
+                  text=str.tostring(anchor_value, "#.##"),
+                  xloc=xloc.bar_index, yloc=yloc.price,
                   style=label.style_label_right,
                   color=clr, textcolor=color.white, size=size.tiny)
 
