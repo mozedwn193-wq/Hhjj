@@ -2,40 +2,202 @@
 // © Zidanola
 
 //@version=6
-indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + 3x MACD + RSI DIVERGENCE + BOLLINGER BANDS', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + EMAs + LIQUIDITY CONFLICT RESOLUTION', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
 
 //==============================================================================
-// ENHANCED SIGNAL FILTERING SETTINGS (Multiple Confirmation Methods)
+// NEW SECTION: LIQUIDITY CONFLICT RESOLUTION SYSTEM
 //==============================================================================
 
-var g_FILTER = "🔧 Signal Filtering"
-enable_volume_filter = input.bool(false, "Enable Volume Filter", group=g_FILTER, tooltip="Only signals when volume is above average")
-volume_multiplier = input.float(1.2, "Volume Multiplier", minval=0.5, maxval=3.0, step=0.1, group=g_FILTER)
-enable_trend_filter = input.bool(true, "Enable Multi-Confirmation Trend Filter", group=g_FILTER, tooltip="Uses multiple methods for trend detection")
-enable_confirmation = input.bool(false, "Enable Signal Confirmation", group=g_FILTER, tooltip="Wait for next bar confirmation")
-min_signal_strength = input.int(50, "Minimum Signal Strength (%)", minval=30, maxval=90, group=g_FILTER)
+var g_LIQUIDITY = "🌊 Liquidity Conflict Resolution"
+enable_liquidity_system = input.bool(true, "Enable Liquidity Conflict System", group=g_LIQUIDITY)
+show_liquidity_dashboard = input.bool(true, "Show Liquidity Dashboard", group=g_LIQUIDITY)
+liquidity_lookback = input.int(50, "Liquidity Lookback Bars", minval=10, maxval=100, group=g_LIQUIDITY)
+conflict_alert_threshold = input.int(20, "Conflict Alert Threshold", minval=10, maxval=50, group=g_LIQUIDITY, tooltip="Minimum point difference to show conflict")
 
-var g_TREND = "📈 Multi-Confirmation Trend Detection"
-use_rsi_divergence = input.bool(true, "Use RSI Divergence Detection", group=g_TREND, tooltip="RSI divergence helps detect trend reversals")
-use_macd_trend = input.bool(true, "Use Triple MACD for Trend Confirmation", group=g_TREND, tooltip="3 MACD systems for comprehensive trend analysis")
-use_price_action = input.bool(true, "Use Price Action Signals", group=g_TREND, tooltip="Higher highs/lows and breakouts")
-use_volume_trend = input.bool(true, "Use Volume Trend Analysis", group=g_TREND, tooltip="Volume confirms trend strength")
-use_structure_analysis = input.bool(true, "Use Market Structure Analysis", group=g_TREND, tooltip="Analyzes market structure for trend confirmation")
-use_momentum_divergence = input.bool(true, "Use Momentum Divergence", group=g_TREND, tooltip="Detects trend exhaustion via divergence")
-use_bollinger_bands = input.bool(true, "Use Bollinger Bands Analysis", group=g_TREND, tooltip="BB squeeze and breakout detection")
-trend_sensitivity = input.string("Medium", "Trend Detection Sensitivity", options=["High", "Medium", "Low"], group=g_TREND, tooltip="High=Early signals, Low=Confirmed signals")
+// Liquidity tracking arrays for each timeframe
+type LiquidityData
+    string timeframe
+    float ssl_price = na  // Sell-side liquidity price
+    float bsl_price = na  // Buy-side liquidity price
+    int ssl_bar = na      // When SSL was swept
+    int bsl_bar = na      // When BSL was swept
+    bool ssl_swept = false
+    bool bsl_swept = false
+    int tf_weight = 0     // Timeframe priority weight
+    float ssl_volume = 0.0
+    float bsl_volume = 0.0
 
-// 🎯 MULTI-CONFIRMATION REVERSAL DETECTION SETTINGS (ENHANCED)
-var g_REVERSAL = "🔄 Multi-Confirmation Reversal Detection"
-enable_reversal_filter = input.bool(true, "Enable Multi-Confirmation Reversal Filter", group=g_REVERSAL, tooltip="Uses multiple methods to confirm reversals")
-reversal_confirmation_bars = input.int(3, "Reversal Confirmation Bars", minval=1, maxval=10, group=g_REVERSAL, tooltip="Bars needed to confirm reversal")
-htf_trend_lookback = input.int(20, "HTF Trend Lookback", minval=10, maxval=50, group=g_REVERSAL, tooltip="Bars to analyze for HTF trend context")
-min_reversal_strength = input.int(70, "Minimum Reversal Strength (%)", minval=50, maxval=95, group=g_REVERSAL, tooltip="Minimum strength for valid reversal")
-min_confirmation_methods = input.int(3, "Minimum Confirmation Methods", minval=2, maxval=6, group=g_REVERSAL, tooltip="How many methods must agree for signal")
+// Initialize liquidity data for each timeframe
+var LiquidityData liq_15m = LiquidityData.new("15m", tf_weight=20)
+var LiquidityData liq_1h = LiquidityData.new("1H", tf_weight=40)
+var LiquidityData liq_2h = LiquidityData.new("2H", tf_weight=60)
+var LiquidityData liq_4h = LiquidityData.new("4H", tf_weight=80)
+var LiquidityData liq_daily = LiquidityData.new("D", tf_weight=100)
+var LiquidityData liq_weekly = LiquidityData.new("W", tf_weight=120)
 
-// Enhanced market analysis for filtering
-volume_avg = ta.sma(volume, 20)
-atr_value = ta.atr(14)
+// Function to detect liquidity sweeps for a timeframe
+detect_liquidity_sweeps(tf_string) =>
+    // Get higher timeframe data
+    [htf_high, htf_low, htf_close, htf_volume] = request.security(syminfo.tickerid, tf_string, [high, low, close, volume], barmerge.gaps_off, barmerge.lookahead_off)
+    
+    // Calculate pivot highs and lows (potential liquidity levels)
+    pivot_high = ta.pivothigh(htf_high, 5, 5)
+    pivot_low = ta.pivotlow(htf_low, 5, 5)
+    
+    // Track recent highs and lows
+    var float recent_high = na
+    var float recent_low = na
+    var int high_bar = na
+    var int low_bar = na
+    
+    // Update recent levels
+    if not na(pivot_high)
+        recent_high := pivot_high
+        high_bar := bar_index
+    if not na(pivot_low)
+        recent_low := pivot_low
+        low_bar := bar_index
+    
+    // Detect sweeps
+    bsl_swept = not na(recent_high) and htf_high > recent_high and bar_index - high_bar <= liquidity_lookback
+    ssl_swept = not na(recent_low) and htf_low < recent_low and bar_index - low_bar <= liquidity_lookback
+    
+    [bsl_swept, ssl_swept, recent_high, recent_low, htf_volume, high_bar, low_bar]
+
+// Update liquidity data for all timeframes
+update_liquidity_data() =>
+    if enable_liquidity_system
+        // 15M timeframe
+        [bsl_15m, ssl_15m, high_15m, low_15m, vol_15m, hbar_15m, lbar_15m] = detect_liquidity_sweeps("15")
+        if bsl_15m and not liq_15m.bsl_swept
+            liq_15m.bsl_swept := true
+            liq_15m.bsl_price := high_15m
+            liq_15m.bsl_bar := bar_index
+            liq_15m.bsl_volume := vol_15m
+        if ssl_15m and not liq_15m.ssl_swept
+            liq_15m.ssl_swept := true
+            liq_15m.ssl_price := low_15m
+            liq_15m.ssl_bar := bar_index
+            liq_15m.ssl_volume := vol_15m
+        
+        // 1H timeframe
+        [bsl_1h, ssl_1h, high_1h, low_1h, vol_1h, hbar_1h, lbar_1h] = detect_liquidity_sweeps("60")
+        if bsl_1h and not liq_1h.bsl_swept
+            liq_1h.bsl_swept := true
+            liq_1h.bsl_price := high_1h
+            liq_1h.bsl_bar := bar_index
+            liq_1h.bsl_volume := vol_1h
+        if ssl_1h and not liq_1h.ssl_swept
+            liq_1h.ssl_swept := true
+            liq_1h.ssl_price := low_1h
+            liq_1h.ssl_bar := bar_index
+            liq_1h.ssl_volume := vol_1h
+        
+        // 4H timeframe
+        [bsl_4h, ssl_4h, high_4h, low_4h, vol_4h, hbar_4h, lbar_4h] = detect_liquidity_sweeps("240")
+        if bsl_4h and not liq_4h.bsl_swept
+            liq_4h.bsl_swept := true
+            liq_4h.bsl_price := high_4h
+            liq_4h.bsl_bar := bar_index
+            liq_4h.bsl_volume := vol_4h
+        if ssl_4h and not liq_4h.ssl_swept
+            liq_4h.ssl_swept := true
+            liq_4h.ssl_price := low_4h
+            liq_4h.ssl_bar := bar_index
+            liq_4h.ssl_volume := vol_4h
+        
+        // Daily timeframe
+        [bsl_daily, ssl_daily, high_daily, low_daily, vol_daily, hbar_daily, lbar_daily] = detect_liquidity_sweeps("D")
+        if bsl_daily and not liq_daily.bsl_swept
+            liq_daily.bsl_swept := true
+            liq_daily.bsl_price := high_daily
+            liq_daily.bsl_bar := bar_index
+            liq_daily.bsl_volume := vol_daily
+        if ssl_daily and not liq_daily.ssl_swept
+            liq_daily.ssl_swept := true
+            liq_daily.ssl_price := low_daily
+            liq_daily.ssl_bar := bar_index
+            liq_daily.ssl_volume := vol_daily
+
+// Calculate liquidity conflict resolution
+calculate_liquidity_priority() =>
+    bullish_score = 0
+    bearish_score = 0
+    
+    // Array of all liquidity data
+    liq_data = array.from(liq_15m, liq_1h, liq_4h, liq_daily)
+    
+    for i = 0 to array.size(liq_data) - 1
+        data = array.get(liq_data, i)
+        
+        // SSL Swept = Bullish potential
+        if data.ssl_swept and bar_index - data.ssl_bar <= liquidity_lookback
+            score = data.tf_weight
+            
+            // Recency bonus
+            bars_ago = bar_index - data.ssl_bar
+            if bars_ago <= 5
+                score += 30
+            else if bars_ago <= 10
+                score += 20
+            else if bars_ago <= 20
+                score += 10
+            
+            // Volume bonus
+            if data.ssl_volume > ta.sma(volume, 20) * 1.5
+                score += 15
+            else if data.ssl_volume > ta.sma(volume, 20)
+                score += 5
+            
+            bullish_score += score
+        
+        // BSL Swept = Bearish potential
+        if data.bsl_swept and bar_index - data.bsl_bar <= liquidity_lookback
+            score = data.tf_weight
+            
+            // Recency bonus
+            bars_ago = bar_index - data.bsl_bar
+            if bars_ago <= 5
+                score += 30
+            else if bars_ago <= 10
+                score += 20
+            else if bars_ago <= 20
+                score += 10
+            
+            // Volume bonus
+            if data.bsl_volume > ta.sma(volume, 20) * 1.5
+                score += 15
+            else if data.bsl_volume > ta.sma(volume, 20)
+                score += 5
+            
+            bearish_score += score
+    
+    // Determine conflict and winner
+    has_conflict = bullish_score > 0 and bearish_score > 0
+    score_diff = math.abs(bullish_score - bearish_score)
+    is_major_conflict = has_conflict and score_diff <= conflict_alert_threshold
+    
+    winner_direction = bullish_score > bearish_score ? "BULLISH" : bearish_score > bullish_score ? "BEARISH" : "NEUTRAL"
+    confidence = has_conflict ? math.round((math.max(bullish_score, bearish_score) / (bullish_score + bearish_score)) * 100) : 100
+    
+    [has_conflict, is_major_conflict, winner_direction, confidence, bullish_score, bearish_score]
+
+// Update liquidity data
+update_liquidity_data()
+
+// Get current liquidity analysis
+[has_conflict, is_major_conflict, winner_direction, confidence, bull_score, bear_score] = calculate_liquidity_priority()
+
+// Reset swept flags periodically to avoid stale data
+if bar_index % 100 == 0
+    liq_15m.ssl_swept := false
+    liq_15m.bsl_swept := false
+    liq_1h.ssl_swept := false
+    liq_1h.bsl_swept := false
+    liq_4h.ssl_swept := false
+    liq_4h.bsl_swept := false
+    liq_daily.ssl_swept := false
+    liq_daily.bsl_swept := false
 
 //==============================================================================
 // SECTION 1: BREAKOUT DETECTION
@@ -851,3 +1013,113 @@ if alert_on_monthly and ((bullishTouch7 and trend_aligned_signal(true)) or (bear
     trend_direction = bullishTouch7 ? "BULLISH" : "BEARISH"
     confirmation_votes = bullishTouch7 ? bull_votes : bear_votes
     alert('Monthly ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+
+//==============================================================================
+// LIQUIDITY CONFLICT DASHBOARD
+//==============================================================================
+
+if show_liquidity_dashboard and enable_liquidity_system and barstate.islast
+    var table liq_table = table.new(position.top_left, 3, 6, bgcolor=color.new(color.black, 85), border_width=1)
+    
+    // Header
+    table.cell(liq_table, 0, 0, "🌊 LIQUIDITY ANALYSIS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(liq_table, 1, 0, "STATUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(liq_table, 2, 0, "SCORE", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    
+    // Conflict Status
+    conflict_color = is_major_conflict ? color.red : has_conflict ? color.orange : color.green
+    conflict_text = is_major_conflict ? "🔴 MAJOR CONFLICT" : has_conflict ? "🟡 MINOR CONFLICT" : "🟢 NO CONFLICT"
+    table.cell(liq_table, 0, 1, conflict_text, text_color=conflict_color, text_size=size.small)
+    table.cell(liq_table, 1, 1, winner_direction, text_color=color.white, text_size=size.small)
+    table.cell(liq_table, 2, 1, str.tostring(confidence) + "%", text_color=color.white, text_size=size.small)
+    
+    // Bullish Forces
+    table.cell(liq_table, 0, 2, "📈 BULLISH (SSL Swept)", text_color=color.lime, text_size=size.small)
+    bull_status = liq_daily.ssl_swept ? "D✅" : "" + (liq_4h.ssl_swept ? " 4H✅" : "") + (liq_1h.ssl_swept ? " 1H✅" : "") + (liq_15m.ssl_swept ? " 15M✅" : "")
+    table.cell(liq_table, 1, 2, bull_status != "" ? bull_status : "NONE", text_color=color.white, text_size=size.small)
+    table.cell(liq_table, 2, 2, str.tostring(bull_score), text_color=color.lime, text_size=size.small)
+    
+    // Bearish Forces
+    table.cell(liq_table, 0, 3, "📉 BEARISH (BSL Swept)", text_color=color.red, text_size=size.small)
+    bear_status = liq_daily.bsl_swept ? "D✅" : "" + (liq_4h.bsl_swept ? " 4H✅" : "") + (liq_1h.bsl_swept ? " 1H✅" : "") + (liq_15m.bsl_swept ? " 15M✅" : "")
+    table.cell(liq_table, 1, 3, bear_status != "" ? bear_status : "NONE", text_color=color.white, text_size=size.small)
+    table.cell(liq_table, 2, 3, str.tostring(bear_score), text_color=color.red, text_size=size.small)
+    
+    // Winner Summary
+    winner_color = winner_direction == "BULLISH" ? color.lime : winner_direction == "BEARISH" ? color.red : color.gray
+    table.cell(liq_table, 0, 4, "🏆 LIKELY DIRECTION", text_color=color.white, text_size=size.small, bgcolor=color.new(color.purple, 70))
+    table.cell(liq_table, 1, 4, winner_direction, text_color=winner_color, text_size=size.small, bgcolor=color.new(color.purple, 70))
+    table.cell(liq_table, 2, 4, str.tostring(confidence) + "%", text_color=color.white, text_size=size.small, bgcolor=color.new(color.purple, 70))
+    
+    // Alert Status
+    alert_text = is_major_conflict ? "⚠️ TRADE CAREFULLY" : has_conflict ? "⚠️ MINOR CONFLICT" : "✅ CLEAR DIRECTION"
+    alert_color = is_major_conflict ? color.red : has_conflict ? color.orange : color.green
+    table.cell(liq_table, 0, 5, alert_text, text_color=alert_color, text_size=size.small, bgcolor=color.new(color.gray, 80))
+    table.cell(liq_table, 1, 5, "CONFIDENCE", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 80))
+    table.cell(liq_table, 2, 5, str.tostring(confidence) + "%", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 80))
+
+// Major conflict alert
+if is_major_conflict and enable_liquidity_system
+    alert("🔴 MAJOR LIQUIDITY CONFLICT DETECTED!\n" + 
+          "Bullish Score: " + str.tostring(bull_score) + "\n" + 
+          "Bearish Score: " + str.tostring(bear_score) + "\n" + 
+          "Winner: " + winner_direction + " (" + str.tostring(confidence) + "% confidence)\n" + 
+          "⚠️ TRADE WITH EXTREME CAUTION!", alert.freq_once_per_bar)
+
+//==============================================================================
+// REST OF ORIGINAL SCRIPT CONTINUES FROM HERE
+//==============================================================================
+
+// Enhanced CRT labels with liquidity conflict awareness
+enhanced_checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
+    if show and bullishTouch
+        // Add liquidity conflict info to label
+        conflict_info = is_major_conflict ? "⚠️" : has_conflict ? "⚡" : "✅"
+        direction_confidence = winner_direction == "BULLISH" ? "📈" + str.tostring(confidence) + "%" : "⚠️" + str.tostring(confidence) + "%"
+        enhanced_label = 'BUY-' + tfText + conflict_info + direction_confidence
+        manageLabelCount(enhanced_label, low, bullishBgColor, bullishTextColor, getLabelStyle(bullishLabelStyle), getLabelSize(labelSize))
+    
+    if show and bearishTouch
+        // Add liquidity conflict info to label
+        conflict_info = is_major_conflict ? "⚠️" : has_conflict ? "⚡" : "✅"
+        direction_confidence = winner_direction == "BEARISH" ? "📉" + str.tostring(confidence) + "%" : "⚠️" + str.tostring(confidence) + "%"
+        enhanced_label = 'SELL-' + tfText + conflict_info + direction_confidence
+        manageLabelCount(enhanced_label, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
+
+// Apply ENHANCED labels for each timeframe with liquidity awareness
+enhanced_checkAndCreateLabel(show_m15_labels, bullishTouch1, bearishTouch1, 'M15')
+enhanced_checkAndCreateLabel(show_h1_labels, bullishTouch2, bearishTouch2, 'H1')
+enhanced_checkAndCreateLabel(show_h2_labels, bullishTouch3, bearishTouch3, 'H2')
+enhanced_checkAndCreateLabel(show_h4_labels, bullishTouch4, bearishTouch4, 'H4')
+enhanced_checkAndCreateLabel(show_daily_labels, bullishTouch5, bearishTouch5, 'D')
+enhanced_checkAndCreateLabel(show_weekly_labels, bullishTouch6, bearishTouch6, 'W')
+enhanced_checkAndCreateLabel(show_monthly_labels, bullishTouch7, bearishTouch7, 'M')
+
+// Enhanced Alert conditions with liquidity conflict awareness
+if alert_on_m15 and (bullishTouch1 or bearishTouch1)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('M15 touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_h1 and (bullishTouch2 or bearishTouch2)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('H1 touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_h2 and (bullishTouch3 or bearishTouch3)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('H2 touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_h4 and (bullishTouch4 or bearishTouch4)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('H4 touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_daily and (bullishTouch5 or bearishTouch5)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('Daily touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_weekly and (bullishTouch6 or bearishTouch6)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('Weekly touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_monthly and (bullishTouch7 or bearishTouch7)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('Monthly touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
