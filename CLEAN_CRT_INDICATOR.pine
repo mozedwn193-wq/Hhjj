@@ -156,9 +156,9 @@ process_tf(tf) =>
 
         if upControl or downControl
             inConsolidation := false
-        else if inConsolidation and tfChildDown <= rangeHigh and tfChildDown >= rangeLow and 
-                tfChildUp <= rangeHigh and tfChildUp >= rangeLow and bar_index > 1
-            rangeStart := rangeStart
+        else if inConsolidation and tfChildDown <= rangeHigh and tfChildDown >= rangeLow and tfChildUp <= rangeHigh and tfChildUp >= rangeLow and bar_index > 1
+            // Range continues - no action needed
+            inConsolidation := inConsolidation
         else
             rangeHigh := tfHigh
             rangeLow := tfLow
