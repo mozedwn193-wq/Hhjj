@@ -1,0 +1,124 @@
+//@version=6
+indicator("Combined Harmonic Grid & Trinity V1 – Fixed", overlay=true, 
+     max_lines_count=500, max_labels_count=500)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 1: HARMONIC PRICE GRID (A ± A/n)
+// ─────────────────────────────────────────────────────────────────────────────
+// Anchor price: if user leaves blank, we use `close`
+_anchorInput = input.float(defval=na, title="Anchor Price A (leave blank for close)", step=0.01, group="Harmonic")
+hpA = na(_anchorInput) ? close : _anchorInput
+
+hpSeqStr = input.string("2,4,5,6,7,8,9,11,13,15,17,21,25,31",
+             "Divisor Sequence n", group="Harmonic")
+showUp   = input.bool(true, "Show Upside",   group="Harmonic")
+showDn   = input.bool(true, "Show Downside", group="Harmonic")
+
+upCol    = color.green
+dnCol    = color.red
+
+upStyle  = line.style_solid
+dnStyle  = line.style_dashed
+
+hpWidth  = input.int(1, "Line Width",  minval=1, group="Harmonic")
+hpExt    = input.int(50,"Extend Bars", minval=1, group="Harmonic")
+
+// parse divisors - FIXED VERSION
+parseDivisors(str) =>
+    arr = array.new_int()
+    parts = str.split(str, ",")
+    for i = 0 to array.size(parts) - 1
+        part = array.get(parts, i)
+        trimmed = str.trim(part)
+        v = str.toint(trimmed)
+        if not na(v) and v > 0
+            array.push(arr, v)
+    arr
+
+hpDivs = parseDivisors(hpSeqStr)
+
+// one‑time cleanup & draw
+var bool hp_drawn = false
+if not hp_drawn and barstate.islast
+    for i = 0 to array.size(hpDivs) - 1
+        n = array.get(hpDivs, i)
+        d = hpA / n
+        if showUp
+            y = hpA + d
+            line.new(bar_index, y, bar_index + hpExt, y,
+                     xloc.bar_index, extend.none, upCol, upStyle, hpWidth)
+            label.new(bar_index + hpExt, y,
+                      text="U+" + str.tostring(n) + " " + str.tostring(y, "#.##"),
+                      xloc.bar_index, yloc.price,
+                      style=label.style_label_right,
+                      color=upCol, textcolor=color.white, size=size.tiny)
+        if showDn
+            y = hpA - d
+            line.new(bar_index, y, bar_index + hpExt, y,
+                     xloc.bar_index, extend.none, dnCol, dnStyle, hpWidth)
+            label.new(bar_index + hpExt, y,
+                      text="D" + str.tostring(n) + " " + str.tostring(y, "#.##"),
+                      xloc.bar_index, yloc.price,
+                      style=label.style_label_right,
+                      color=dnCol, textcolor=color.white, size=size.tiny)
+    hp_drawn := true
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 2: TRINITY OF TRIANGLE V1
+// ─────────────────────────────────────────────────────────────────────────────
+tt_valType = input.string("Full price","Value Type",
+     options=["Full price","FIRST 2 digits","Decimal-based"], group="Trinity")
+tt_pattern = input.string("X,000","Constant Pattern",
+     options=["X,000","XXX,000","X.X000"], group="Trinity")
+tt_set     = input.string("B","Set", options=["A","B","C"], group="Trinity")
+showA2     = input.bool(false,"Show A", group="Trinity")
+showB2     = input.bool(true, "Show B", group="Trinity")
+showC2     = input.bool(false,"Show C", group="Trinity")
+lockDig    = input.bool(false,"Lock Digits", group="Trinity")
+lockOpt    = input.string("XX00","Digit Lock",
+     options=["XX00","X000"], group="Trinity")
+
+setA = array.from(174,147,417,471,741,714)
+setB = array.from(285,258,528,582,825,852)
+setC = array.from(369,396,639,696,936,969)
+
+getBase() =>
+    p = close
+    if tt_valType == "Full price"
+        p
+    else if tt_valType == "FIRST 2 digits"
+        math.floor(p * 100) / 100
+    else
+        p - math.floor(p)
+
+f_anchor(x) =>
+    if tt_pattern == "X,000"
+        x * 1000
+    else if tt_pattern == "XXX,000"
+        x * 1000
+    else if tt_pattern == "X.X000"
+        x + 0.000
+    else
+        x * 1000
+
+f_draw(arr, clr) =>
+    for i = 0 to array.size(arr) - 1
+        x = array.get(arr, i)
+        A = f_anchor(x)
+        line.new(bar_index, A, bar_index + hpExt, A,
+                 xloc.bar_index, extend.none, clr, dnStyle, 1)
+        label.new(bar_index + hpExt, A, text=str.tostring(A, "#.##"),
+                  xloc.bar_index, yloc.price,
+                  style=label.style_label_right,
+                  color=clr, textcolor=color.white, size=size.tiny)
+
+// FIXED: Draw logic with proper barstate check
+var bool trinity_drawn = false
+if not trinity_drawn and barstate.islast
+    if tt_set == "A" and showA2
+        f_draw(setA, color.red)
+    if tt_set == "B" and showB2
+        f_draw(setB, color.green)
+    if tt_set == "C" and showC2
+        f_draw(setC, color.blue)
+    trinity_drawn := true
