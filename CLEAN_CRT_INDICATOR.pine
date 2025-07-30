@@ -366,34 +366,33 @@ enable_crt_time = input.bool(true, "Enable CRT Time Analysis", group=g_TIME)
 crt_green = input.color(#02fc7f, "Bullish Color", group=g_TIME)
 crt_red = input.color(#fd0901, "Bearish Color", group=g_TIME)
 
-if enable_crt_time
-    // CRT specific hours (EST)
-    isTargetCandle = (hour(time) == 6 or hour(time) == 10 or hour(time) == 14)
-    
-    var float crtHigh = na
-    var float crtLow = na
-    var int crtIndex = na
+// CRT specific hours (EST)
+isTargetCandle = (hour(time) == 6 or hour(time) == 10 or hour(time) == 14)
 
-    if isTargetCandle and barstate.isconfirmed
-        crtHigh := high
-        crtLow := low
-        crtIndex := bar_index
+var float crtHigh = na
+var float crtLow = na
+var int crtIndex = na
 
-    // Check for sweeps on next candle
-    if not na(crtHigh) and bar_index == crtIndex + 1
-        if low < crtHigh and high > crtHigh and close < crtHigh and barstate.isconfirmed
-            line.new(x1=crtIndex, y1=crtHigh, x2=bar_index, y2=crtHigh, 
-                    color=crt_green, width=2, extend=extend.none)
-            alert("CRT High Sweep Detected!", alert.freq_once_per_bar)
+if enable_crt_time and isTargetCandle and barstate.isconfirmed
+    crtHigh := high
+    crtLow := low
+    crtIndex := bar_index
 
-    if not na(crtLow) and bar_index == crtIndex + 1
-        if high > crtLow and low < crtLow and close > crtLow and barstate.isconfirmed
-            line.new(x1=crtIndex, y1=crtLow, x2=bar_index, y2=crtLow, 
-                    color=crt_red, width=2, extend=extend.none)
-            alert("CRT Low Sweep Detected!", alert.freq_once_per_bar)
+// Check for sweeps on next candle
+if enable_crt_time and not na(crtHigh) and bar_index == crtIndex + 1
+    if low < crtHigh and high > crtHigh and close < crtHigh and barstate.isconfirmed
+        line.new(x1=crtIndex, y1=crtHigh, x2=bar_index, y2=crtHigh, 
+                color=crt_green, width=2, extend=extend.none)
+        alert("CRT High Sweep Detected!", alert.freq_once_per_bar)
 
-    // Highlight CRT candles
-    barcolor(isTargetCandle ? color.new(color.yellow, 60) : na)
+if enable_crt_time and not na(crtLow) and bar_index == crtIndex + 1
+    if high > crtLow and low < crtLow and close > crtLow and barstate.isconfirmed
+        line.new(x1=crtIndex, y1=crtLow, x2=bar_index, y2=crtLow, 
+                color=crt_red, width=2, extend=extend.none)
+        alert("CRT Low Sweep Detected!", alert.freq_once_per_bar)
+
+// Highlight CRT candles (moved to global scope)
+barcolor(enable_crt_time and isTargetCandle ? color.new(color.yellow, 60) : na)
 
 //==============================================================================
 // SECTION 8: HTF CANDLE VISUALIZATION (SIMPLIFIED)
