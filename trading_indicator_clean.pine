@@ -1,0 +1,214 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola - CLEAN VERSION WITH REDUCED FALSE SIGNALS
+
+//@version=6
+indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + EMAs - CLEAN', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+
+//==============================================================================
+// SECTION 0: SIGNAL FILTERING SETTINGS
+//==============================================================================
+
+var g_FILTER = "🔧 Signal Filtering"
+enable_volume_filter = input.bool(true, "Enable Volume Filter", group=g_FILTER, tooltip="Only signals when volume is above average")
+volume_multiplier = input.float(1.2, "Volume Multiplier", minval=0.5, maxval=3.0, step=0.1, group=g_FILTER)
+enable_trend_filter = input.bool(true, "Enable Trend Alignment", group=g_FILTER, tooltip="Filter signals based on EMA trend")
+enable_confirmation = input.bool(true, "Enable Signal Confirmation", group=g_FILTER, tooltip="Wait for next bar confirmation")
+min_signal_strength = input.int(60, "Minimum Signal Strength (%)", minval=30, maxval=90, group=g_FILTER)
+
+// Enhanced market analysis for filtering
+volume_avg = ta.sma(volume, 20)
+atr_value = ta.atr(14)
+
+//==============================================================================
+// SECTION 1: ENHANCED BREAKOUT DETECTION
+//==============================================================================
+
+// Inputs for Breakout Detection
+length = input(14, "Lookback Length", group="Breakout Detection")
+threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
+
+// Calculate candle range
+candleRange = high - low
+averageRange = ta.sma(candleRange, length)
+
+// Enhanced conditions with filtering
+volume_condition = not enable_volume_filter or volume > volume_avg * volume_multiplier
+price_movement = math.abs(close - open) / open * 100
+
+// Define enhanced conditions
+bullish_base = candleRange > (averageRange * threshold) and close > open and price_movement > 0.3
+bearish_base = candleRange > (averageRange * threshold) and close < open and price_movement > 0.3
+
+// Apply filters
+bullishBreakout = bullish_base and volume_condition
+bearishBreakout = bearish_base and volume_condition
+
+// Confirmation logic
+var bool bull_confirmed = false
+var bool bear_confirmed = false
+
+if enable_confirmation
+    bull_confirmed := bullishBreakout and close[1] > open[1]
+    bear_confirmed := bearishBreakout and close[1] < open[1]
+else
+    bull_confirmed := bullishBreakout
+    bear_confirmed := bearishBreakout
+
+// Plot signals
+plotshape(series=bull_confirmed, location=location.belowbar, color=color.green, style=shape.labelup, title="Bullish Breakout")
+plotshape(series=bear_confirmed, location=location.abovebar, color=color.red, style=shape.labeldown, title="Bearish Breakout")
+
+// Highlight breakout candles
+bgcolor(bull_confirmed ? color.new(color.green, 80) : bear_confirmed ? color.new(color.red, 80) : na)
+
+//==============================================================================
+// SECTION 2: ENHANCED EMA ANALYSIS
+//==============================================================================
+
+// EMAs
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+// Enhanced trend detection
+bullish_trend = ema20 > ema50 and ema50 > ema100 and ema100 > ema200
+bearish_trend = ema20 < ema50 and ema50 < ema100 and ema100 < ema200
+sideways_trend = not bullish_trend and not bearish_trend
+
+// Dynamic Colors Based on Slope and Trend
+color20 = bullish_trend ? color.lime : bearish_trend ? color.red : color.yellow
+color50 = bullish_trend ? color.orange : bearish_trend ? color.maroon : color.gray
+color100 = bullish_trend ? color.aqua : bearish_trend ? color.navy : color.silver
+color200 = bullish_trend ? color.blue : bearish_trend ? color.purple : color.gray
+
+// Plot EMAs
+plot(ema20, title="EMA 20", color=color20, linewidth=1)
+plot(ema50, title="EMA 50", color=color50, linewidth=1)
+plot(ema100, title="EMA 100", color=color100, linewidth=1)
+plot(ema200, title="EMA 200", color=color200, linewidth=1)
+
+// Trend alignment function
+trend_aligned(signal_bullish) =>
+    if not enable_trend_filter
+        true
+    else
+        signal_bullish ? not bearish_trend : not bullish_trend
+
+//==============================================================================
+// SECTION 3: SIGNAL STRENGTH CALCULATION
+//==============================================================================
+
+// Enhanced signal strength calculation
+calculate_signal_strength(bullish_signal, bearish_signal) =>
+    strength = 0.0
+    
+    // Volume component (30 points)
+    vol_ratio = volume / volume_avg
+    if vol_ratio > 1.8
+        strength += 30
+    else if vol_ratio > 1.4
+        strength += 20
+    else if vol_ratio > 1.1
+        strength += 15
+    else
+        strength += 5
+    
+    // Trend alignment (25 points)
+    if bullish_signal and bullish_trend
+        strength += 25
+    else if bearish_signal and bearish_trend
+        strength += 25
+    else if bullish_signal and not bearish_trend
+        strength += 15
+    else if bearish_signal and not bullish_trend
+        strength += 15
+    else
+        strength += 5
+        
+    // Volatility component (25 points)
+    atr_ratio = candleRange / atr_value
+    if atr_ratio > 1.5
+        strength += 25
+    else if atr_ratio > 1.0
+        strength += 15
+    else
+        strength += 5
+        
+    // Price action component (20 points)
+    body_ratio = math.abs(close - open) / candleRange
+    if body_ratio > 0.7
+        strength += 20
+    else if body_ratio > 0.5
+        strength += 10
+    else
+        strength += 5
+    
+    math.round(strength)
+
+//==============================================================================
+// SECTION 4: ENHANCED SIGNAL DASHBOARD
+//==============================================================================
+
+var g_DASH = "📊 Signal Dashboard"
+show_signal_dashboard = input.bool(true, "Show Signal Dashboard", group=g_DASH)
+
+if show_signal_dashboard
+    var table signal_dashboard = table.new(position.bottom_right, 2, 7, bgcolor=color.new(color.black, 85), border_width=1)
+    
+    if barstate.islast
+        // Header
+        table.cell(signal_dashboard, 0, 0, "📊 SIGNAL QUALITY", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+        table.cell(signal_dashboard, 1, 0, "STATUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+        
+        // Current Signal Strength
+        current_strength = calculate_signal_strength(bull_confirmed, bear_confirmed)
+        strength_color = current_strength >= 75 ? color.lime : current_strength >= 60 ? color.yellow : current_strength >= 40 ? color.orange : color.red
+        table.cell(signal_dashboard, 0, 1, "Signal Strength", text_color=color.white, text_size=size.small)
+        table.cell(signal_dashboard, 1, 1, str.tostring(current_strength) + "%", text_color=strength_color, text_size=size.small)
+        
+        // Trend Status
+        table.cell(signal_dashboard, 0, 2, "Trend", text_color=color.white, text_size=size.small)
+        trend_status = bullish_trend ? "🟢 Bullish" : bearish_trend ? "🔴 Bearish" : "🟡 Sideways"
+        trend_color = bullish_trend ? color.lime : bearish_trend ? color.red : color.yellow
+        table.cell(signal_dashboard, 1, 2, trend_status, text_color=trend_color, text_size=size.small)
+        
+        // Volume Status
+        vol_ratio = volume / volume_avg
+        table.cell(signal_dashboard, 0, 3, "Volume", text_color=color.white, text_size=size.small)
+        volume_status = vol_ratio > 1.5 ? "🟢 High" : vol_ratio > 1.2 ? "🟡 Above Avg" : vol_ratio > 0.8 ? "⚪ Normal" : "🔴 Low"
+        volume_color = vol_ratio > 1.5 ? color.lime : vol_ratio > 1.2 ? color.yellow : vol_ratio > 0.8 ? color.white : color.red
+        table.cell(signal_dashboard, 1, 3, volume_status, text_color=volume_color, text_size=size.small)
+        
+        // Volatility Status
+        atr_ratio = candleRange / atr_value
+        table.cell(signal_dashboard, 0, 4, "Volatility", text_color=color.white, text_size=size.small)
+        volatility_status = atr_ratio > 1.5 ? "🟢 High" : atr_ratio > 1.0 ? "🟡 Normal" : "🔴 Low"
+        volatility_color = atr_ratio > 1.5 ? color.lime : atr_ratio > 1.0 ? color.yellow : color.red
+        table.cell(signal_dashboard, 1, 4, volatility_status, text_color=volatility_color, text_size=size.small)
+        
+        // Active Filters
+        filters_count = (enable_volume_filter ? 1 : 0) + (enable_trend_filter ? 1 : 0) + (enable_confirmation ? 1 : 0)
+        table.cell(signal_dashboard, 0, 5, "Filters Active", text_color=color.white, text_size=size.small)
+        table.cell(signal_dashboard, 1, 5, str.tostring(filters_count) + "/3", text_color=color.cyan, text_size=size.small)
+        
+        // Signal Quality
+        table.cell(signal_dashboard, 0, 6, "Quality Rating", text_color=color.white, text_size=size.small)
+        quality_rating = current_strength >= 75 ? "⭐⭐⭐ Excellent" : 
+                        current_strength >= 60 ? "⭐⭐ Good" : 
+                        current_strength >= 40 ? "⭐ Fair" : "❌ Poor"
+        quality_color = current_strength >= 75 ? color.lime : 
+                       current_strength >= 60 ? color.yellow : 
+                       current_strength >= 40 ? color.orange : color.red
+        table.cell(signal_dashboard, 1, 6, quality_rating, text_color=quality_color, text_size=size.small)
+
+//==============================================================================
+// SECTION 5: ENHANCED ALERTS
+//==============================================================================
+
+// Enhanced alert conditions with strength filter
+strong_bullish = bull_confirmed and current_strength >= min_signal_strength and trend_aligned(true)
+strong_bearish = bear_confirmed and current_strength >= min_signal_strength and trend_aligned(false)
+
+alertcondition(strong_bullish, "Strong Bullish Signal", "Strong Bullish Signal Detected - Strength: " + str.tostring(current_strength) + "%")
+alertcondition(strong_bearish, "Strong Bearish Signal", "Strong Bearish Signal Detected - Strength: " + str.tostring(current_strength) + "%")

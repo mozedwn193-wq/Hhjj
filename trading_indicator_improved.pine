@@ -1,0 +1,401 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola - IMPROVED VERSION WITH REDUCED FALSE SIGNALS
+
+//@version=6
+indicator('Enhanced Trading Indicator - Reduced False Signals', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+
+//==============================================================================
+// SECTION 1: SIGNAL FILTERING SETTINGS
+//==============================================================================
+
+var g_FILTER = "Signal Filtering"
+enable_volume_filter = input.bool(true, "Enable Volume Filter", group=g_FILTER, tooltip="Only signals when volume is above average")
+volume_multiplier = input.float(1.2, "Volume Multiplier", minval=0.5, maxval=5.0, step=0.1, group=g_FILTER)
+enable_trend_filter = input.bool(true, "Enable Trend Alignment", group=g_FILTER, tooltip="Filter signals based on EMA trend")
+enable_atr_filter = input.bool(true, "Enable ATR Filter", group=g_FILTER, tooltip="Filter out signals during low volatility")
+atr_multiplier = input.float(0.8, "ATR Multiplier", minval=0.1, maxval=3.0, step=0.1, group=g_FILTER)
+confirmation_bars = input.int(1, "Confirmation Bars", minval=0, maxval=5, group=g_FILTER, tooltip="Wait X bars for confirmation")
+
+//==============================================================================
+// SECTION 2: ENHANCED BREAKOUT DETECTION
+//==============================================================================
+
+// Inputs for Breakout Detection
+length = input(14, "Lookback Length", group="Breakout Detection")
+threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
+min_breakout_size = input.float(0.5, "Minimum Breakout Size (%)", minval=0.1, maxval=5.0, step=0.1, group="Breakout Detection")
+
+// Calculate enhanced conditions
+candleRange = high - low
+averageRange = ta.sma(candleRange, length)
+atr_value = ta.atr(14)
+volume_avg = ta.sma(volume, 20)
+
+// Volume condition
+volume_condition = not enable_volume_filter or volume > volume_avg * volume_multiplier
+
+// ATR condition (avoid signals during low volatility)
+atr_condition = not enable_atr_filter or candleRange > atr_value * atr_multiplier
+
+// Price movement percentage
+price_change_pct = math.abs(close - open) / open * 100
+
+// Enhanced breakout conditions with filters
+bullish_base = candleRange > (averageRange * threshold) and close > open and price_change_pct > min_breakout_size
+bearish_base = candleRange > (averageRange * threshold) and close < open and price_change_pct > min_breakout_size
+
+bullishBreakout = bullish_base and volume_condition and atr_condition
+bearishBreakout = bearish_base and volume_condition and atr_condition
+
+// Confirmation logic
+var bool confirmed_bullish = false
+var bool confirmed_bearish = false
+var int bull_confirm_count = 0
+var int bear_confirm_count = 0
+
+if bullishBreakout
+    bull_confirm_count := 0
+    confirmed_bullish := false
+else if bull_confirm_count < confirmation_bars and confirmed_bullish == false
+    bull_confirm_count += 1
+    if bull_confirm_count >= confirmation_bars and close > close[confirmation_bars]
+        confirmed_bullish := true
+
+if bearishBreakout
+    bear_confirm_count := 0
+    confirmed_bearish := false
+else if bear_confirm_count < confirmation_bars and confirmed_bearish == false
+    bear_confirm_count += 1
+    if bear_confirm_count >= confirmation_bars and close < close[confirmation_bars]
+        confirmed_bearish := true
+
+// Plot only confirmed signals
+final_bullish = confirmation_bars == 0 ? bullishBreakout : confirmed_bullish
+final_bearish = confirmation_bars == 0 ? bearishBreakout : confirmed_bearish
+
+plotshape(series=final_bullish, location=location.belowbar, color=color.green, style=shape.labelup, title="Confirmed Bullish Breakout", text="BULL")
+plotshape(series=final_bearish, location=location.abovebar, color=color.red, style=shape.labeldown, title="Confirmed Bearish Breakout", text="BEAR")
+
+// Highlight breakout candles
+bgcolor(final_bullish ? color.new(color.green, 90) : final_bearish ? color.new(color.red, 90) : na)
+
+//==============================================================================
+// SECTION 3: ENHANCED EMA ANALYSIS WITH TREND FILTER
+//==============================================================================
+
+// EMAs
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+// Enhanced trend detection
+bullish_trend = ema20 > ema50 and ema50 > ema100 and ema100 > ema200
+bearish_trend = ema20 < ema50 and ema50 < ema100 and ema100 < ema200
+sideways_trend = not bullish_trend and not bearish_trend
+
+// Dynamic Colors Based on Trend Strength
+trend_strength_bull = (ema20 - ema200) / ema200 * 100
+trend_strength_bear = (ema200 - ema20) / ema200 * 100
+
+color20 = bullish_trend ? color.lime : bearish_trend ? color.red : color.yellow
+color50 = bullish_trend ? color.orange : bearish_trend ? color.maroon : color.gray
+color100 = bullish_trend ? color.aqua : bearish_trend ? color.navy : color.silver
+color200 = bullish_trend ? color.blue : bearish_trend ? color.purple : color.gray
+
+// Plot EMAs
+plot(ema20, title="EMA 20", color=color20, linewidth=2)
+plot(ema50, title="EMA 50", color=color50, linewidth=2)
+plot(ema100, title="EMA 100", color=color100, linewidth=1)
+plot(ema200, title="EMA 200", color=color200, linewidth=1)
+
+// Trend filter function
+trend_aligned(signal_bullish) =>
+    if not enable_trend_filter
+        true
+    else
+        signal_bullish ? bullish_trend : bearish_trend
+
+//==============================================================================
+// SECTION 4: ENHANCED FVG DETECTION WITH VALIDATION
+//==============================================================================
+
+// Define session times
+sess = input.session("0932-1600", title="Session", group="Enhanced FVG Settings")
+boxColorUp = input.color(color.new(color.green, 80), "Box Color Up", group="Enhanced FVG Settings")
+boxColorDn = input.color(color.new(color.red, 80), "Box Color Down", group="Enhanced FVG Settings")
+max_days = input.int(3, title="Max # of days to draw", group="Enhanced FVG Settings")
+min_fvg_size = input.float(0.1, "Minimum FVG Size (%)", minval=0.01, maxval=2.0, step=0.01, group="Enhanced FVG Settings")
+
+var timezone = "America/New_York"
+var boxes = array.new_box()
+var bool first_fvg_found = false
+var box fvg_box = na
+
+// Enhanced FVG detection with size filter
+in_session(sess) => not na(time(timeframe.period, sess, timezone))
+
+// Enhanced FVG conditions with validation
+validate_fvg(gap_size, direction) =>
+    size_pct = gap_size / close * 100
+    volume_ok = volume > ta.sma(volume, 10) * 1.1  // Volume confirmation
+    trend_ok = direction ? not bearish_trend : not bullish_trend  // Don't trade against strong trend
+    size_ok = size_pct >= min_fvg_size
+    
+    size_ok and volume_ok and trend_ok
+
+if in_session(sess) 
+    if not first_fvg_found
+        // Enhanced FVG conditions
+        fvgUp = close[1] > open[1] and high[2] < low[0]
+        fvgDown = close[1] < open[1] and low[2] > high[0]
+        
+        if fvgUp
+            gap_size = low[0] - high[2]
+            if validate_fvg(gap_size, true)
+                first_fvg_found := true
+                fvg_box := box.new(left=bar_index-2, right=bar_index + 5, top=low[0], bottom=high[2], 
+                                 border_color=color.new(boxColorUp, 70), bgcolor=boxColorUp, 
+                                 text="Validated FVG↑", text_size=size.small)
+                array.push(boxes, fvg_box)
+        
+        else if fvgDown
+            gap_size = low[2] - high[0]
+            if validate_fvg(gap_size, false)
+                first_fvg_found := true
+                fvg_box := box.new(left=bar_index-2, right=bar_index + 5, top=low[2], bottom=high[0], 
+                                 border_color=color.new(boxColorDn, 70), bgcolor=boxColorDn, 
+                                 text="Validated FVG↓", text_size=size.small)
+                array.push(boxes, fvg_box)
+
+// Reset FVG flag at session end
+if not in_session(sess) and in_session(sess)[1]
+    first_fvg_found := false
+
+// Clean up old boxes
+if array.size(boxes) > max_days * 2
+    old_box = array.shift(boxes)
+    box.delete(old_box)
+
+//==============================================================================
+// SECTION 5: ENHANCED CRT WITH BETTER TOUCH DETECTION
+//==============================================================================
+
+var g_CRT = 'Enhanced CRT Settings'
+use_crt = input.bool(true, 'Enable CRT Analysis', group=g_CRT)
+crt_min_touches = input.int(2, 'Minimum Touches Required', minval=1, maxval=5, group=g_CRT)
+crt_max_age = input.int(50, 'Maximum Range Age (bars)', minval=10, maxval=200, group=g_CRT)
+crt_min_size = input.float(0.2, 'Minimum Range Size (%)', minval=0.05, maxval=2.0, step=0.05, group=g_CRT)
+
+// Enhanced CRT detection
+var float crt_high = na
+var float crt_low = na
+var int crt_start = na
+var int crt_touches = 0
+var bool crt_valid = false
+
+// Detect consolidation range
+if use_crt
+    range_size = high - low
+    range_pct = range_size / close * 100
+    
+    // Start new range if conditions met
+    if na(crt_high) or bar_index - crt_start > crt_max_age
+        if range_pct >= crt_min_size and volume > volume_avg * 0.8
+            crt_high := high
+            crt_low := low
+            crt_start := bar_index
+            crt_touches := 1
+            crt_valid := false
+    
+    // Update existing range
+    else if not na(crt_high)
+        // Check for touches
+        touched_high = math.abs(high - crt_high) / crt_high <= 0.002
+        touched_low = math.abs(low - crt_low) / crt_low <= 0.002
+        
+        if touched_high or touched_low
+            crt_touches += 1
+            
+        // Validate range after minimum touches
+        if crt_touches >= crt_min_touches and not crt_valid
+            crt_valid := true
+            // Draw the range
+            line.new(crt_start, crt_high, bar_index + 20, crt_high, color=color.blue, width=2, extend=extend.none)
+            line.new(crt_start, crt_low, bar_index + 20, crt_low, color=color.blue, width=2, extend=extend.none)
+            label.new(bar_index, (crt_high + crt_low) / 2, text="CRT " + str.tostring(crt_touches) + " touches", 
+                     style=label.style_none, color=color.blue, textcolor=color.white, size=size.small)
+
+//==============================================================================
+// SECTION 6: ENHANCED CISD WITH LIQUIDITY CONFIRMATION
+//==============================================================================
+
+var g_CISD = "Enhanced CISD Settings"
+enable_cisd = input.bool(true, "Enable CISD Detection", group=g_CISD)
+cisd_volume_confirm = input.bool(true, "Require Volume Confirmation", group=g_CISD)
+cisd_min_displacement = input.float(0.3, "Minimum Displacement (%)", minval=0.1, maxval=2.0, step=0.1, group=g_CISD)
+
+// Enhanced liquidity detection
+var float[] highs_liquidity = array.new_float()
+var float[] lows_liquidity = array.new_float()
+var int[] highs_time = array.new_int()
+var int[] lows_time = array.new_int()
+
+if enable_cisd
+    // Detect swing highs and lows with volume confirmation
+    swing_high = ta.pivothigh(high, 3, 3)
+    swing_low = ta.pivotlow(low, 3, 3)
+    
+    if not na(swing_high)
+        vol_confirmed = not cisd_volume_confirm or volume[3] > volume_avg * 1.2
+        if vol_confirmed
+            array.push(highs_liquidity, swing_high)
+            array.push(highs_time, bar_index[3])
+    
+    if not na(swing_low)
+        vol_confirmed = not cisd_volume_confirm or volume[3] > volume_avg * 1.2
+        if vol_confirmed
+            array.push(lows_liquidity, swing_low)
+            array.push(lows_time, bar_index[3])
+    
+    // Check for liquidity sweeps with displacement
+    if array.size(highs_liquidity) > 0
+        for i = array.size(highs_liquidity) - 1 to 0
+            liquidity_level = array.get(highs_liquidity, i)
+            if high > liquidity_level
+                displacement_pct = (high - liquidity_level) / liquidity_level * 100
+                if displacement_pct >= cisd_min_displacement
+                    // Draw CISD line
+                    line.new(array.get(highs_time, i), liquidity_level, bar_index + 10, liquidity_level, 
+                           color=color.red, width=2, style=line.style_dashed)
+                    label.new(bar_index, liquidity_level, text="CISD-", style=label.style_label_down, 
+                            color=color.red, textcolor=color.white, size=size.small)
+                    // Remove swept liquidity
+                    array.remove(highs_liquidity, i)
+                    array.remove(highs_time, i)
+                    break
+    
+    if array.size(lows_liquidity) > 0
+        for i = array.size(lows_liquidity) - 1 to 0
+            liquidity_level = array.get(lows_liquidity, i)
+            if low < liquidity_level
+                displacement_pct = (liquidity_level - low) / liquidity_level * 100
+                if displacement_pct >= cisd_min_displacement
+                    // Draw CISD line
+                    line.new(array.get(lows_time, i), liquidity_level, bar_index + 10, liquidity_level, 
+                           color=color.green, width=2, style=line.style_dashed)
+                    label.new(bar_index, liquidity_level, text="CISD+", style=label.style_label_up, 
+                            color=color.green, textcolor=color.white, size=size.small)
+                    // Remove swept liquidity
+                    array.remove(lows_liquidity, i)
+                    array.remove(lows_time, i)
+                    break
+
+//==============================================================================
+// SECTION 7: SIGNAL STRENGTH INDICATOR
+//==============================================================================
+
+var g_STRENGTH = "Signal Strength"
+show_strength = input.bool(true, "Show Signal Strength", group=g_STRENGTH)
+
+// Calculate signal strength (0-100)
+calculate_strength() =>
+    strength = 0.0
+    
+    // Volume component (25 points)
+    if volume > volume_avg * 1.5
+        strength += 25
+    else if volume > volume_avg * 1.2
+        strength += 15
+    else if volume > volume_avg
+        strength += 10
+    
+    // Trend component (25 points)
+    if bullish_trend
+        strength += 25
+    else if bearish_trend
+        strength += 25
+    else
+        strength += 10
+    
+    // Volatility component (25 points)
+    if candleRange > atr_value * 1.5
+        strength += 25
+    else if candleRange > atr_value
+        strength += 15
+    else
+        strength += 5
+    
+    // Price action component (25 points)
+    body_size = math.abs(close - open)
+    if body_size > candleRange * 0.7
+        strength += 25
+    else if body_size > candleRange * 0.5
+        strength += 15
+    else
+        strength += 5
+    
+    math.round(strength)
+
+current_strength = calculate_strength()
+
+// Display signal strength
+if show_strength and (final_bullish or final_bearish)
+    strength_color = current_strength >= 75 ? color.green : current_strength >= 50 ? color.orange : color.red
+    label.new(bar_index, high + atr_value, text="Strength: " + str.tostring(current_strength) + "%", 
+             style=label.style_none, color=strength_color, textcolor=color.white, size=size.small)
+
+//==============================================================================
+// SECTION 8: ENHANCED ALERTS
+//==============================================================================
+
+// Enhanced alert conditions with strength filter
+strong_bullish = final_bullish and current_strength >= 60 and trend_aligned(true)
+strong_bearish = final_bearish and current_strength >= 60 and trend_aligned(false)
+
+alertcondition(strong_bullish, "Strong Bullish Signal", "Strong Bullish Signal Detected - Strength: {{plot(\"current_strength\")}}%")
+alertcondition(strong_bearish, "Strong Bearish Signal", "Strong Bearish Signal Detected - Strength: {{plot(\"current_strength\")}}%")
+
+// Plot strength for alert message
+plot(current_strength, title="Signal Strength", display=display.none)
+
+//==============================================================================
+// SECTION 9: DASHBOARD
+//==============================================================================
+
+var g_DASH = "Dashboard"
+show_dashboard = input.bool(true, "Show Dashboard", group=g_DASH)
+
+if show_dashboard
+    var table dashboard = table.new(position.top_right, 2, 6, bgcolor=color.new(color.black, 80), border_width=1)
+    
+    if barstate.islast
+        table.cell(dashboard, 0, 0, "Metric", text_color=color.white, text_size=size.small)
+        table.cell(dashboard, 1, 0, "Value", text_color=color.white, text_size=size.small)
+        
+        table.cell(dashboard, 0, 1, "Trend", text_color=color.white, text_size=size.small)
+        trend_text = bullish_trend ? "Bullish" : bearish_trend ? "Bearish" : "Sideways"
+        trend_color = bullish_trend ? color.green : bearish_trend ? "red" : color.yellow
+        table.cell(dashboard, 1, 1, trend_text, text_color=trend_color, text_size=size.small)
+        
+        table.cell(dashboard, 0, 2, "Volume", text_color=color.white, text_size=size.small)
+        vol_ratio = volume / volume_avg
+        vol_text = str.tostring(vol_ratio, "#.##") + "x"
+        vol_color = vol_ratio > 1.5 ? color.green : vol_ratio > 1.2 ? color.orange : color.red
+        table.cell(dashboard, 1, 2, vol_text, text_color=vol_color, text_size=size.small)
+        
+        table.cell(dashboard, 0, 3, "ATR", text_color=color.white, text_size=size.small)
+        atr_ratio = candleRange / atr_value
+        atr_text = str.tostring(atr_ratio, "#.##") + "x"
+        atr_color = atr_ratio > 1.5 ? color.green : atr_ratio > 1.0 ? color.orange : color.red
+        table.cell(dashboard, 1, 3, atr_text, text_color=atr_color, text_size=size.small)
+        
+        table.cell(dashboard, 0, 4, "Strength", text_color=color.white, text_size=size.small)
+        strength_text = str.tostring(current_strength) + "%"
+        strength_color = current_strength >= 75 ? color.green : current_strength >= 50 ? color.orange : color.red
+        table.cell(dashboard, 1, 4, strength_text, text_color=strength_color, text_size=size.small)
+        
+        table.cell(dashboard, 0, 5, "Filters", text_color=color.white, text_size=size.small)
+        filters_active = (enable_volume_filter ? 1 : 0) + (enable_trend_filter ? 1 : 0) + (enable_atr_filter ? 1 : 0)
+        filters_text = str.tostring(filters_active) + "/3"
+        table.cell(dashboard, 1, 5, filters_text, text_color=color.cyan, text_size=size.small)

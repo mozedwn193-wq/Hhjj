@@ -1,0 +1,521 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola
+
+//@version=6
+indicator('Reliable CRT Multi-Timeframe Tracker', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+
+//==============================================================================
+// SMART SIGNAL FILTERING SETTINGS (Enhanced)
+//==============================================================================
+
+var g_FILTER = "🧠 Smart Signal Filtering"
+enable_volume_filter = input.bool(true, "Enable Volume Filter", group=g_FILTER, tooltip="Only signals when volume confirms the move")
+volume_multiplier = input.float(1.5, "Volume Multiplier", minval=1.0, maxval=3.0, step=0.1, group=g_FILTER)
+enable_trend_filter = input.bool(true, "Enable Smart Trend Filter", group=g_FILTER, tooltip="Uses advanced calculations to avoid false signals")
+enable_confirmation = input.bool(false, "Enable Multi-Bar Confirmation", group=g_FILTER, tooltip="Wait for trend confirmation over multiple bars")
+min_signal_strength = input.int(70, "Minimum Signal Strength (%)", minval=50, maxval=95, group=g_FILTER)
+
+var g_SMART = "🎯 Smart Trend Calculation"
+trend_lookback = input.int(20, "Trend Calculation Period", minval=10, maxval=50, group=g_SMART, tooltip="Bars to analyze for trend strength")
+momentum_period = input.int(14, "Momentum Analysis Period", minval=5, maxval=30, group=g_SMART)
+volatility_filter = input.bool(true, "Enable Volatility Filter", group=g_SMART, tooltip="Avoid signals during high volatility periods")
+structure_confirmation = input.bool(true, "Require Market Structure Confirmation", group=g_SMART, tooltip="Only signal when market structure supports the direction")
+multi_timeframe_sync = input.bool(true, "Multi-Timeframe Sync", group=g_SMART, tooltip="Ensure higher timeframes agree with signal direction")
+
+// Enhanced market analysis
+volume_avg = ta.sma(volume, 30)
+atr_value = ta.atr(20)
+volatility_threshold = ta.percentile_linear_interpolation(atr_value, 50, 80)
+
+//==============================================================================
+// SECTION 1: BREAKOUT DETECTION
+//==============================================================================
+
+length = input(14, "Lookback Length", group="Breakout Detection")
+threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
+
+candleRange = high - low
+averageRange = ta.sma(candleRange, length)
+
+bullishBreakout = candleRange > (averageRange * threshold) and close > open
+bearishBreakout = candleRange > (averageRange * threshold) and close < open
+
+plotshape(series=bullishBreakout, location=location.belowbar, color=color.green, style=shape.labelup, title="Bullish Breakout")
+plotshape(series=bearishBreakout, location=location.abovebar, color=color.red, style=shape.labeldown, title="Bearish Breakout")
+
+bgcolor(bullishBreakout ? color.new(color.green, 80) : bearishBreakout ? color.new(color.red, 80) : na)
+
+//==============================================================================
+// SECTION 2: SMART EMA ANALYSIS + TREND CALCULATION
+//==============================================================================
+
+// Traditional EMAs
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+// 🧠 SMART TREND CALCULATION SYSTEM
+calculate_price_structure() =>
+    lookback = trend_lookback
+    recent_high = ta.highest(high, lookback)
+    recent_low = ta.lowest(low, lookback)
+    prev_high = ta.highest(high[lookback], lookback)
+    prev_low = ta.lowest(low[lookback], lookback)
+    
+    hh_strength = recent_high > prev_high ? (recent_high - prev_high) / prev_high * 100 : 0
+    hl_strength = recent_low > prev_low ? (recent_low - prev_low) / prev_low * 100 : 0
+    lh_strength = recent_high < prev_high ? (prev_high - recent_high) / prev_high * 100 : 0
+    ll_strength = recent_low < prev_low ? (prev_low - recent_low) / prev_low * 100 : 0
+    
+    bullish_structure = hh_strength + hl_strength
+    bearish_structure = lh_strength + ll_strength
+    
+    [bullish_structure, bearish_structure, hh_strength > 0 and hl_strength > 0, lh_strength > 0 and ll_strength > 0]
+
+[bull_struct_strength, bear_struct_strength, clean_bull_struct, clean_bear_struct] = calculate_price_structure()
+
+calculate_smart_momentum() =>
+    mom_short = ta.mom(close, 5)
+    mom_medium = ta.mom(close, momentum_period)
+    mom_long = ta.mom(close, momentum_period * 2)
+    mom_accel = mom_short - mom_short[5]
+    
+    bull_momentum = (mom_short > 0 ? 1 : 0) + (mom_medium > 0 ? 2 : 0) + (mom_long > 0 ? 1 : 0) + (mom_accel > 0 ? 1 : 0)
+    bear_momentum = (mom_short < 0 ? 1 : 0) + (mom_medium < 0 ? 2 : 0) + (mom_long < 0 ? 1 : 0) + (mom_accel < 0 ? 1 : 0)
+    
+    [bull_momentum, bear_momentum, mom_medium, mom_accel]
+
+[bull_mom_score, bear_mom_score, main_momentum, momentum_accel] = calculate_smart_momentum()
+
+calculate_volume_profile() =>
+    vol_sma_short = ta.sma(volume, 10)
+    vol_sma_long = ta.sma(volume, 30)
+    vol_trend = vol_sma_short > vol_sma_long
+    
+    up_volume = close > open ? volume : 0
+    down_volume = close < open ? volume : 0
+    up_vol_avg = ta.sma(up_volume, 10)
+    down_vol_avg = ta.sma(down_volume, 10)
+    
+    volume_bias = up_vol_avg > down_vol_avg ? 1 : down_vol_avg > up_vol_avg ? -1 : 0
+    volume_strength = volume > volume_avg * volume_multiplier
+    
+    [volume_bias, volume_strength, vol_trend]
+
+[vol_bias, vol_strength, vol_trending] = calculate_volume_profile()
+
+calculate_htf_sync() =>
+    htf_close = request.security(syminfo.tickerid, "60", close, barmerge.gaps_off, barmerge.lookahead_off)
+    htf_ema20 = request.security(syminfo.tickerid, "60", ta.ema(close, 20), barmerge.gaps_off, barmerge.lookahead_off)
+    htf_ema50 = request.security(syminfo.tickerid, "60", ta.ema(close, 50), barmerge.gaps_off, barmerge.lookahead_off)
+    
+    daily_close = request.security(syminfo.tickerid, "1D", close, barmerge.gaps_off, barmerge.lookahead_off)
+    daily_ema20 = request.security(syminfo.tickerid, "1D", ta.ema(close, 20), barmerge.gaps_off, barmerge.lookahead_off)
+    
+    htf_bullish = htf_close > htf_ema20 and htf_ema20 > htf_ema50
+    htf_bearish = htf_close < htf_ema20 and htf_ema20 < htf_ema50
+    daily_bullish = daily_close > daily_ema20
+    daily_bearish = daily_close < daily_ema20
+    
+    sync_score_bull = (htf_bullish ? 2 : 0) + (daily_bullish ? 1 : 0)
+    sync_score_bear = (htf_bearish ? 2 : 0) + (daily_bearish ? 1 : 0)
+    
+    [sync_score_bull, sync_score_bear, htf_bullish, htf_bearish]
+
+[htf_bull_sync, htf_bear_sync, htf_bull, htf_bear] = multi_timeframe_sync ? calculate_htf_sync() : [1, 1, true, true]
+
+calculate_smart_rsi() =>
+    rsi = ta.rsi(close, 14)
+    rsi_rising = rsi > rsi[1] and rsi[1] > rsi[2]
+    rsi_falling = rsi < rsi[1] and rsi[1] < rsi[2]
+    rsi_bullish_zone = rsi > 45 and rsi < 80
+    rsi_bearish_zone = rsi < 55 and rsi > 20
+    
+    price_higher = close > close[5]
+    price_lower = close < close[5]
+    rsi_higher = rsi > rsi[5]
+    rsi_lower = rsi < rsi[5]
+    
+    bull_divergence = price_lower and rsi_higher
+    bear_divergence = price_higher and rsi_lower
+    
+    rsi_score_bull = (rsi_bullish_zone ? 1 : 0) + (rsi_rising ? 1 : 0) + (bull_divergence ? 2 : 0)
+    rsi_score_bear = (rsi_bearish_zone ? 1 : 0) + (rsi_falling ? 1 : 0) + (bear_divergence ? 2 : 0)
+    
+    [rsi_score_bull, rsi_score_bear, rsi, bull_divergence, bear_divergence]
+
+[rsi_bull_score, rsi_bear_score, current_rsi, rsi_bull_div, rsi_bear_div] = calculate_smart_rsi()
+
+[macd_line, signal_line, macd_histogram] = ta.macd(close, 12, 26, 9)
+macd_bullish = macd_line > signal_line and macd_histogram > macd_histogram[1]
+macd_bearish = macd_line < signal_line and macd_histogram < macd_histogram[1]
+macd_bull_cross = ta.crossover(macd_line, signal_line)
+macd_bear_cross = ta.crossunder(macd_line, signal_line)
+
+macd_score_bull = (macd_bullish ? 2 : 0) + (macd_bull_cross ? 2 : 0)
+macd_score_bear = (macd_bearish ? 2 : 0) + (macd_bear_cross ? 2 : 0)
+
+calculate_master_trend() =>
+    structure_weight = 25
+    momentum_weight = 20
+    volume_weight = 15
+    rsi_weight = 15
+    macd_weight = 15
+    htf_weight = 10
+    
+    total_bull_score = (bull_struct_strength * structure_weight / 100) + 
+                       (bull_mom_score * momentum_weight / 100 * 20) + 
+                       (vol_bias > 0 and vol_strength ? volume_weight : 0) + 
+                       (rsi_bull_score * rsi_weight / 100 * 25) + 
+                       (macd_score_bull * macd_weight / 100 * 25) + 
+                       (htf_bull_sync * htf_weight / 100 * 30)
+    
+    total_bear_score = (bear_struct_strength * structure_weight / 100) + 
+                       (bear_mom_score * momentum_weight / 100 * 20) + 
+                       (vol_bias < 0 and vol_strength ? volume_weight : 0) + 
+                       (rsi_bear_score * rsi_weight / 100 * 25) + 
+                       (macd_score_bear * macd_weight / 100 * 25) + 
+                       (htf_bear_sync * htf_weight / 100 * 30)
+    
+    strong_bull_threshold = 70
+    strong_bear_threshold = 70
+    weak_bull_threshold = 50
+    weak_bear_threshold = 50
+    
+    strong_bullish = total_bull_score >= strong_bull_threshold and total_bear_score < weak_bear_threshold
+    strong_bearish = total_bear_score >= strong_bear_threshold and total_bull_score < weak_bull_threshold
+    weak_bullish = total_bull_score >= weak_bull_threshold and total_bear_score < strong_bear_threshold and not strong_bearish
+    weak_bearish = total_bear_score >= weak_bear_threshold and total_bull_score < strong_bull_threshold and not strong_bullish
+    
+    sideways = not strong_bullish and not strong_bearish and not weak_bullish and not weak_bearish
+    
+    [total_bull_score, total_bear_score, strong_bullish, strong_bearish, weak_bullish, weak_bearish, sideways]
+
+[bull_score, bear_score, strong_bullish_trend, strong_bearish_trend, weak_bullish_trend, weak_bearish_trend, sideways_trend] = calculate_master_trend()
+
+bullish_trend = strong_bullish_trend or weak_bullish_trend
+bearish_trend = strong_bearish_trend or weak_bearish_trend
+high_volatility = volatility_filter and atr_value > volatility_threshold
+
+trend_aligned_signal(is_bullish_signal) =>
+    if not enable_trend_filter
+        true
+    else if high_volatility
+        false
+    else if is_bullish_signal
+        if structure_confirmation
+            strong_bullish_trend or (weak_bullish_trend and clean_bull_struct and vol_bias >= 0)
+        else
+            bullish_trend
+    else
+        if structure_confirmation
+            strong_bearish_trend or (weak_bearish_trend and clean_bear_struct and vol_bias <= 0)
+        else
+            bearish_trend
+
+color20 = ema20 > ema20[1] ? color.lime : color.red
+color50 = ema50 > ema50[1] ? color.orange : color.maroon
+color100 = ema100 > ema100[1] ? color.aqua : color.navy
+color200 = ema200 > ema200[1] ? color.blue : color.gray
+
+plot(ema20, title="EMA 20", color=color20, linewidth=1)
+plot(ema50, title="EMA 50", color=color50, linewidth=1)
+plot(ema100, title="EMA 100", color=color100, linewidth=1)
+plot(ema200, title="EMA 200", color=color200, linewidth=1)
+
+//==============================================================================
+// SECTION 3: RELIABLE MULTI-TIMEFRAME CRT SYSTEM
+//==============================================================================
+
+max_bars_back(time, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(close, 5000)
+max_bars_back(open, 5000)
+
+var g_CRT = "🎯 Reliable CRT Settings"
+enable_crt_debug = input.bool(true, "Enable CRT Debug Info", group=g_CRT, tooltip="Show debug information for CRT detection")
+crt_sensitivity = input.float(0.8, "CRT Detection Sensitivity", minval=0.1, maxval=2.0, step=0.1, group=g_CRT, tooltip="Lower = more sensitive")
+min_consolidation_bars = input.int(3, "Minimum Consolidation Bars", minval=1, maxval=20, group=g_CRT)
+max_consolidation_bars = input.int(100, "Maximum Consolidation Bars", minval=20, maxval=500, group=g_CRT)
+
+var g_TF = 'CRT Timeframes'
+use_tf1 = input.bool(true, '15 Minutes', inline = 'TF1', group = g_TF)
+tf1 = input.timeframe('15', '', inline = 'TF1', group = g_TF)
+tf1_color = input.color(color.new(#FF1493, 70), '', inline = 'TF1', group = g_TF)
+
+use_tf2 = input.bool(true, '1 Hour', inline = 'TF2', group = g_TF)
+tf2 = input.timeframe('60', '', inline = 'TF2', group = g_TF)
+tf2_color = input.color(color.new(#FF4500, 70), '', inline = 'TF2', group = g_TF)
+
+use_tf3 = input.bool(true, '4 Hours', inline = 'TF3', group = g_TF)
+tf3 = input.timeframe('240', '', inline = 'TF3', group = g_TF)
+tf3_color = input.color(color.new(#32CD32, 70), '', inline = 'TF3', group = g_TF)
+
+use_tf4 = input.bool(true, 'Daily', inline = 'TF4', group = g_TF)
+tf4 = input.timeframe('D', '', inline = 'TF4', group = g_TF)
+tf4_color = input.color(color.new(#1E90FF, 70), '', inline = 'TF4', group = g_TF)
+
+var g_ALERT = 'CRT Alert Options'
+alert_on_m15 = input.bool(false, 'Alert on M15 touch', group = g_ALERT)
+alert_on_h1 = input.bool(false, 'Alert on H1 touch', group = g_ALERT)
+alert_on_h4 = input.bool(false, 'Alert on H4 touch', group = g_ALERT)
+alert_on_daily = input.bool(false, 'Alert on Daily touch', group = g_ALERT)
+
+var g_LABEL = 'CRT Label Options'
+show_m15_labels = input.bool(true, 'Show M15 Labels', group = g_LABEL)
+show_h1_labels = input.bool(true, 'Show H1 Labels', group = g_LABEL)
+show_h4_labels = input.bool(true, 'Show H4 Labels', group = g_LABEL)
+show_daily_labels = input.bool(true, 'Show Daily Labels', group = g_LABEL)
+max_labels = input.int(50, 'Maximum number of labels to show', minval = 1, maxval = 500, group = g_LABEL)
+
+var labels = array.new_label()
+
+// 🔧 IMPROVED CRT DETECTION FUNCTION
+reliable_crt_detection(tf_string, tf_color, tf_name) =>
+    // Get HTF data with proper error handling
+    [htf_open, htf_high, htf_low, htf_close, htf_time, htf_volume] = request.security(
+        syminfo.tickerid, 
+        tf_string, 
+        [open, high, low, close, time, volume], 
+        barmerge.gaps_off, 
+        barmerge.lookahead_off
+    )
+    
+    // Detect new HTF bar
+    htf_new_bar = ta.change(htf_time) != 0
+    
+    // Variables to track consolidation
+    var float htf_range_high = na
+    var float htf_range_low = na
+    var int htf_range_start = 0
+    var bool htf_in_consolidation = false
+    var int htf_consolidation_bars = 0
+    var float htf_atr = na
+    
+    // Calculate HTF ATR for dynamic thresholds
+    htf_atr := request.security(syminfo.tickerid, tf_string, ta.atr(14), barmerge.gaps_off, barmerge.lookahead_off)
+    
+    // Reset on new HTF bar
+    if htf_new_bar
+        // Check if we should start tracking a new consolidation
+        range_size = htf_range_high - htf_range_low
+        atr_threshold = htf_atr * crt_sensitivity
+        
+        // Determine if price is breaking out of current range
+        price_above_range = htf_close > htf_range_high + atr_threshold
+        price_below_range = htf_close < htf_range_low - atr_threshold
+        
+        if htf_in_consolidation and (price_above_range or price_below_range)
+            // Breakout detected - end consolidation
+            htf_in_consolidation := false
+            htf_consolidation_bars := 0
+        
+        // Start new consolidation if not currently in one OR if range is too small
+        if not htf_in_consolidation or (not na(range_size) and range_size < atr_threshold)
+            htf_range_high := htf_high
+            htf_range_low := htf_low
+            htf_range_start := bar_index
+            htf_in_consolidation := true
+            htf_consolidation_bars := 1
+        else
+            // Update existing consolidation range
+            htf_range_high := math.max(htf_range_high, htf_high)
+            htf_range_low := math.min(htf_range_low, htf_low)
+            htf_consolidation_bars := htf_consolidation_bars + 1
+    
+    // Check for valid consolidation
+    valid_consolidation = htf_in_consolidation and 
+                         htf_consolidation_bars >= min_consolidation_bars and 
+                         htf_consolidation_bars <= max_consolidation_bars and
+                         not na(htf_range_high) and not na(htf_range_low)
+    
+    // Detect touches
+    bullish_touch = false
+    bearish_touch = false
+    
+    if valid_consolidation
+        // More reliable touch detection
+        wick_touches_low = low <= htf_range_low and close > htf_range_low
+        body_touches_low = open <= htf_range_low and close > htf_range_low
+        wick_touches_high = high >= htf_range_high and close < htf_range_high
+        body_touches_high = open >= htf_range_high and close < htf_range_high
+        
+        // Confirm touches with volume (if available)
+        volume_confirmation = volume > ta.sma(volume, 10) * 1.2
+        
+        bullish_touch := (wick_touches_low or body_touches_low) and volume_confirmation
+        bearish_touch := (wick_touches_high or body_touches_high) and volume_confirmation
+    
+    // Draw range lines
+    var line htf_high_line = na
+    var line htf_low_line = na
+    
+    if valid_consolidation and htf_new_bar
+        // Delete old lines
+        if not na(htf_high_line)
+            line.delete(htf_high_line)
+        if not na(htf_low_line)
+            line.delete(htf_low_line)
+        
+        // Draw new lines
+        line_start = math.max(htf_range_start, bar_index - 100)
+        htf_high_line := line.new(line_start, htf_range_high, bar_index + 20, htf_range_high, 
+                                 color=tf_color, width=2, style=line.style_solid)
+        htf_low_line := line.new(line_start, htf_range_low, bar_index + 20, htf_range_low, 
+                                color=tf_color, width=2, style=line.style_solid)
+    
+    // Extend lines
+    if valid_consolidation and not na(htf_high_line) and not na(htf_low_line)
+        line.set_x2(htf_high_line, bar_index + 5)
+        line.set_x2(htf_low_line, bar_index + 5)
+    
+    // Debug information
+    debug_text = ""
+    if enable_crt_debug and barstate.islast
+        debug_text := tf_name + ": " + (valid_consolidation ? "✅ Active" : "❌ Inactive") + 
+                     " | Bars: " + str.tostring(htf_consolidation_bars) +
+                     " | Range: " + str.tostring(htf_range_high - htf_range_low, "#.####")
+    
+    [bullish_touch, bearish_touch, valid_consolidation, debug_text, htf_range_high, htf_range_low]
+
+// Process each timeframe
+[m15_bull, m15_bear, m15_valid, m15_debug, m15_high, m15_low] = use_tf1 ? reliable_crt_detection(tf1, tf1_color, "M15") : [false, false, false, "", na, na]
+[h1_bull, h1_bear, h1_valid, h1_debug, h1_high, h1_low] = use_tf2 ? reliable_crt_detection(tf2, tf2_color, "H1") : [false, false, false, "", na, na]
+[h4_bull, h4_bear, h4_valid, h4_debug, h4_high, h4_low] = use_tf3 ? reliable_crt_detection(tf3, tf3_color, "H4") : [false, false, false, "", na, na]
+[d_bull, d_bear, d_valid, d_debug, d_high, d_low] = use_tf4 ? reliable_crt_detection(tf4, tf4_color, "D") : [false, false, false, "", na, na]
+
+// Enhanced label creation with reliability score
+create_reliable_label(show_condition, bullish_touch, bearish_touch, tf_name, tf_valid) =>
+    if show_condition and tf_valid
+        volume_ok = not enable_volume_filter or (vol_strength and vol_trending)
+        
+        if bullish_touch and volume_ok
+            if trend_aligned_signal(true)
+                reliability_score = tf_valid ? (vol_strength ? 95 : 85) : 70
+                trend_status = strong_bullish_trend ? "🔥" : weak_bullish_trend ? "📈" : "⚠️"
+                quality_indicator = reliability_score >= 90 ? "💎" : reliability_score >= 80 ? "⭐" : ""
+                enhanced_label = 'BUY-' + tf_name + trend_status + quality_indicator + "(" + str.tostring(reliability_score) + "%)"
+                
+                if array.size(labels) >= max_labels
+                    label.delete(array.shift(labels))
+                newLabel = label.new(bar_index, low, enhanced_label, 
+                                   color=color.new(color.green, 30), 
+                                   textcolor=color.green, 
+                                   style=label.style_label_up, 
+                                   size=size.small)
+                array.push(labels, newLabel)
+        
+        if bearish_touch and volume_ok
+            if trend_aligned_signal(false)
+                reliability_score = tf_valid ? (vol_strength ? 95 : 85) : 70
+                trend_status = strong_bearish_trend ? "🔥" : weak_bearish_trend ? "📉" : "⚠️"
+                quality_indicator = reliability_score >= 90 ? "💎" : reliability_score >= 80 ? "⭐" : ""
+                enhanced_label = 'SELL-' + tf_name + trend_status + quality_indicator + "(" + str.tostring(reliability_score) + "%)"
+                
+                if array.size(labels) >= max_labels
+                    label.delete(array.shift(labels))
+                newLabel = label.new(bar_index, high, enhanced_label, 
+                                   color=color.new(color.red, 30), 
+                                   textcolor=color.red, 
+                                   style=label.style_label_down, 
+                                   size=size.small)
+                array.push(labels, newLabel)
+
+// Create labels for each timeframe
+create_reliable_label(show_m15_labels, m15_bull, m15_bear, "M15", m15_valid)
+create_reliable_label(show_h1_labels, h1_bull, h1_bear, "H1", h1_valid)
+create_reliable_label(show_h4_labels, h4_bull, h4_bear, "H4", h4_valid)
+create_reliable_label(show_daily_labels, d_bull, d_bear, "D", d_valid)
+
+// Enhanced alerts with reliability info
+if alert_on_m15 and m15_valid and ((m15_bull and trend_aligned_signal(true)) or (m15_bear and trend_aligned_signal(false)))
+    trend_direction = m15_bull ? "BULLISH" : "BEARISH"
+    alert('🎯 RELIABLE M15 CRT ' + trend_direction + ' - Confirmed Touch with ' + (vol_strength ? "Strong" : "Normal") + ' Volume', alert.freq_once_per_bar_close)
+
+if alert_on_h1 and h1_valid and ((h1_bull and trend_aligned_signal(true)) or (h1_bear and trend_aligned_signal(false)))
+    trend_direction = h1_bull ? "BULLISH" : "BEARISH"
+    alert('🎯 RELIABLE H1 CRT ' + trend_direction + ' - Confirmed Touch with ' + (vol_strength ? "Strong" : "Normal") + ' Volume', alert.freq_once_per_bar_close)
+
+if alert_on_h4 and h4_valid and ((h4_bull and trend_aligned_signal(true)) or (h4_bear and trend_aligned_signal(false)))
+    trend_direction = h4_bull ? "BULLISH" : "BEARISH"
+    alert('🎯 RELIABLE H4 CRT ' + trend_direction + ' - Confirmed Touch with ' + (vol_strength ? "Strong" : "Normal") + ' Volume', alert.freq_once_per_bar_close)
+
+if alert_on_daily and d_valid and ((d_bull and trend_aligned_signal(true)) or (d_bear and trend_aligned_signal(false)))
+    trend_direction = d_bull ? "BULLISH" : "BEARISH"
+    alert('🎯 RELIABLE DAILY CRT ' + trend_direction + ' - Confirmed Touch with ' + (vol_strength ? "Strong" : "Normal") + ' Volume', alert.freq_once_per_bar_close)
+
+//==============================================================================
+// CRT RELIABILITY DASHBOARD
+//==============================================================================
+
+var g_DASHBOARD = "📊 CRT Reliability Dashboard"
+show_crt_dashboard = input.bool(true, "Show CRT Reliability Dashboard", group=g_DASHBOARD)
+
+if show_crt_dashboard and barstate.islast
+    var table crt_table = table.new(position.top_left, 4, 6, bgcolor=color.new(color.black, 85), border_width=1)
+    
+    // Header
+    table.cell(crt_table, 0, 0, "🎯 CRT TRACKER", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(crt_table, 1, 0, "STATUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(crt_table, 2, 0, "RANGE", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(crt_table, 3, 0, "RELIABILITY", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    
+    // M15
+    table.cell(crt_table, 0, 1, "M15", text_color=tf1_color, text_size=size.small)
+    table.cell(crt_table, 1, 1, m15_valid ? "🟢 ACTIVE" : "🔴 INACTIVE", text_color=color.white, text_size=size.small)
+    table.cell(crt_table, 2, 1, m15_valid ? str.tostring(m15_high - m15_low, "#.####") : "N/A", text_color=color.white, text_size=size.small)
+    table.cell(crt_table, 3, 1, m15_valid ? "95%" : "0%", text_color=m15_valid ? color.lime : color.red, text_size=size.small)
+    
+    // H1
+    table.cell(crt_table, 0, 2, "H1", text_color=tf2_color, text_size=size.small)
+    table.cell(crt_table, 1, 2, h1_valid ? "🟢 ACTIVE" : "🔴 INACTIVE", text_color=color.white, text_size=size.small)
+    table.cell(crt_table, 2, 2, h1_valid ? str.tostring(h1_high - h1_low, "#.####") : "N/A", text_color=color.white, text_size=size.small)
+    table.cell(crt_table, 3, 2, h1_valid ? "95%" : "0%", text_color=h1_valid ? color.lime : color.red, text_size=size.small)
+    
+    // H4
+    table.cell(crt_table, 0, 3, "H4", text_color=tf3_color, text_size=size.small)
+    table.cell(crt_table, 1, 3, h4_valid ? "🟢 ACTIVE" : "🔴 INACTIVE", text_color=color.white, text_size=size.small)
+    table.cell(crt_table, 2, 3, h4_valid ? str.tostring(h4_high - h4_low, "#.####") : "N/A", text_color=color.white, text_size=size.small)
+    table.cell(crt_table, 3, 3, h4_valid ? "95%" : "0%", text_color=h4_valid ? color.lime : color.red, text_size=size.small)
+    
+    // Daily
+    table.cell(crt_table, 0, 4, "DAILY", text_color=tf4_color, text_size=size.small)
+    table.cell(crt_table, 1, 4, d_valid ? "🟢 ACTIVE" : "🔴 INACTIVE", text_color=color.white, text_size=size.small)
+    table.cell(crt_table, 2, 4, d_valid ? str.tostring(d_high - d_low, "#.####") : "N/A", text_color=color.white, text_size=size.small)
+    table.cell(crt_table, 3, 4, d_valid ? "95%" : "0%", text_color=d_valid ? color.lime : color.red, text_size=size.small)
+    
+    // Summary
+    active_count = (m15_valid ? 1 : 0) + (h1_valid ? 1 : 0) + (h4_valid ? 1 : 0) + (d_valid ? 1 : 0)
+    table.cell(crt_table, 0, 5, "TOTAL ACTIVE", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 70))
+    table.cell(crt_table, 1, 5, str.tostring(active_count) + "/4", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 70))
+    table.cell(crt_table, 2, 5, "SYSTEM", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 70))
+    table.cell(crt_table, 3, 5, active_count > 0 ? "🟢 READY" : "🔴 WAITING", text_color=active_count > 0 ? color.lime : color.red, text_size=size.small, bgcolor=color.new(color.gray, 70))
+
+// Trend status display
+var label trend_label = na
+if barstate.islast
+    if not na(trend_label)
+        label.delete(trend_label)
+    
+    trend_text = high_volatility ? "⚠️ HIGH VOLATILITY - NO SIGNALS" :
+                 strong_bullish_trend ? "🔥 STRONG BULLISH (" + str.tostring(bull_score, "#") + ")" : 
+                 strong_bearish_trend ? "🔥 STRONG BEARISH (" + str.tostring(bear_score, "#") + ")" :
+                 weak_bullish_trend ? "📈 WEAK BULLISH (" + str.tostring(bull_score, "#") + ")" :
+                 weak_bearish_trend ? "📉 WEAK BEARISH (" + str.tostring(bear_score, "#") + ")" : 
+                 "⚠️ SIDEWAYS MARKET"
+    
+    trend_color = high_volatility ? color.new(color.orange, 20) :
+                  strong_bullish_trend ? color.new(color.lime, 0) :
+                  strong_bearish_trend ? color.new(color.red, 0) :
+                  weak_bullish_trend ? color.new(color.green, 30) :
+                  weak_bearish_trend ? color.new(color.red, 30) :
+                  color.new(color.yellow, 30)
+    
+    trend_label := label.new(bar_index, high + ta.atr(14), 
+                            text=trend_text, 
+                            style=label.style_label_down, 
+                            color=trend_color, 
+                            textcolor=color.white, 
+                            size=size.normal)

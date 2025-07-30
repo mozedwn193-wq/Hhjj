@@ -1,0 +1,60 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola
+
+//@version=6
+indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + EMAs + MULTI-CONFIRMATION SYSTEM', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+
+//==============================================================================
+// ENHANCED SIGNAL FILTERING SETTINGS (Multiple Confirmation Methods)
+//==============================================================================
+
+var g_FILTER = "🔧 Signal Filtering"
+enable_volume_filter = input.bool(false, "Enable Volume Filter", group=g_FILTER, tooltip="Only signals when volume is above average")
+volume_multiplier = input.float(1.2, "Volume Multiplier", minval=0.5, maxval=3.0, step=0.1, group=g_FILTER)
+enable_trend_filter = input.bool(true, "Enable Multi-Confirmation Trend Filter", group=g_FILTER, tooltip="Uses multiple methods for trend detection")
+enable_confirmation = input.bool(false, "Enable Signal Confirmation", group=g_FILTER, tooltip="Wait for next bar confirmation")
+min_signal_strength = input.int(50, "Minimum Signal Strength (%)", minval=30, maxval=90, group=g_FILTER)
+
+var g_TREND = "📈 Multi-Confirmation Trend Detection"
+use_rsi_trend = input.bool(true, "Use RSI for Early Trend Detection", group=g_TREND, tooltip="RSI helps detect momentum changes early")
+use_macd_trend = input.bool(true, "Use MACD for Trend Confirmation", group=g_TREND, tooltip="MACD crossovers detect trend changes")
+use_price_action = input.bool(true, "Use Price Action Signals", group=g_TREND, tooltip="Higher highs/lows and breakouts")
+use_volume_trend = input.bool(true, "Use Volume Trend Analysis", group=g_TREND, tooltip="Volume confirms trend strength")
+use_structure_analysis = input.bool(true, "Use Market Structure Analysis", group=g_TREND, tooltip="Analyzes market structure for trend confirmation")
+use_momentum_divergence = input.bool(true, "Use Momentum Divergence", group=g_TREND, tooltip="Detects trend exhaustion via divergence")
+trend_sensitivity = input.string("Medium", "Trend Detection Sensitivity", options=["High", "Medium", "Low"], group=g_TREND, tooltip="High=Early signals, Low=Confirmed signals")
+
+// 🎯 MULTI-CONFIRMATION REVERSAL DETECTION SETTINGS (ENHANCED)
+var g_REVERSAL = "🔄 Multi-Confirmation Reversal Detection"
+enable_reversal_filter = input.bool(true, "Enable Multi-Confirmation Reversal Filter", group=g_REVERSAL, tooltip="Uses multiple methods to confirm reversals")
+reversal_confirmation_bars = input.int(3, "Reversal Confirmation Bars", minval=1, maxval=10, group=g_REVERSAL, tooltip="Bars needed to confirm reversal")
+htf_trend_lookback = input.int(20, "HTF Trend Lookback", minval=10, maxval=50, group=g_REVERSAL, tooltip="Bars to analyze for HTF trend context")
+min_reversal_strength = input.int(70, "Minimum Reversal Strength (%)", minval=50, maxval=95, group=g_REVERSAL, tooltip="Minimum strength for valid reversal")
+min_confirmation_methods = input.int(3, "Minimum Confirmation Methods", minval=2, maxval=6, group=g_REVERSAL, tooltip="How many methods must agree for signal")
+
+// Enhanced market analysis for filtering
+volume_avg = ta.sma(volume, 20)
+atr_value = ta.atr(14)
+
+//==============================================================================
+// SECTION 1: BREAKOUT DETECTION
+//==============================================================================
+
+// Inputs for Breakout Detection
+length = input(14, "Lookback Length", group="Breakout Detection")
+threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
+
+// Calculate candle range
+candleRange = high - low
+averageRange = ta.sma(candleRange, length)
+
+// Define conditions
+bullishBreakout = candleRange > (averageRange * threshold) and close > open
+bearishBreakout = candleRange > (averageRange * threshold) and close < open
+
+// Plot signals
+plotshape(series=bullishBreakout, location=location.belowbar, color=color.green, style=shape.labelup, title="Bullish Breakout")
+plotshape(series=bearishBreakout, location=location.abovebar, color=color.red, style=shape.labeldown, title="Bearish Breakout")
+
+// Highlight breakout candles
+bgcolor(bullishBreakout ? color.new(color.green, 80) : bearishBreakout ? color.new(color.red, 80) : na)

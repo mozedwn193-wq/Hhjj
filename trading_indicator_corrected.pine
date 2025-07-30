@@ -1,0 +1,917 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola - CORRECTED VERSION WITH REDUCED FALSE SIGNALS
+
+//@version=6
+indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + EMAs - CORRECTED', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+
+//==============================================================================
+// SECTION 0: SIGNAL FILTERING SETTINGS (NEW)
+//==============================================================================
+
+var g_FILTER = "🔧 Signal Filtering"
+enable_volume_filter = input.bool(true, "Enable Volume Filter", group=g_FILTER, tooltip="Only signals when volume is above average")
+volume_multiplier = input.float(1.2, "Volume Multiplier", minval=0.5, maxval=3.0, step=0.1, group=g_FILTER)
+enable_trend_filter = input.bool(true, "Enable Trend Alignment", group=g_FILTER, tooltip="Filter signals based on EMA trend")
+enable_confirmation = input.bool(true, "Enable Signal Confirmation", group=g_FILTER, tooltip="Wait for next bar confirmation")
+min_signal_strength = input.int(60, "Minimum Signal Strength (%)", minval=30, maxval=90, group=g_FILTER)
+
+// Enhanced market analysis for filtering
+volume_avg = ta.sma(volume, 20)
+atr_value = ta.atr(14)
+
+//==============================================================================
+// SECTION 1: ENHANCED BREAKOUT DETECTION
+//==============================================================================
+
+// Inputs for Breakout Detection
+length = input(14, "Lookback Length", group="Breakout Detection")
+threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
+
+// Calculate candle range
+candleRange = high - low
+averageRange = ta.sma(candleRange, length)
+
+// Enhanced conditions with filtering
+volume_condition = not enable_volume_filter or volume > volume_avg * volume_multiplier
+price_movement = math.abs(close - open) / open * 100
+
+// Define enhanced conditions
+bullish_base = candleRange > (averageRange * threshold) and close > open and price_movement > 0.3
+bearish_base = candleRange > (averageRange * threshold) and close < open and price_movement > 0.3
+
+// Apply filters
+bullishBreakout = bullish_base and volume_condition
+bearishBreakout = bearish_base and volume_condition
+
+// Confirmation logic (NEW)
+var bool bull_confirmed = false
+var bool bear_confirmed = false
+
+if enable_confirmation
+    bull_confirmed := bullishBreakout and close[1] > open[1]
+    bear_confirmed := bearishBreakout and close[1] < open[1]
+else
+    bull_confirmed := bullishBreakout
+    bear_confirmed := bearishBreakout
+
+// Plot signals
+plotshape(series=bull_confirmed, location=location.belowbar, color=color.green, style=shape.labelup, title="Bullish Breakout")
+plotshape(series=bear_confirmed, location=location.abovebar, color=color.red, style=shape.labeldown, title="Bearish Breakout")
+
+// Highlight breakout candles
+bgcolor(bull_confirmed ? color.new(color.green, 80) : bear_confirmed ? color.new(color.red, 80) : na)
+
+//==============================================================================
+// SECTION 2: ENHANCED EMA ANALYSIS
+//==============================================================================
+
+// EMAs
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+// Enhanced trend detection (NEW)
+bullish_trend = ema20 > ema50 and ema50 > ema100 and ema100 > ema200
+bearish_trend = ema20 < ema50 and ema50 < ema100 and ema100 < ema200
+sideways_trend = not bullish_trend and not bearish_trend
+
+// Dynamic Colors Based on Slope and Trend
+color20 = bullish_trend ? color.lime : bearish_trend ? color.red : color.yellow
+color50 = bullish_trend ? color.orange : bearish_trend ? color.maroon : color.gray
+color100 = bullish_trend ? color.aqua : bearish_trend ? color.navy : color.silver
+color200 = bullish_trend ? color.blue : bearish_trend ? color.purple : color.gray
+
+// Plot EMAs
+plot(ema20, title="EMA 20", color=color20, linewidth=1)
+plot(ema50, title="EMA 50", color=color50, linewidth=1)
+plot(ema100, title="EMA 100", color=color100, linewidth=1)
+plot(ema200, title="EMA 200", color=color200, linewidth=1)
+
+// EMA Labels (optional, can be disabled for cleaner chart)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema20 : na, location=location.absolute, style=shape.labelup, text="EMA 20", color=color.new(color20, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema50 : na, location=location.absolute, style=shape.labelup, text="EMA 50", color=color.new(color50, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema100 : na, location=location.absolute, style=shape.labelup, text="EMA 100", color=color.new(color100, 80), textcolor=color.white)
+plotshape(bar_index == ta.highest(bar_index, 1) ? ema200 : na, location=location.absolute, style=shape.labelup, text="EMA 200", color=color.new(color200, 80), textcolor=color.white)
+
+// Trend alignment function (NEW)
+trend_aligned(signal_bullish) =>
+    if not enable_trend_filter
+        true
+    else
+        signal_bullish ? not bearish_trend : not bullish_trend
+
+//==============================================================================
+// SECTION 3: SESSION-BASED FVG DETECTION
+//==============================================================================
+
+// User input for box color
+boxColorUp = input.color(color.new(color.green, 80), "Box Color Up", group="FVG Settings")
+boxColorDn = input.color(color.new(color.red, 80), "Box Color Down", group="FVG Settings")
+
+// Input for session
+fvg_session = input.session("0930-1600", "FVG Session", group="FVG Settings")
+
+// NEW: Minimum FVG size filter
+min_fvg_size = input.float(0.5, "Minimum FVG Size (ATR %)", minval=0.1, maxval=2.0, step=0.1, group="FVG Settings")
+
+// Days of week for different box colors
+day_of_week_text() =>
+    switch dayofweek
+        1 => "SUN"
+        2 => "MON"
+        3 => "TUE"
+        4 => "WED"
+        5 => "THU"
+        6 => "FRI"
+        7 => "SAT"
+        => ""
+
+// Initialize variables
+var boxColor = color.new(color.gray, 80)
+var fvg_box = box(na)
+
+// Arrays to store FVG boxes
+var array<box> fvg_boxes = array.new_box()
+
+// Function to create FVG box
+make_box(_left, _right, _top, _bottom, col) =>
+    box.new(left=_left, right=_right, top=_top, bottom=_bottom, border_color=color.new(col, 70), bgcolor=col, text="Validated FVG - " + day_of_week_text(), text_halign = text.align_right, text_size=size.small, text_color = color.black)
+
+// Function to validate FVG (NEW)
+validate_fvg(fvg_size, is_bullish) =>
+    // Size validation
+    size_ok = fvg_size > atr_value * min_fvg_size / 100
+    
+    // Volume validation
+    volume_ok = not enable_volume_filter or volume > volume_avg * volume_multiplier
+    
+    // Trend validation
+    trend_ok = not enable_trend_filter or trend_aligned(is_bullish)
+    
+    size_ok and volume_ok and trend_ok
+
+// Check if current time is within session
+in_session = time(timeframe.period, fvg_session) != 0
+
+// Detect FVG and create boxes only during session
+if in_session
+    // Bullish FVG detection
+    if low[2] > high and validate_fvg(low[2] - high, true)
+        boxTop = low[2]
+        boxBottom = high
+        boxColor := boxColorUp
+        
+        // Create and store the box
+        fvg_box := make_box(bar_index-2, bar_index + 5, boxTop, boxBottom, boxColor)
+        array.push(fvg_boxes, fvg_box)
+    
+    // Bearish FVG detection
+    if high[2] < low and validate_fvg(low - high[2], false)
+        boxTop = low
+        boxBottom = high[2]
+        boxColor := boxColorDn
+        
+        // Create and store the box
+        fvg_box := make_box(bar_index-2, bar_index + 5, boxTop, boxBottom, boxColor)
+        array.push(fvg_boxes, fvg_box)
+
+// Manage array size (keep only recent 50 FVGs)
+if array.size(fvg_boxes) > 50
+    old_box = array.shift(fvg_boxes)
+    box.delete(old_box)
+
+// NY Open Line and Label
+var line ny_open_time = na
+var label ny_930_label = na
+var line ny_open_price = na
+
+if hour == 9 and minute == 30 and session.ismarket
+    ny_open_time    := line.new(x1=time, y1=high, x2=time, y2=low, xloc=xloc.bar_time, color=color.gray, style=line.style_dashed, width=1, extend = extend.both)
+    ny_930_label    := label.new(x=bar_index, y=lowest_so_far, text="9:30", style=label.style_none, color=color.new(color.gray, 90), textcolor=color.black)
+
+if hour == 9 and minute == 30 and session.ismarket
+    ny_open_price   := line.new(x1=bar_index, y1=open, x2=bar_index + 10, y2=open, xloc=xloc.bar_index, color=color.gray, style=line.style_dotted, width=1, extend = extend.none)
+
+// 9:30 AM Label Box
+if hour == 9 and minute == 30 and session.ismarket
+    label.new(bar_index, high + (high - low) * 0.1, "9:30 AM NY OPEN", 
+              style=label.style_label_down, 
+              bgcolor=color.new(color.white, 100),
+              size=size.small, 
+              textcolor=color.black,
+              border_color=color.new(color.white, 50))
+
+//==============================================================================
+// SECTION 4: MULTI-TIMEFRAME CRT ANALYSIS
+//==============================================================================
+
+// Multi-Timeframe Settings
+var g_TF = 'Multi-Timeframe'
+tf1 = input.timeframe('15', 'TF 1', inline = 'TF1', group = g_TF)
+tf1_color = input.color(color.new(#FF1493, 70), '', inline = 'TF1', group = g_TF)
+tf1_mid = input.bool(true, 'Mid', inline = 'TF1M', group = g_TF)
+tf1_mid_color = input.color(color.new(#FF1493, 50), '', inline = 'TF1M', group = g_TF)
+
+tf2 = input.timeframe('30', 'TF 2', inline = 'TF2', group = g_TF)
+tf2_color = input.color(color.new(#FF4500, 70), '', inline = 'TF2', group = g_TF)
+tf2_mid = input.bool(true, 'Mid', inline = 'TF2M', group = g_TF)
+tf2_mid_color = input.color(color.new(#FF4500, 50), '', inline = 'TF2M', group = g_TF)
+
+tf3 = input.timeframe('1H', 'TF 3', inline = 'TF3', group = g_TF)
+tf3_color = input.color(color.new(#32CD32, 70), '', inline = 'TF3', group = g_TF)
+tf3_mid = input.bool(true, 'Mid', inline = 'TF3M', group = g_TF)
+tf3_mid_color = input.color(color.new(#32CD32, 50), '', inline = 'TF3M', group = g_TF)
+
+tf4 = input.timeframe('4H', 'TF 4', inline = 'TF4', group = g_TF)
+tf4_color = input.color(color.new(#1E90FF, 70), '', inline = 'TF4', group = g_TF)
+tf4_mid = input.bool(true, 'Mid', inline = 'TF4M', group = g_TF)
+tf4_mid_color = input.color(color.new(#1E90FF, 50), '', inline = 'TF4M', group = g_TF)
+
+tf5 = input.timeframe('1D', 'TF 5', inline = 'TF5', group = g_TF)
+tf5_color = input.color(color.new(#9932CC, 70), '', inline = 'TF5', group = g_TF)
+tf5_mid = input.bool(true, 'Mid', inline = 'TF5M', group = g_TF)
+tf5_mid_color = input.color(color.new(#9932CC, 50), '', inline = 'TF5M', group = g_TF)
+
+tf6 = input.timeframe('1W', 'TF 6', inline = 'TF6', group = g_TF)
+tf6_color = input.color(color.new(#FFD700, 70), '', inline = 'TF6', group = g_TF)
+tf6_mid = input.bool(true, 'Mid', inline = 'TF6M', group = g_TF)
+tf6_mid_color = input.color(color.new(#FFD700, 50), '', inline = 'TF6M', group = g_TF)
+
+tf7 = input.timeframe('1M', 'TF 7', inline = 'TF7', group = g_TF)
+tf7_color = input.color(color.new(#FF69B4, 70), '', inline = 'TF7', group = g_TF)
+tf7_mid = input.bool(true, 'Mid', inline = 'TF7M', group = g_TF)
+tf7_mid_color = input.color(color.new(#FF69B4, 50), '', inline = 'TF7M', group = g_TF)
+
+// Label Settings
+var g_LABEL = 'Label Settings'
+eol_label_offset = input.int(5, 'End of Line Label Offset', group = g_LABEL)
+show_labels = input.bool(true, 'Show Labels', group = g_LABEL)
+label_size = input.string('small', 'Label Size', options = ['tiny', 'small', 'normal', 'large', 'huge'], group = g_LABEL)
+max_labels_per_tf = input.int(10, 'Max Labels Per Timeframe', minval = 1, maxval = 50, group = g_LABEL)
+
+// Label Colors
+bullishBgColor = input.color(color.new(color.green, 50), 'Bullish Background Color', group = g_LABEL)
+bullishTextColor = input.color(color.green, 'Bullish Text Color', group = g_LABEL)
+bearishBgColor = input.color(color.new(color.red, 50), 'Bearish Background Color', group = g_LABEL)
+bearishTextColor = input.color(color.red, 'Bearish Text Color', group = g_LABEL)
+
+// Convert label size string to size constant
+getLabelSize() =>
+    switch label_size
+        'tiny' => size.tiny
+        'small' => size.small
+        'normal' => size.normal
+        'large' => size.large
+        'huge' => size.huge
+        => size.small
+
+// Arrays to store labels for each timeframe
+var array<label> tf1_labels = array.new_label()
+var array<label> tf2_labels = array.new_label()
+var array<label> tf3_labels = array.new_label()
+var array<label> tf4_labels = array.new_label()
+var array<label> tf5_labels = array.new_label()
+var array<label> tf6_labels = array.new_label()
+var array<label> tf7_labels = array.new_label()
+
+// Function to manage label count
+manageLabelCount(labelArray) =>
+    while array.size(labelArray) > max_labels_per_tf
+        oldLabel = array.shift(labelArray)
+        label.delete(oldLabel)
+
+// Function to create label with strength validation (NEW)
+checkAndCreateLabel(tfName, tfColor, isBullish, labelArray, strength) =>
+    if show_labels and strength >= min_signal_strength
+        labelText = tfName + " CRT " + (isBullish ? "High" : "Low") + " (S:" + str.tostring(strength) + "%)"
+        labelColor = isBullish ? bullishBgColor : bearishBgColor
+        textColor = isBullish ? bullishTextColor : bearishTextColor
+        yPosition = isBullish ? high : low
+        
+        newLabel = label.new(bar_index + eol_label_offset, yPosition, 
+                           text = labelText, 
+                           color = labelColor, 
+                           textcolor = textColor, 
+                           style = label.style_none, 
+                           size = getLabelSize())
+        
+        array.push(labelArray, newLabel)
+        manageLabelCount(labelArray)
+
+// Enhanced signal strength calculation (NEW)
+calculate_signal_strength(bullish_signal, bearish_signal) =>
+    strength = 0.0
+    
+    // Volume component (30 points)
+    vol_ratio = volume / volume_avg
+    if vol_ratio > 1.8
+        strength += 30
+    else if vol_ratio > 1.4
+        strength += 20
+    else if vol_ratio > 1.1
+        strength += 15
+    else
+        strength += 5
+    
+    // Trend alignment (25 points)
+    if bullish_signal and bullish_trend
+        strength += 25
+    else if bearish_signal and bearish_trend
+        strength += 25
+    else if bullish_signal and not bearish_trend
+        strength += 15
+    else if bearish_signal and not bullish_trend
+        strength += 15
+    else
+        strength += 5
+        
+    // Volatility component (25 points)
+    atr_ratio = candleRange / atr_value
+    if atr_ratio > 1.5
+        strength += 25
+    else if atr_ratio > 1.0
+        strength += 15
+    else
+        strength += 5
+        
+    // Price action component (20 points)
+    body_ratio = math.abs(close - open) / candleRange
+    if body_ratio > 0.7
+        strength += 20
+    else if body_ratio > 0.5
+        strength += 10
+    else
+        strength += 5
+    
+    math.round(strength)
+
+// Function to process each timeframe with enhanced filtering (UPDATED)
+process_tf(tf, tfName, tfColor, labelArray, showMid, midColor) =>
+    // Get higher timeframe data including volume
+    [tfHigh, tfLow, tfClose, tfOpen, tfVolume] = request.security(syminfo.tickerid, tf, [high, low, close, open, volume], lookahead=barmerge.lookahead_off)
+    
+    // Check for range changes
+    tfHighChanged = ta.change(tfHigh) != 0
+    tfLowChanged = ta.change(tfLow) != 0
+    
+    // Touch detection
+    bullishWickTouch = low <= tfLow and close > tfLow
+    bullishBodyTouch = close <= tfLow and close > tfLow
+    bearishWickTouch = high >= tfHigh and close < tfHigh
+    bearishBodyTouch = close >= tfHigh and close < tfHigh
+    
+    // Enhanced touch validation (NEW)
+    touch_volume_ok = not enable_volume_filter or volume > volume_avg * volume_multiplier
+    touch_trend_ok_bull = not enable_trend_filter or trend_aligned(true)
+    touch_trend_ok_bear = not enable_trend_filter or trend_aligned(false)
+    
+    // Calculate signal strength for touches
+    bull_touch_strength = calculate_signal_strength(bullishWickTouch or bullishBodyTouch, false)
+    bear_touch_strength = calculate_signal_strength(false, bearishWickTouch or bearishBodyTouch)
+    
+    // Create labels for validated touches
+    if (bullishWickTouch or bullishBodyTouch) and touch_volume_ok and touch_trend_ok_bull
+        checkAndCreateLabel(tfName + " Bull", tfColor, true, labelArray, bull_touch_strength)
+        
+    if (bearishWickTouch or bearishBodyTouch) and touch_volume_ok and touch_trend_ok_bear
+        checkAndCreateLabel(tfName + " Bear", tfColor, false, labelArray, bear_touch_strength)
+    
+    // Draw lines
+    if tfHighChanged
+        line.new(bar_index, tfHigh, bar_index + 1, tfHigh, color=tfColor, width=2, extend=extend.right)
+        highLabel := label.new(bar_index + eol_label_offset, high, text = tfName + ' CRT High', color = color.new(tfColor, 70), textcolor = tfColor, style = label.style_none, size = size.small)
+        
+    if tfLowChanged
+        line.new(bar_index, tfLow, bar_index + 1, tfLow, color=tfColor, width=2, extend=extend.right)
+        lowLabel := label.new(bar_index + eol_label_offset, low, text = tfName + ' CRT Low', color = color.new(tfColor, 70), textcolor = tfColor, style = label.style_none, size = size.small)
+    
+    // Draw mid lines if enabled
+    if showMid
+        tfMid = (tfHigh + tfLow) / 2
+        if tfHighChanged or tfLowChanged
+            line.new(bar_index, tfMid, bar_index + 1, tfMid, color=midColor, width=1, style=line.style_dashed, extend=extend.right)
+    
+    // Return touch conditions with strength for alerts
+    [bullishWickTouch or bullishBodyTouch, bearishWickTouch or bearishBodyTouch, bull_touch_strength, bear_touch_strength]
+
+// Process all timeframes
+[m15_bull_touch, m15_bear_touch, m15_bull_str, m15_bear_str] = process_tf(tf1, "M15", tf1_color, tf1_labels, tf1_mid, tf1_mid_color)
+[m30_bull_touch, m30_bear_touch, m30_bull_str, m30_bear_str] = process_tf(tf2, "M30", tf2_color, tf2_labels, tf2_mid, tf2_mid_color)
+[h1_bull_touch, h1_bear_touch, h1_bull_str, h1_bear_str] = process_tf(tf3, "H1", tf3_color, tf3_labels, tf3_mid, tf3_mid_color)
+[h4_bull_touch, h4_bear_touch, h4_bull_str, h4_bear_str] = process_tf(tf4, "H4", tf4_color, tf4_labels, tf4_mid, tf4_mid_color)
+[d1_bull_touch, d1_bear_touch, d1_bull_str, d1_bear_str] = process_tf(tf5, "D1", tf5_color, tf5_labels, tf5_mid, tf5_mid_color)
+[w1_bull_touch, w1_bear_touch, w1_bull_str, w1_bear_str] = process_tf(tf6, "W1", tf6_color, tf6_labels, tf6_mid, tf6_mid_color)
+[mn1_bull_touch, mn1_bear_touch, mn1_bull_str, mn1_bear_str] = process_tf(tf7, "MN1", tf7_color, tf7_labels, tf7_mid, tf7_mid_color)
+
+// Strong touch conditions for alerts (NEW)
+strong_m15_touch = (m15_bull_touch or m15_bear_touch) and (m15_bull_str >= min_signal_strength or m15_bear_str >= min_signal_strength)
+strong_m30_touch = (m30_bull_touch or m30_bear_touch) and (m30_bull_str >= min_signal_strength or m30_bear_str >= min_signal_strength)
+strong_h1_touch = (h1_bull_touch or h1_bear_touch) and (h1_bull_str >= min_signal_strength or h1_bear_str >= min_signal_strength)
+strong_h4_touch = (h4_bull_touch or h4_bear_touch) and (h4_bull_str >= min_signal_strength or h4_bear_str >= min_signal_strength)
+
+// Alert conditions (UPDATED)
+alertcondition(strong_m15_touch, "M15 CRT Touch", "M15 CRT Touch with High Strength")
+alertcondition(strong_m30_touch, "M30 CRT Touch", "M30 CRT Touch with High Strength")
+alertcondition(strong_h1_touch, "H1 CRT Touch", "H1 CRT Touch with High Strength")
+alertcondition(strong_h4_touch, "H4 CRT Touch", "H4 CRT Touch with High Strength")
+
+//==============================================================================
+// SECTION 5: ADVANCED FVG DETECTION
+//==============================================================================
+
+// Advanced FVG Settings
+showFvg = input.bool(true, "Show Advanced FVG", group = 'Advanced FVG')
+fvgLookback = input.int(5, "FVG Lookback", group = 'Advanced FVG')
+
+// FVG Colors
+bullCss = input.color(color.new(#089981, 70), "Bullish FVG", group = 'Advanced FVG Style')
+bearCss = input.color(color.new(#f23645, 70), "Bearish FVG", group = 'Advanced FVG Style')
+
+// FVG Arrays
+var fvgBullishArray = array.new<box>()
+var fvgBearishArray = array.new<box>()
+
+// Max FVG Display
+maxFvgDisplay = input.int(20, "Max FVG Display", group = 'Advanced FVG')
+
+// FVG Detection Type
+type FvgDetection
+    int index
+    float top
+    float bottom
+    bool isBullish
+
+// Method to convert color to solid
+method tosolid(color id)=> color.rgb(color.r(id),color.g(id),color.b(id))
+
+// FVG Detection Method with enhanced filtering (UPDATED)
+method detect(FvgDetection this) =>
+    if barstate.isconfirmed and showFvg
+        // Enhanced volume and trend validation (NEW)
+        volume_ok = not enable_volume_filter or volume > volume_avg * volume_multiplier
+        trend_ok_bull = not enable_trend_filter or trend_aligned(true)
+        trend_ok_bear = not enable_trend_filter or trend_aligned(false)
+        
+        // Bullish FVG
+        if low[2] > high and volume_ok and trend_ok_bull
+            this.index := bar_index
+            this.top := low[2]
+            this.bottom := high
+            this.isBullish := true
+            
+            // Create FVG Box
+            fvgBox = box.new(bar_index - 2, this.bottom, bar_index + 20, this.top, 
+                           bgcolor = bullCss, 
+                           border_color = bullCss.tosolid(), 
+                           border_width = 1,
+                           extend = extend.right)
+            
+            array.push(fvgBullishArray, fvgBox)
+            
+            // Manage array size
+            if array.size(fvgBullishArray) > maxFvgDisplay
+                oldBox = array.shift(fvgBullishArray)
+                box.delete(oldBox)
+        
+        // Bearish FVG  
+        if high[2] < low and volume_ok and trend_ok_bear
+            this.index := bar_index
+            this.top := low
+            this.bottom := high[2]
+            this.isBullish := false
+            
+            // Create FVG Box
+            fvgBox = box.new(bar_index - 2, this.bottom, bar_index + 20, this.top, 
+                           bgcolor = bearCss, 
+                           border_color = bearCss.tosolid(), 
+                           border_width = 1,
+                           extend = extend.right)
+            
+            array.push(fvgBearishArray, fvgBox)
+            
+            // Manage array size
+            if array.size(fvgBearishArray) > maxFvgDisplay
+                oldBox = array.shift(fvgBearishArray)
+                box.delete(oldBox)
+
+// Initialize FVG Detection
+var fvgDetector = FvgDetection.new()
+
+// Run FVG Detection
+fvgDetector.detect()
+
+// FVG Statistics Table
+if barstate.islast and showFvg
+    var table fvgTable = table.new(position.top_right, 3, 3, bgcolor = color.new(color.black, 80), border_width = 1)
+    
+    table.cell(fvgTable, 0, 0, "FVG Stats", text_color = color.white, text_size = size.normal)
+    table.cell(fvgTable, 1, 0, "Bullish", text_color = bullCss.tosolid(), text_size = size.small)
+    table.cell(fvgTable, 2, 0, "Bearish", text_color = bearCss.tosolid(), text_size = size.small)
+    
+    table.cell(fvgTable, 0, 1, "Count", text_size = size.small, text_color = color.white)
+    table.cell(fvgTable, 1, 1, str.tostring(array.size(fvgBullishArray)), text_color = color.white, text_size = size.small)
+    table.cell(fvgTable, 2, 1, str.tostring(array.size(fvgBearishArray)), text_color = color.white, text_size = size.small)
+    
+    table.cell(fvgTable, 0, 2, "Mitigated", text_size = size.small, text_color = color.white)
+    table.cell(fvgTable, 1, 2, "0", text_color = color.white, text_size = size.small)
+    table.cell(fvgTable, 2, 2, "0", text_color = color.white, text_size = size.small)
+
+// Strong FVG conditions for alerts (NEW)
+current_bull_fvg = array.size(fvgBullishArray) > 0 and barstate.isconfirmed
+current_bear_fvg = array.size(fvgBearishArray) > 0 and barstate.isconfirmed
+
+bull_fvg_strength = calculate_signal_strength(current_bull_fvg, false)
+bear_fvg_strength = calculate_signal_strength(false, current_bear_fvg)
+
+strong_bull_fvg = current_bull_fvg and bull_fvg_strength >= min_signal_strength
+strong_bear_fvg = current_bear_fvg and bear_fvg_strength >= min_signal_strength
+
+// Enhanced FVG Alerts (UPDATED)
+alertcondition(strong_bull_fvg, "Strong Bullish FVG", "Strong Bullish FVG Detected")
+alertcondition(strong_bear_fvg, "Strong Bearish FVG", "Strong Bearish FVG Detected")
+
+//==============================================================================
+// SECTION 6: CISD (CHANGE IN STATE OF DELIVERY) DETECTION
+//==============================================================================
+
+// CISD Settings
+G_CISD_SETTINGS = "CISD Settings"
+showCisd = input.bool(true, "Show CISD", group=G_CISD_SETTINGS)
+cisd_min_displacement = input.float(0.1, "Min Displacement %", minval=0.01, maxval=1.0, step=0.01, group=G_CISD_SETTINGS)
+lookbackPeriod = input.int(20, "Lookback Period", minval=5, maxval=100, group=G_CISD_SETTINGS)
+maxLevels = input.int(10, "Max Liquidity Levels", minval=5, maxval=50, group=G_CISD_SETTINGS)
+
+// CISD Colors
+lineColor = input.color(color.black, "CISD Line Color", group=G_CISD_SETTINGS)
+textColor = input.color(color.black, "Label Color", group=G_CISD_SETTINGS)
+
+// Arrays for liquidity levels
+var array<float> liquidityHighs = array.new_float()
+var array<float> liquidityLows = array.new_float()
+var array<int> liquidityHighIndices = array.new_int()
+var array<int> liquidityLowIndices = array.new_int()
+
+// Function to manage liquidity levels with volume confirmation (UPDATED)
+manageLiquidityLevels() =>
+    // Enhanced volume confirmation (NEW)
+    volume_confirmed = not enable_volume_filter or volume > volume_avg * volume_multiplier
+    
+    // Detect pivot highs and lows with volume confirmation
+    pivotHigh = ta.pivothigh(high, lookbackPeriod, lookbackPeriod)
+    pivotLow = ta.pivotlow(low, lookbackPeriod, lookbackPeriod)
+    
+    if not na(pivotHigh) and volume_confirmed
+        array.push(liquidityHighs, pivotHigh)
+        array.push(liquidityHighIndices, bar_index - lookbackPeriod)
+        
+        // Manage array size
+        if array.size(liquidityHighs) > maxLevels
+            array.shift(liquidityHighs)
+            array.shift(liquidityHighIndices)
+    
+    if not na(pivotLow) and volume_confirmed
+        array.push(liquidityLows, pivotLow)
+        array.push(liquidityLowIndices, bar_index - lookbackPeriod)
+        
+        // Manage array size
+        if array.size(liquidityLows) > maxLevels
+            array.shift(liquidityLows)
+            array.shift(liquidityLowIndices)
+
+// Function to check for liquidity sweep with minimum displacement (UPDATED)
+checkLiquiditySweep() =>
+    var bool bullishSweep = false
+    var bool bearishSweep = false
+    
+    // Check for bullish sweep (price breaks below low then recovers)
+    if array.size(liquidityLows) > 0
+        lastLow = array.get(liquidityLows, array.size(liquidityLows) - 1)
+        displacement = math.abs(close - lastLow) / lastLow * 100
+        if low <= lastLow and close > lastLow and displacement >= cisd_min_displacement
+            bullishSweep := true
+    
+    // Check for bearish sweep (price breaks above high then falls)
+    if array.size(liquidityHighs) > 0
+        lastHigh = array.get(liquidityHighs, array.size(liquidityHighs) - 1)
+        displacement = math.abs(close - lastHigh) / lastHigh * 100
+        if high >= lastHigh and close < lastHigh and displacement >= cisd_min_displacement
+            bearishSweep := true
+    
+    [bullishSweep, bearishSweep]
+
+// Function to draw CISD with signal strength validation (UPDATED)
+drawCisd(isBullish, sweepPrice) =>
+    if showCisd
+        signal_strength = calculate_signal_strength(isBullish, not isBullish)
+        
+        if signal_strength >= min_signal_strength
+            cisd_line = line.new(bar_index - 1, sweepPrice, bar_index + 10, sweepPrice, 
+                               color=lineColor, width=2, style=line.style_solid, extend=extend.right)
+            
+            labelText = "CISD " + (isBullish ? "Bullish" : "Bearish") + " Sweep (S:" + str.tostring(signal_strength) + "%)"
+            cisd_label = label.new(bar_index, sweepPrice, text=labelText, 
+                                 style=label.style_label_left, color=color.new(isBullish ? color.green : color.red, 80), 
+                                 textcolor=textColor, size=size.small)
+
+// Main CISD Detection Logic with enhanced displacement check (UPDATED)
+if showCisd
+    manageLiquidityLevels()
+    [bullSweep, bearSweep] = checkLiquiditySweep()
+    
+    if bullSweep and array.size(liquidityLows) > 0
+        sweepPrice = array.get(liquidityLows, array.size(liquidityLows) - 1)
+        displacement = math.abs(close - sweepPrice) / sweepPrice * 100
+        if displacement >= cisd_min_displacement
+            drawCisd(true, sweepPrice)
+    
+    if bearSweep and array.size(liquidityHighs) > 0
+        sweepPrice = array.get(liquidityHighs, array.size(liquidityHighs) - 1)
+        displacement = math.abs(close - sweepPrice) / sweepPrice * 100
+        if displacement >= cisd_min_displacement
+            drawCisd(false, sweepPrice)
+
+//==============================================================================
+// SECTION 7: CRT SPECIFIC TIME ANALYSIS
+//==============================================================================
+
+// CRT Time Analysis Settings
+G_CRT_TIME = "CRT Time Analysis"
+showCrtTime = input.bool(true, "Show CRT Time Analysis", group=G_CRT_TIME)
+crt_start_hour = input.int(9, "CRT Start Hour", minval=0, maxval=23, group=G_CRT_TIME)
+crt_end_hour = input.int(16, "CRT End Hour", minval=0, maxval=23, group=G_CRT_TIME)
+
+// CRT Time Colors
+green = input.color(#26a69a, title="Green", group="CRT Time Analysis", inline = "1")
+red = input.color(#fd0901, title="Red", group="CRT Time Analysis", inline = "1")
+
+// CRT Time Variables
+var float crtHighs = na
+var float crtLows = na
+var int crtIndexs = na
+
+// Function to validate CRT candle with volume and trend (NEW)
+validate_crt_candle(is_bullish) =>
+    volume_ok = not enable_volume_filter or volume > volume_avg * volume_multiplier
+    trend_ok = not enable_trend_filter or trend_aligned(is_bullish)
+    volume_ok and trend_ok
+
+// CRT Time Detection with enhanced validation
+if showCrtTime and hour >= crt_start_hour and hour <= crt_end_hour
+    // Bullish CRT detection
+    if close > open and validate_crt_candle(true)
+        if na(crtHighs) or high > crtHighs
+            crtHighs := high
+            crtIndexs := bar_index
+    
+    // Bearish CRT detection  
+    if close < open and validate_crt_candle(false)
+        if na(crtLows) or low < crtLows
+            crtLows := low
+            crtIndexs := bar_index
+
+// CRT Sweep Detection with signal strength (UPDATED)
+if showCrtTime and not na(crtHighs)
+    // Bullish sweep of CRT high
+    if high >= crtHighs and close < crtHighs
+        sweep_strength = calculate_signal_strength(false, true)
+        if sweep_strength >= min_signal_strength
+            line.new(x1=crtIndexs, y1=crtHighs, x2=bar_index, y2=crtHighs, color=color.new(color.green, 0), width=2, extend=extend.none)
+            label.new(bar_index, crtHighs, "CRT High Sweep (S:" + str.tostring(sweep_strength) + "%)", 
+                     style=label.style_label_down, color=color.new(color.green, 80), textcolor=color.white, size=size.small)
+
+if showCrtTime and not na(crtLows)
+    // Bearish sweep of CRT low
+    if low <= crtLows and close > crtLows
+        sweep_strength = calculate_signal_strength(true, false)
+        if sweep_strength >= min_signal_strength
+            line.new(x1=crtIndexs, y1=crtLows, x2=bar_index, y2=crtLows, color=color.new(color.red, 0), width=2, extend=extend.none)
+            label.new(bar_index, crtLows, "CRT Low Sweep (S:" + str.tostring(sweep_strength) + "%)", 
+                     style=label.style_label_up, color=color.new(color.red, 80), textcolor=color.white, size=size.small)
+
+// Enhanced CRT Alerts with strength (UPDATED)
+crt_high_sweep_strength = showCrtTime and not na(crtHighs) and high >= crtHighs and close < crtHighs ? calculate_signal_strength(false, true) : 0
+crt_low_sweep_strength = showCrtTime and not na(crtLows) and low <= crtLows and close > crtLows ? calculate_signal_strength(true, false) : 0
+
+strong_crt_high_sweep = crt_high_sweep_strength >= min_signal_strength
+strong_crt_low_sweep = crt_low_sweep_strength >= min_signal_strength
+
+alertcondition(strong_crt_high_sweep, "Strong CRT High Sweep", "Strong CRT High Sweep - Strength: " + str.tostring(crt_high_sweep_strength) + "%")
+alertcondition(strong_crt_low_sweep, "Strong CRT Low Sweep", "Strong CRT Low Sweep - Strength: " + str.tostring(crt_low_sweep_strength) + "%")
+
+//==============================================================================
+// SECTION 8: HTF CANDLE VISUALIZATION
+//==============================================================================
+
+// HTF Candle Settings
+G_HTF = "HTF Candles"
+showHtfCandles = input.bool(true, "Show HTF Candles", group=G_HTF)
+htf_timeframe = input.timeframe("4H", "HTF Timeframe", group=G_HTF)
+max_htf_candles = input.int(10, "Max HTF Candles", minval=1, maxval=50, group=G_HTF)
+
+// HTF Candle Types
+type Candle
+    int h_idx
+    int l_idx
+    string dow
+    box body
+    line wick_up
+    line wick_down
+    label dow_label
+
+type CandleSettings
+    bool show
+    string htf
+    int max_display
+
+type Settings
+    color bull_body
+    color bull_border
+    color bull_wick
+    color bear_body
+    color bear_border
+    color bear_wick
+    int offset
+
+type CandleSet
+    array<Candle> candles
+
+type Helper
+    int index
+    float o
+    float h
+    float l
+    float c
+    int t
+
+// HTF Methods
+method HTFEnabled(CandleSettings this) => this.show and timeframe.in_seconds() < timeframe.in_seconds(this.htf)
+
+method CandleSetHigh(CandleSet this) =>
+    if array.size(this.candles) > 0
+        array.get(this.candles, array.size(this.candles) - 1).body.get_top()
+    else
+        na
+
+method CandleSetLow(CandleSet this) =>
+    if array.size(this.candles) > 0
+        array.get(this.candles, array.size(this.candles) - 1).body.get_bottom()
+    else
+        na
+
+method CandlesHigh(CandleSet this) =>
+    maxHigh = 0.0
+    if array.size(this.candles) > 0
+        for candle in this.candles
+            candleHigh = candle.body.get_top()
+            if candleHigh > maxHigh
+                maxHigh := candleHigh
+    maxHigh
+
+method CandlesLow(CandleSet this) =>
+    minLow = 999999.0
+    if array.size(this.candles) > 0
+        for candle in this.candles
+            candleLow = candle.body.get_bottom()
+            if candleLow < minLow
+                minLow := candleLow
+    minLow
+
+method Reorder(CandleSet this, Settings s) =>
+    if array.size(this.candles) > s.max_display
+        oldCandle = array.shift(this.candles)
+        box.delete(oldCandle.body)
+        line.delete(oldCandle.wick_up)
+        line.delete(oldCandle.wick_down)
+        label.delete(oldCandle.dow_label)
+
+method Monitor(CandleSet this, Settings s, CandleSettings cs) =>
+    if cs.HTFEnabled()
+        [o, h, l, c, t] = request.security(syminfo.tickerid, cs.htf, [open, high, low, close, time])
+        
+        helper = Helper.new(bar_index, o, h, l, c, t)
+        
+        if ta.change(helper.t)
+            // Enhanced trend-aware coloring (UPDATED)
+            bull = helper.c >= helper.o
+            isSpecialTime = hour >= 9 and hour <= 16
+            isTrendAligned = bull ? bullish_trend : bearish_trend
+            
+            bodyColor = isSpecialTime ? color.new(color.purple, 0) :
+                       isTrendAligned ? (bull ? color.new(s.bull_body, 50) : color.new(s.bear_body, 50)) :
+                       (bull ? color.new(s.bull_body, 80) : color.new(s.bear_body, 80))
+            
+            borderColor = isSpecialTime ? color.purple : (bull ? s.bull_border : s.bear_border)
+            wickColor = isSpecialTime ? color.purple : (bull ? s.bull_wick : s.bear_wick)
+            
+            // Create candle components
+            candleBody = box.new(helper.index + s.offset, math.min(helper.o, helper.c), 
+                               helper.index + s.offset + 1, math.max(helper.o, helper.c), 
+                               bgcolor=bodyColor, border_color=borderColor, border_width=1)
+            
+            wickUp = helper.h > math.max(helper.o, helper.c) ? 
+                    line.new(helper.index + s.offset, math.max(helper.o, helper.c), 
+                           helper.index + s.offset, helper.h, color=wickColor, width=1) : na
+            
+            wickDown = helper.l < math.min(helper.o, helper.c) ? 
+                      line.new(helper.index + s.offset, math.min(helper.o, helper.c), 
+                             helper.index + s.offset, helper.l, color=wickColor, width=1) : na
+            
+            // Day of week label
+            dow_text = switch dayofweek(helper.t)
+                1 => "SUN"
+                2 => "MON" 
+                3 => "TUE"
+                4 => "WED"
+                5 => "THU"
+                6 => "FRI"
+                7 => "SAT"
+                => ""
+            
+            dowLabel = label.new(helper.index + s.offset, helper.l - (helper.h - helper.l) * 0.1, 
+                               dow_text, style=label.style_none, color=color.new(color.gray, 100), 
+                               textcolor=color.gray, size=size.tiny)
+            
+            // Create and store candle
+            newCandle = Candle.new(helper.index, helper.index, dow_text, candleBody, wickUp, wickDown, dowLabel)
+            array.push(this.candles, newCandle)
+            
+            // Manage candle count
+            this.Reorder(s)
+            
+            log.info("HTF Candle created at " + str.tostring(helper.index) + " with trend alignment: " + str.tostring(isTrendAligned))
+
+method Update(CandleSet this, Settings s, CandleSettings cs) =>
+    this.Monitor(s, cs)
+
+// Initialize HTF Candle System
+var candleSettings = CandleSettings.new(showHtfCandles, htf_timeframe, max_htf_candles)
+var candleSet = CandleSet.new(array.new<Candle>())
+
+var settings = Settings.new()
+settings.bull_body              := color.green
+settings.bear_body              := color.red
+settings.bull_border            := color.black
+settings.bull_wick              := color.black
+settings.bear_wick              := color.black
+settings.bear_border            := color.black
+settings.offset                 := 0
+
+// Update HTF Candles
+candleSet.Update(settings, candleSettings)
+
+//==============================================================================
+// SECTION 9: ENHANCED SIGNAL DASHBOARD
+//==============================================================================
+
+var g_DASH = "📊 Signal Dashboard"
+show_signal_dashboard = input.bool(true, "Show Signal Dashboard", group=g_DASH)
+
+if show_signal_dashboard
+    var table signal_dashboard = table.new(position.bottom_right, 2, 7, bgcolor=color.new(color.black, 85), border_width=1)
+    
+    if barstate.islast
+        // Header
+        table.cell(signal_dashboard, 0, 0, "📊 SIGNAL QUALITY", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+        table.cell(signal_dashboard, 1, 0, "STATUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+        
+        // Current Signal Strength
+        current_strength = calculate_signal_strength(bull_confirmed, bear_confirmed)
+        strength_color = current_strength >= 75 ? color.lime : current_strength >= 60 ? color.yellow : current_strength >= 40 ? color.orange : color.red
+        table.cell(signal_dashboard, 0, 1, "Signal Strength", text_color=color.white, text_size=size.small)
+        table.cell(signal_dashboard, 1, 1, str.tostring(current_strength) + "%", text_color=strength_color, text_size=size.small)
+        
+        // Trend Status
+        table.cell(signal_dashboard, 0, 2, "Trend", text_color=color.white, text_size=size.small)
+        trend_status = bullish_trend ? "🟢 Bullish" : bearish_trend ? "🔴 Bearish" : "🟡 Sideways"
+        trend_color = bullish_trend ? color.lime : bearish_trend ? color.red : color.yellow
+        table.cell(signal_dashboard, 1, 2, trend_status, text_color=trend_color, text_size=size.small)
+        
+        // Volume Status
+        vol_ratio = volume / volume_avg
+        table.cell(signal_dashboard, 0, 3, "Volume", text_color=color.white, text_size=size.small)
+        volume_status = vol_ratio > 1.5 ? "🟢 High" : vol_ratio > 1.2 ? "🟡 Above Avg" : vol_ratio > 0.8 ? "⚪ Normal" : "🔴 Low"
+        volume_color = vol_ratio > 1.5 ? color.lime : vol_ratio > 1.2 ? color.yellow : vol_ratio > 0.8 ? color.white : color.red
+        table.cell(signal_dashboard, 1, 3, volume_status, text_color=volume_color, text_size=size.small)
+        
+        // Volatility Status
+        atr_ratio = candleRange / atr_value
+        table.cell(signal_dashboard, 0, 4, "Volatility", text_color=color.white, text_size=size.small)
+        volatility_status = atr_ratio > 1.5 ? "🟢 High" : atr_ratio > 1.0 ? "🟡 Normal" : "🔴 Low"
+        volatility_color = atr_ratio > 1.5 ? color.lime : atr_ratio > 1.0 ? color.yellow : color.red
+        table.cell(signal_dashboard, 1, 4, volatility_status, text_color=volatility_color, text_size=size.small)
+        
+        // Active Filters
+        filters_count = (enable_volume_filter ? 1 : 0) + (enable_trend_filter ? 1 : 0) + (enable_confirmation ? 1 : 0)
+        table.cell(signal_dashboard, 0, 5, "Filters Active", text_color=color.white, text_size=size.small)
+        table.cell(signal_dashboard, 1, 5, str.tostring(filters_count) + "/3", text_color=color.cyan, text_size=size.small)
+        
+        // Signal Quality
+        table.cell(signal_dashboard, 0, 6, "Quality Rating", text_color=color.white, text_size=size.small)
+        quality_rating = current_strength >= 75 ? "⭐⭐⭐ Excellent" : 
+                        current_strength >= 60 ? "⭐⭐ Good" : 
+                        current_strength >= 40 ? "⭐ Fair" : "❌ Poor"
+        quality_color = current_strength >= 75 ? color.lime : 
+                       current_strength >= 60 ? color.yellow : 
+                       current_strength >= 40 ? color.orange : color.red
+        table.cell(signal_dashboard, 1, 6, quality_rating, text_color=quality_color, text_size=size.small)

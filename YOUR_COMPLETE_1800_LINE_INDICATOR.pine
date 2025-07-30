@@ -1,0 +1,1125 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola
+
+//@version=6
+indicator('Comprehensive Trading Indicator - CRT + FVG + CISD + EMAs + LIQUIDITY CONFLICT RESOLUTION', overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+
+//==============================================================================
+// NEW SECTION: LIQUIDITY CONFLICT RESOLUTION SYSTEM
+//==============================================================================
+
+var g_LIQUIDITY = "🌊 Liquidity Conflict Resolution"
+enable_liquidity_system = input.bool(true, "Enable Liquidity Conflict System", group=g_LIQUIDITY)
+show_liquidity_dashboard = input.bool(true, "Show Liquidity Dashboard", group=g_LIQUIDITY)
+liquidity_lookback = input.int(50, "Liquidity Lookback Bars", minval=10, maxval=100, group=g_LIQUIDITY)
+conflict_alert_threshold = input.int(20, "Conflict Alert Threshold", minval=10, maxval=50, group=g_LIQUIDITY, tooltip="Minimum point difference to show conflict")
+
+// Liquidity tracking arrays for each timeframe
+type LiquidityData
+    string timeframe
+    float ssl_price = na  // Sell-side liquidity price
+    float bsl_price = na  // Buy-side liquidity price
+    int ssl_bar = na      // When SSL was swept
+    int bsl_bar = na      // When BSL was swept
+    bool ssl_swept = false
+    bool bsl_swept = false
+    int tf_weight = 0     // Timeframe priority weight
+    float ssl_volume = 0.0
+    float bsl_volume = 0.0
+
+// Initialize liquidity data for each timeframe
+var LiquidityData liq_15m = LiquidityData.new("15m", tf_weight=20)
+var LiquidityData liq_1h = LiquidityData.new("1H", tf_weight=40)
+var LiquidityData liq_2h = LiquidityData.new("2H", tf_weight=60)
+var LiquidityData liq_4h = LiquidityData.new("4H", tf_weight=80)
+var LiquidityData liq_daily = LiquidityData.new("D", tf_weight=100)
+var LiquidityData liq_weekly = LiquidityData.new("W", tf_weight=120)
+
+// Function to detect liquidity sweeps for a timeframe
+detect_liquidity_sweeps(tf_string) =>
+    // Get higher timeframe data
+    [htf_high, htf_low, htf_close, htf_volume] = request.security(syminfo.tickerid, tf_string, [high, low, close, volume], barmerge.gaps_off, barmerge.lookahead_off)
+    
+    // Calculate pivot highs and lows (potential liquidity levels)
+    pivot_high = ta.pivothigh(htf_high, 5, 5)
+    pivot_low = ta.pivotlow(htf_low, 5, 5)
+    
+    // Track recent highs and lows
+    var float recent_high = na
+    var float recent_low = na
+    var int high_bar = na
+    var int low_bar = na
+    
+    // Update recent levels
+    if not na(pivot_high)
+        recent_high := pivot_high
+        high_bar := bar_index
+    if not na(pivot_low)
+        recent_low := pivot_low
+        low_bar := bar_index
+    
+    // Detect sweeps
+    bsl_swept = not na(recent_high) and htf_high > recent_high and bar_index - high_bar <= liquidity_lookback
+    ssl_swept = not na(recent_low) and htf_low < recent_low and bar_index - low_bar <= liquidity_lookback
+    
+    [bsl_swept, ssl_swept, recent_high, recent_low, htf_volume, high_bar, low_bar]
+
+// Update liquidity data for all timeframes
+update_liquidity_data() =>
+    if enable_liquidity_system
+        // 15M timeframe
+        [bsl_15m, ssl_15m, high_15m, low_15m, vol_15m, hbar_15m, lbar_15m] = detect_liquidity_sweeps("15")
+        if bsl_15m and not liq_15m.bsl_swept
+            liq_15m.bsl_swept := true
+            liq_15m.bsl_price := high_15m
+            liq_15m.bsl_bar := bar_index
+            liq_15m.bsl_volume := vol_15m
+        if ssl_15m and not liq_15m.ssl_swept
+            liq_15m.ssl_swept := true
+            liq_15m.ssl_price := low_15m
+            liq_15m.ssl_bar := bar_index
+            liq_15m.ssl_volume := vol_15m
+        
+        // 1H timeframe
+        [bsl_1h, ssl_1h, high_1h, low_1h, vol_1h, hbar_1h, lbar_1h] = detect_liquidity_sweeps("60")
+        if bsl_1h and not liq_1h.bsl_swept
+            liq_1h.bsl_swept := true
+            liq_1h.bsl_price := high_1h
+            liq_1h.bsl_bar := bar_index
+            liq_1h.bsl_volume := vol_1h
+        if ssl_1h and not liq_1h.ssl_swept
+            liq_1h.ssl_swept := true
+            liq_1h.ssl_price := low_1h
+            liq_1h.ssl_bar := bar_index
+            liq_1h.ssl_volume := vol_1h
+        
+        // 4H timeframe
+        [bsl_4h, ssl_4h, high_4h, low_4h, vol_4h, hbar_4h, lbar_4h] = detect_liquidity_sweeps("240")
+        if bsl_4h and not liq_4h.bsl_swept
+            liq_4h.bsl_swept := true
+            liq_4h.bsl_price := high_4h
+            liq_4h.bsl_bar := bar_index
+            liq_4h.bsl_volume := vol_4h
+        if ssl_4h and not liq_4h.ssl_swept
+            liq_4h.ssl_swept := true
+            liq_4h.ssl_price := low_4h
+            liq_4h.ssl_bar := bar_index
+            liq_4h.ssl_volume := vol_4h
+        
+        // Daily timeframe
+        [bsl_daily, ssl_daily, high_daily, low_daily, vol_daily, hbar_daily, lbar_daily] = detect_liquidity_sweeps("D")
+        if bsl_daily and not liq_daily.bsl_swept
+            liq_daily.bsl_swept := true
+            liq_daily.bsl_price := high_daily
+            liq_daily.bsl_bar := bar_index
+            liq_daily.bsl_volume := vol_daily
+        if ssl_daily and not liq_daily.ssl_swept
+            liq_daily.ssl_swept := true
+            liq_daily.ssl_price := low_daily
+            liq_daily.ssl_bar := bar_index
+            liq_daily.ssl_volume := vol_daily
+
+// Calculate liquidity conflict resolution
+calculate_liquidity_priority() =>
+    bullish_score = 0
+    bearish_score = 0
+    
+    // Array of all liquidity data
+    liq_data = array.from(liq_15m, liq_1h, liq_4h, liq_daily)
+    
+    for i = 0 to array.size(liq_data) - 1
+        data = array.get(liq_data, i)
+        
+        // SSL Swept = Bullish potential
+        if data.ssl_swept and bar_index - data.ssl_bar <= liquidity_lookback
+            score = data.tf_weight
+            
+            // Recency bonus
+            bars_ago = bar_index - data.ssl_bar
+            if bars_ago <= 5
+                score += 30
+            else if bars_ago <= 10
+                score += 20
+            else if bars_ago <= 20
+                score += 10
+            
+            // Volume bonus
+            if data.ssl_volume > ta.sma(volume, 20) * 1.5
+                score += 15
+            else if data.ssl_volume > ta.sma(volume, 20)
+                score += 5
+            
+            bullish_score += score
+        
+        // BSL Swept = Bearish potential
+        if data.bsl_swept and bar_index - data.bsl_bar <= liquidity_lookback
+            score = data.tf_weight
+            
+            // Recency bonus
+            bars_ago = bar_index - data.bsl_bar
+            if bars_ago <= 5
+                score += 30
+            else if bars_ago <= 10
+                score += 20
+            else if bars_ago <= 20
+                score += 10
+            
+            // Volume bonus
+            if data.bsl_volume > ta.sma(volume, 20) * 1.5
+                score += 15
+            else if data.bsl_volume > ta.sma(volume, 20)
+                score += 5
+            
+            bearish_score += score
+    
+    // Determine conflict and winner
+    has_conflict = bullish_score > 0 and bearish_score > 0
+    score_diff = math.abs(bullish_score - bearish_score)
+    is_major_conflict = has_conflict and score_diff <= conflict_alert_threshold
+    
+    winner_direction = bullish_score > bearish_score ? "BULLISH" : bearish_score > bullish_score ? "BEARISH" : "NEUTRAL"
+    confidence = has_conflict ? math.round((math.max(bullish_score, bearish_score) / (bullish_score + bearish_score)) * 100) : 100
+    
+    [has_conflict, is_major_conflict, winner_direction, confidence, bullish_score, bearish_score]
+
+// Update liquidity data
+update_liquidity_data()
+
+// Get current liquidity analysis
+[has_conflict, is_major_conflict, winner_direction, confidence, bull_score, bear_score] = calculate_liquidity_priority()
+
+// Reset swept flags periodically to avoid stale data
+if bar_index % 100 == 0
+    liq_15m.ssl_swept := false
+    liq_15m.bsl_swept := false
+    liq_1h.ssl_swept := false
+    liq_1h.bsl_swept := false
+    liq_4h.ssl_swept := false
+    liq_4h.bsl_swept := false
+    liq_daily.ssl_swept := false
+    liq_daily.bsl_swept := false
+
+//==============================================================================
+// SECTION 1: BREAKOUT DETECTION
+//==============================================================================
+
+// Inputs for Breakout Detection
+length = input(14, "Lookbook Length", group="Breakout Detection")
+threshold = input(1.5, "Range Multiplier", group="Breakout Detection")
+
+// Calculate candle range
+candleRange = high - low
+averageRange = ta.sma(candleRange, length)
+
+// Define conditions
+bullishBreakout = candleRange > (averageRange * threshold) and close > open
+bearishBreakout = candleRange > (averageRange * threshold) and close < open
+
+// Plot signals
+plotshape(series=bullishBreakout, location=location.belowbar, color=color.green, style=shape.labelup, title="Bullish Breakout")
+plotshape(series=bearishBreakout, location=location.abovebar, color=color.red, style=shape.labeldown, title="Bearish Breakout")
+
+// Highlight breakout candles
+bgcolor(bullishBreakout ? color.new(color.green, 80) : bearishBreakout ? color.new(color.red, 80) : na)
+
+//==============================================================================
+// SECTION 2: MULTI-CONFIRMATION TREND ANALYSIS SYSTEM
+//==============================================================================
+
+// 🚀 METHOD 1: RSI DIVERGENCE DETECTION
+rsi_length = input.int(14, "RSI Length", minval=2, group="RSI Divergence")
+rsi_source = input.source(close, "RSI Source", group="RSI Divergence")
+rsi_lookback = input.int(5, "Divergence Lookback", minval=2, maxval=20, group="RSI Divergence")
+
+rsi = ta.rsi(rsi_source, rsi_length)
+
+// Pivot detection for divergence
+pivot_left = input.int(5, "Pivot Left", minval=1, group="RSI Divergence")
+pivot_right = input.int(5, "Pivot Right", minval=1, group="RSI Divergence")
+
+// Find pivots
+ph = ta.pivothigh(rsi_lookback, rsi_lookback)
+pl = ta.pivotlow(rsi_lookback, rsi_lookback)
+ph_price = ta.pivothigh(high, rsi_lookback, rsi_lookback)
+pl_price = ta.pivotlow(low, rsi_lookback, rsi_lookback)
+
+// Divergence detection
+var float last_ph_rsi = na
+var float last_ph_price = na
+var int last_ph_bar = na
+var float last_pl_rsi = na
+var float last_pl_price = na
+var int last_pl_bar = na
+
+// Bullish divergence (price makes lower low, RSI makes higher low)
+bullish_divergence = false
+if not na(pl) and not na(pl_price)
+    if not na(last_pl_rsi) and not na(last_pl_price)
+        if pl_price < last_pl_price and pl > last_pl_rsi and bar_index - last_pl_bar <= 50
+            bullish_divergence := true
+    last_pl_rsi := pl
+    last_pl_price := pl_price
+    last_pl_bar := bar_index
+
+// Bearish divergence (price makes higher high, RSI makes lower high)
+bearish_divergence = false
+if not na(ph) and not na(ph_price)
+    if not na(last_ph_rsi) and not na(last_ph_price)
+        if ph_price > last_ph_price and ph < last_ph_rsi and bar_index - last_ph_bar <= 50
+            bearish_divergence := true
+    last_ph_rsi := ph
+    last_ph_price := ph_price
+    last_ph_bar := bar_index
+
+// RSI-based signals
+rsi_bullish = bullish_divergence or (rsi < 30 and rsi > rsi[1])
+rsi_bearish = bearish_divergence or (rsi > 70 and rsi < rsi[1])
+
+// 📈 METHOD 2: TRIPLE MACD SYSTEM
+// MACD 1: Fast (13, 7, 21)
+[macd_line_1, signal_line_1, macd_histogram_1] = ta.macd(close, 13, 7, 21)
+macd_1_bullish = macd_line_1 > signal_line_1 and macd_line_1 > macd_line_1[1]
+macd_1_bearish = macd_line_1 < signal_line_1 and macd_line_1 < macd_line_1[1]
+macd_1_bullish_cross = ta.crossover(macd_line_1, signal_line_1)
+macd_1_bearish_cross = ta.crossunder(macd_line_1, signal_line_1)
+
+// MACD 2: Medium (13, 52, 18)
+[macd_line_2, signal_line_2, macd_histogram_2] = ta.macd(close, 13, 52, 18)
+macd_2_bullish = macd_line_2 > signal_line_2 and macd_line_2 > macd_line_2[1]
+macd_2_bearish = macd_line_2 < signal_line_2 and macd_line_2 < macd_line_2[1]
+macd_2_bullish_cross = ta.crossover(macd_line_2, signal_line_2)
+macd_2_bearish_cross = ta.crossunder(macd_line_2, signal_line_2)
+
+// MACD 3: Slow (52, 208, 72)
+[macd_line_3, signal_line_3, macd_histogram_3] = ta.macd(close, 52, 208, 72)
+macd_3_bullish = macd_line_3 > signal_line_3 and macd_line_3 > macd_line_3[1]
+macd_3_bearish = macd_line_3 < signal_line_3 and macd_line_3 < macd_line_3[1]
+macd_3_bullish_cross = ta.crossover(macd_line_3, signal_line_3)
+macd_3_bearish_cross = ta.crossunder(macd_line_3, signal_line_3)
+
+// Combined MACD signals (require at least 2 out of 3 to agree)
+macd_bull_count = (macd_1_bullish or macd_1_bullish_cross ? 1 : 0) + (macd_2_bullish or macd_2_bullish_cross ? 1 : 0) + (macd_3_bullish or macd_3_bullish_cross ? 1 : 0)
+macd_bear_count = (macd_1_bearish or macd_1_bearish_cross ? 1 : 0) + (macd_2_bearish or macd_2_bearish_cross ? 1 : 0) + (macd_3_bearish or macd_3_bearish_cross ? 1 : 0)
+
+macd_bullish = macd_bull_count >= 2
+macd_bearish = macd_bear_count >= 2
+macd_bullish_cross = macd_1_bullish_cross or macd_2_bullish_cross or macd_3_bullish_cross
+macd_bearish_cross = macd_1_bearish_cross or macd_2_bearish_cross or macd_3_bearish_cross
+
+// 📊 METHOD 3: BOLLINGER BANDS ANALYSIS
+bb_length = input.int(20, "BB Length", minval=1, group="Bollinger Bands")
+bb_mult = input.float(2.0, "BB Multiplier", minval=0.1, step=0.1, group="Bollinger Bands")
+bb_source = input.source(close, "BB Source", group="Bollinger Bands")
+
+bb_basis = ta.sma(bb_source, bb_length)
+bb_dev = bb_mult * ta.stdev(bb_source, bb_length)
+bb_upper = bb_basis + bb_dev
+bb_lower = bb_basis - bb_dev
+
+// Plot Bollinger Bands
+plot(bb_upper, title="BB Upper", color=color.blue, linewidth=1)
+plot(bb_basis, title="BB Basis", color=color.orange, linewidth=1)
+plot(bb_lower, title="BB Lower", color=color.blue, linewidth=1)
+fill(plot(bb_upper), plot(bb_lower), color=color.new(color.blue, 95), title="BB Background")
+
+// BB Analysis
+bb_width = bb_upper - bb_lower
+bb_width_avg = ta.sma(bb_width, 20)
+bb_squeeze = bb_width < bb_width_avg * 0.8  // Squeeze when width is 80% of average
+bb_expansion = bb_width > bb_width_avg * 1.2  // Expansion when width is 120% of average
+
+bb_bullish = (close > bb_upper) or (close > bb_basis and close[1] <= bb_basis and bb_expansion)
+bb_bearish = (close < bb_lower) or (close < bb_basis and close[1] >= bb_basis and bb_expansion)
+bb_squeeze_breakout_bull = bb_squeeze[1] and not bb_squeeze and close > bb_basis
+bb_squeeze_breakout_bear = bb_squeeze[1] and not bb_squeeze and close < bb_basis
+
+// 🏗️ METHOD 4: MARKET STRUCTURE ANALYSIS (ENHANCED)
+calculate_market_structure() =>
+    // Higher Highs and Higher Lows analysis (lookback periods)
+    short_lookback = 5
+    medium_lookback = 10
+    long_lookback = 20
+    
+    // Short-term structure
+    hh_short = high > ta.highest(high[1], short_lookback)
+    hl_short = low > ta.lowest(low[1], short_lookback)
+    lh_short = high < ta.highest(high[1], short_lookback)
+    ll_short = low < ta.lowest(low[1], short_lookback)
+    
+    // Medium-term structure
+    hh_medium = high > ta.highest(high[1], medium_lookback)
+    hl_medium = low > ta.lowest(low[1], medium_lookback)
+    lh_medium = high < ta.highest(high[1], medium_lookback)
+    ll_medium = low < ta.lowest(low[1], medium_lookback)
+    
+    // Long-term structure
+    hh_long = high > ta.highest(high[1], long_lookback)
+    hl_long = low > ta.lowest(low[1], long_lookback)
+    lh_long = high < ta.highest(high[1], long_lookback)
+    ll_long = low < ta.lowest(low[1], long_lookback)
+    
+    // Structure scoring system
+    bullish_structure_score = 0
+    bearish_structure_score = 0
+    
+    // Short-term structure votes
+    if hh_short and hl_short
+        bullish_structure_score += 1
+    if lh_short and ll_short
+        bearish_structure_score += 1
+        
+    // Medium-term structure votes  
+    if hh_medium and hl_medium
+        bullish_structure_score += 2
+    if lh_medium and ll_medium
+        bearish_structure_score += 2
+        
+    // Long-term structure votes
+    if hh_long and hl_long
+        bullish_structure_score += 3
+    if lh_long and ll_long
+        bearish_structure_score += 3
+    
+    // Structure signals
+    structure_bullish = bullish_structure_score >= 3
+    structure_bearish = bearish_structure_score >= 3
+    
+    [structure_bullish, structure_bearish, bullish_structure_score, bearish_structure_score]
+
+[structure_bullish, structure_bearish, bull_structure_score, bear_structure_score] = calculate_market_structure()
+
+// 📊 METHOD 5: VOLUME ANALYSIS
+calculate_volume_analysis() =>
+    // Volume trend analysis
+    vol_sma_short = ta.sma(volume, 10)
+    vol_sma_long = ta.sma(volume, 30)
+    
+    // Volume trend direction
+    volume_trend_up = vol_sma_short > vol_sma_long and volume > vol_sma_short
+    volume_trend_down = vol_sma_short < vol_sma_long and volume > vol_sma_short
+    
+    // Price-Volume relationship
+    up_volume = close > open ? volume : 0
+    down_volume = close < open ? volume : 0
+    
+    up_vol_avg = ta.sma(up_volume, 10)
+    down_vol_avg = ta.sma(down_volume, 10)
+    
+    // Volume confirmation
+    volume_confirms_bull = up_vol_avg > down_vol_avg and volume_trend_up
+    volume_confirms_bear = down_vol_avg > up_vol_avg and volume_trend_down
+    
+    // On-Balance Volume (OBV) trend
+    obv = ta.cum(close > close[1] ? volume : close < close[1] ? -volume : 0)
+    obv_trend_bull = obv > ta.sma(obv, 20)
+    obv_trend_bear = obv < ta.sma(obv, 20)
+    
+    volume_bullish = volume_confirms_bull and obv_trend_bull
+    volume_bearish = volume_confirms_bear and obv_trend_bear
+    
+    [volume_bullish, volume_bearish, obv_trend_bull, obv_trend_bear]
+
+[volume_bullish, volume_bearish, obv_bull, obv_bear] = calculate_volume_analysis()
+
+// 🎯 MULTI-CONFIRMATION CONSENSUS SYSTEM
+calculate_trend_consensus() =>
+    bullish_votes = 0
+    bearish_votes = 0
+    
+    // Method 1: RSI Divergence votes
+    if use_rsi_divergence
+        if rsi_bullish
+            bullish_votes += 1
+        if rsi_bearish
+            bearish_votes += 1
+    
+    // Method 2: Triple MACD votes
+    if use_macd_trend
+        if macd_bullish or macd_bullish_cross
+            bullish_votes += 1
+        if macd_bearish or macd_bearish_cross
+            bearish_votes += 1
+    
+    // Method 3: Bollinger Bands votes
+    if use_bollinger_bands
+        if bb_bullish or bb_squeeze_breakout_bull
+            bullish_votes += 1
+        if bb_bearish or bb_squeeze_breakout_bear
+            bearish_votes += 1
+    
+    // Method 4: Market Structure votes
+    if use_structure_analysis
+        if structure_bullish
+            bullish_votes += 1
+        if structure_bearish
+            bearish_votes += 1
+    
+    // Method 5: Volume Analysis votes
+    if use_volume_trend
+        if volume_bullish
+            bullish_votes += 1
+        if volume_bearish
+            bearish_votes += 1
+    
+    // Consensus determination
+    total_possible_votes = 5
+    consensus_threshold = math.max(min_confirmation_methods, 3)
+    
+    strong_bullish_consensus = bullish_votes >= consensus_threshold and bullish_votes > bearish_votes
+    strong_bearish_consensus = bearish_votes >= consensus_threshold and bearish_votes > bullish_votes
+    
+    // Trend strength based on vote margin
+    vote_margin = math.abs(bullish_votes - bearish_votes)
+    trend_strength = math.round((vote_margin / total_possible_votes) * 100)
+    
+    [strong_bullish_consensus, strong_bearish_consensus, bullish_votes, bearish_votes, trend_strength]
+
+[bullish_consensus, bearish_consensus, bull_votes, bear_votes, trend_strength] = calculate_trend_consensus()
+
+// Enhanced Function to check if signal aligns with trend
+trend_aligned_signal(is_bullish_signal) =>
+    if not enable_trend_filter
+        true
+    else if is_bullish_signal
+        bullish_consensus or (bull_votes >= 2)
+    else
+        bearish_consensus or (bear_votes >= 2)
+
+// Final trend decisions
+bullish_trend = bullish_consensus
+bearish_trend = bearish_consensus
+sideways_trend = not bullish_consensus and not bearish_consensus
+
+//==============================================================================
+// SECTION 3: FAIR VALUE GAP (FVG) DETECTION - SESSION BASED
+//==============================================================================
+
+// Define session times
+sess = input.session("0932-1600", title="Session", tooltip="A 9:30 FVG can start at 9:30 but takes 3 candles to form", group="FVG Settings")
+// User input for box color
+boxColorUp = input.color(color.new(color.green, 80), "Box Color Up", group="FVG Settings")
+boxColorDn = input.color(color.new(color.red, 80), "Box Color Down", group="FVG Settings")
+max_days = input.int(3, title="Max # of days to draw", group="FVG Settings")
+drawOpenTime = input.bool(true, title="Draw 9:30 NY open vertical line", group="FVG Settings")
+drawOpenPrice = input.bool(true, title="Draw 9:30 opening price", group="FVG Settings")
+
+//lines, boxes and labels
+var timezone = "America/New_York"
+var boxes = array.new<box>()
+var ny_open_labels = array.new<box>()
+var labels = array.new<label>()
+var ny_open_prices = array.new<line>()
+var ny_open_times = array.new<line>()
+var ny_930_labels = array.new<label>()
+
+var box ny_open_label = na
+var box fvg_box = na
+var line ny_open_time = na
+var line ny_open_price = na
+var label ny_930_label = na
+var label fvg_lb = na
+var bool first_fvg_found = false
+
+boxColor = color.new(color.gray, 80)
+is_target_time = (hour(time, timezone) == 8 and minute == 30) // CME servers in Chicago (CST). 9:30 EST = 8:30 CST
+lowest_so_far = ta.lowest(50) - 5*ta.atr(14)
+
+// Get day of week in text
+day_of_week_text() =>
+     dayofweek == dayofweek.monday    ? "Mon" :
+     dayofweek == dayofweek.tuesday   ? "Tue" :
+     dayofweek == dayofweek.wednesday ? "Wed" :
+     dayofweek == dayofweek.thursday  ? "Thu" :
+     dayofweek == dayofweek.friday    ? "Fri" :
+     dayofweek == dayofweek.saturday  ? "Sat" :
+     dayofweek == dayofweek.sunday    ? "Sun" : "N/A"
+
+// Box creation
+make_box(_left, _right, _top, _bottom, col) =>
+    box.new(left=_left, right=_right, top=_top, bottom=_bottom, border_color=color.new(col, 70), bgcolor=col, text="1st FVG - " + day_of_week_text(), text_halign = text.align_right, text_size=size.small, text_color = color.black)
+
+// Manage array of lines and labels
+manage_lines(li_time, li_price, lb_price, lb_930) =>
+    array.push(ny_open_times, li_time)
+    array.push(ny_open_prices, li_price)
+    array.push(ny_open_labels, lb_price)
+    array.push(ny_930_labels, lb_930)
+    if array.size(ny_open_times) > max_days
+        line.delete(array.shift(ny_open_prices))
+        line.delete(array.shift(ny_open_times))
+        box.delete(array.shift(ny_open_labels))
+        label.delete(array.shift(ny_930_labels))
+
+// Manage array of boxes
+manage_boxes(b) =>
+    array.push(boxes, b)
+    if array.size(boxes) > max_days
+        box.delete(array.shift(boxes))
+
+// Update FVG box
+update_box(b) =>
+    box.set_right(b, bar_index+10)
+
+//@function calculates session valid times
+in_session(sess) => not na(time(timeframe.period, sess, timezone))
+
+// Core Logic
+if in_session(sess) 
+    if not first_fvg_found
+        // FVG condition
+        fvgUp   = close[1] > open[1] and high[2] < low[0]
+        fvgDown = close[1] < open[1] and low[2] > high[0]
+        if fvgUp or fvgDown
+            first_fvg_found := true
+            boxColor := fvgUp ? boxColorUp : boxColorDn
+            // Define box coordinates
+            boxTop      = fvgUp ? high[2] : low[2]
+            boxBottom   = fvgUp ? low[0] : high[0]
+
+            // Create the box
+            fvg_box := make_box(bar_index-2, bar_index + 5, boxTop, boxBottom, boxColor)
+            manage_boxes(fvg_box)
+
+// Reset FVG flag at the end of the session
+if not in_session(sess) and in_session(sess)[1]
+    first_fvg_found := false
+
+// Extend the box to session end
+if first_fvg_found and na(fvg_box) == false
+    update_box(fvg_box)
+
+//Draw NY Open at 9:30 am EST / NY Time
+if is_target_time
+    if drawOpenTime
+        ny_open_time    := line.new(x1=time, y1=high, x2=time, y2=low, xloc=xloc.bar_time, color=color.gray, style=line.style_dashed, width=1, extend = extend.both)
+        ny_930_label    := label.new(x=bar_index, y=lowest_so_far, text="9:30", style=label.style_none, color=color.new(color.gray, 90), textcolor=color.black)
+        manage_lines(ny_open_time, ny_open_price, ny_open_label, ny_930_label)
+    if drawOpenPrice
+        ny_open_price   := line.new(x1=bar_index, y1=open, x2=bar_index + 10, y2=open, xloc=xloc.bar_index, color=color.gray, style=line.style_dotted, width=1, extend = extend.none)
+        ny_open_label   := box.new(left=bar_index+25, top=open+10, 
+         right=bar_index + 55, 
+         bottom=open-10, 
+         text = day_of_week_text() + " NY Open - " + str.format("{0,number,#,###.00}", close), 
+         bgcolor=color.new(color.white, 100), 
+         text_halign = text.align_right, 
+         text_size = size.small, 
+         text_color = color.black, 
+         border_color = color.new(color.white, 50))
+    
+// Keep extended objects until end of the session
+if in_session(sess)
+    box.set_right(ny_open_label, bar_index + 55)
+    line.set_x2(ny_open_price, bar_index + 20)
+
+//==============================================================================
+// MULTI-CONFIRMATION ANALYSIS DASHBOARD
+//==============================================================================
+
+var g_MULTI_DASHBOARD = "🎯 Multi-Confirmation Dashboard"
+show_multi_dashboard = input.bool(true, "Show Multi-Confirmation Dashboard", group=g_MULTI_DASHBOARD)
+
+if show_multi_dashboard and barstate.islast
+    var table multi_table = table.new(position.top_right, 4, 7, bgcolor=color.new(color.black, 85), border_width=1)
+    
+    // Header
+    table.cell(multi_table, 0, 0, "🎯 MULTI-CONFIRMATION", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(multi_table, 1, 0, "BULLISH", text_color=color.lime, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(multi_table, 2, 0, "BEARISH", text_color=color.red, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(multi_table, 3, 0, "STATUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    
+    // RSI Divergence Analysis
+    table.cell(multi_table, 0, 1, "⚡ RSI DIV", text_color=color.white, text_size=size.small)
+    rsi_bull_text = rsi_bullish ? "✅" : "❌"
+    rsi_bear_text = rsi_bearish ? "✅" : "❌"
+    rsi_status = bullish_divergence ? "BULL DIV" : bearish_divergence ? "BEAR DIV" : rsi > 70 ? "OB" : rsi < 30 ? "OS" : "MID"
+    table.cell(multi_table, 1, 1, rsi_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 1, rsi_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 1, rsi_status, text_color=color.white, text_size=size.small)
+    
+    // Triple MACD Analysis
+    table.cell(multi_table, 0, 2, "📈 3x MACD", text_color=color.white, text_size=size.small)
+    macd_bull_text = (macd_bullish or macd_bullish_cross) ? "✅" : "❌"
+    macd_bear_text = (macd_bearish or macd_bearish_cross) ? "✅" : "❌"
+    macd_status = str.tostring(macd_bull_count) + ":" + str.tostring(macd_bear_count)
+    table.cell(multi_table, 1, 2, macd_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 2, macd_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 2, macd_status, text_color=color.white, text_size=size.small)
+    
+    // Bollinger Bands Analysis
+    table.cell(multi_table, 0, 3, "📊 BB", text_color=color.white, text_size=size.small)
+    bb_bull_text = (bb_bullish or bb_squeeze_breakout_bull) ? "✅" : "❌"
+    bb_bear_text = (bb_bearish or bb_squeeze_breakout_bear) ? "✅" : "❌"
+    bb_status = bb_squeeze ? "SQUEEZE" : bb_expansion ? "EXPAND" : "NORMAL"
+    table.cell(multi_table, 1, 3, bb_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 3, bb_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 3, bb_status, text_color=color.white, text_size=size.small)
+    
+    // Market Structure Analysis
+    table.cell(multi_table, 0, 4, "🏗️ Structure", text_color=color.white, text_size=size.small)
+    struct_bull_text = structure_bullish ? "✅" : "❌"
+    struct_bear_text = structure_bearish ? "✅" : "❌"
+    struct_status = str.tostring(bull_structure_score) + ":" + str.tostring(bear_structure_score)
+    table.cell(multi_table, 1, 4, struct_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 4, struct_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 4, struct_status, text_color=color.white, text_size=size.small)
+    
+    // Volume Analysis
+    table.cell(multi_table, 0, 5, "📊 Volume", text_color=color.white, text_size=size.small)
+    vol_bull_text = volume_bullish ? "✅" : "❌"
+    vol_bear_text = volume_bearish ? "✅" : "❌"
+    vol_status = obv_bull ? "OBV+" : obv_bear ? "OBV-" : "OBV="
+    table.cell(multi_table, 1, 5, vol_bull_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 2, 5, vol_bear_text, text_color=color.white, text_size=size.small)
+    table.cell(multi_table, 3, 5, vol_status, text_color=color.white, text_size=size.small)
+    
+    // Final Consensus
+    table.cell(multi_table, 0, 6, "🎯 CONSENSUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.purple, 70))
+    table.cell(multi_table, 1, 6, str.tostring(bull_votes), text_color=color.lime, text_size=size.normal, bgcolor=color.new(color.purple, 70))
+    table.cell(multi_table, 2, 6, str.tostring(bear_votes), text_color=color.red, text_size=size.normal, bgcolor=color.new(color.purple, 70))
+    table.cell(multi_table, 3, 6, str.tostring(trend_strength) + "%", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.purple, 70))
+
+// Show current trend status on chart
+var label trend_label = na
+if barstate.islast
+    if not na(trend_label)
+        label.delete(trend_label)
+    
+    trend_text = ""
+    trend_color = color.gray
+    
+    if bullish_consensus
+        trend_text := "📈 BULLISH CONSENSUS [" + str.tostring(bull_votes) + " votes]"
+        trend_color := color.new(color.lime, 20)
+    else if bearish_consensus
+        trend_text := "📉 BEARISH CONSENSUS [" + str.tostring(bear_votes) + " votes]"
+        trend_color := color.new(color.red, 20)
+    else
+        trend_text := "⚠️ NO CONSENSUS [" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"
+        trend_color := color.new(color.yellow, 30)
+    
+    trend_label := label.new(bar_index, high + ta.atr(14), text=trend_text, style=label.style_label_down, color=trend_color, textcolor=color.white, size=size.normal)
+
+//==============================================================================
+// SECTION 4: MULTI-TIMEFRAME CRT (ENHANCED WITH MULTI-CONFIRMATION FILTERING)
+//==============================================================================
+
+// Explicitly set max_bars_back for key variables
+max_bars_back(time, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(close, 5000)
+max_bars_back(open, 5000)
+
+// Inputs
+var g_TF = 'CRT Timeframes'
+use_tf1 = input.bool(true, '15 Minutes', inline = 'TF1', group = g_TF)
+tf1 = input.timeframe('15', '', inline = 'TF1', group = g_TF)
+tf1_color = input.color(color.new(#FF1493, 70), '', inline = 'TF1', group = g_TF)
+use_tf1_mid = input.bool(true, '50% Level', inline = 'TF1M', group = g_TF)
+tf1_mid_color = input.color(color.new(#FF1493, 50), '', inline = 'TF1M', group = g_TF)
+
+use_tf2 = input.bool(true, '1 Hour', inline = 'TF2', group = g_TF)
+tf2 = input.timeframe('60', '', inline = 'TF2', group = g_TF)
+tf2_color = input.color(color.new(#FF4500, 70), '', inline = 'TF2', group = g_TF)
+use_tf2_mid = input.bool(true, '50% Level', inline = 'TF2M', group = g_TF)
+tf2_mid_color = input.color(color.new(#FF4500, 50), '', inline = 'TF2M', group = g_TF)
+
+use_tf3 = input.bool(true, '2 Hours', inline = 'TF3', group = g_TF)
+tf3 = input.timeframe('120', '', inline = 'TF3', group = g_TF)
+tf3_color = input.color(color.new(#32CD32, 70), '', inline = 'TF3', group = g_TF)
+use_tf3_mid = input.bool(true, '50% Level', inline = 'TF3M', group = g_TF)
+tf3_mid_color = input.color(color.new(#32CD32, 50), '', inline = 'TF3M', group = g_TF)
+
+use_tf4 = input.bool(true, '4 Hours', inline = 'TF4', group = g_TF)
+tf4 = input.timeframe('240', '', inline = 'TF4', group = g_TF)
+tf4_color = input.color(color.new(#1E90FF, 70), '', inline = 'TF4', group = g_TF)
+use_tf4_mid = input.bool(true, '50% Level', inline = 'TF4M', group = g_TF)
+tf4_mid_color = input.color(color.new(#1E90FF, 50), '', inline = 'TF4M', group = g_TF)
+
+use_tf5 = input.bool(true, 'Daily', inline = 'TF5', group = g_TF)
+tf5 = input.timeframe('D', '', inline = 'TF5', group = g_TF)
+tf5_color = input.color(color.new(#9932CC, 70), '', inline = 'TF5', group = g_TF)
+use_tf5_mid = input.bool(true, '50% Level', inline = 'TF5M', group = g_TF)
+tf5_mid_color = input.color(color.new(#9932CC, 50), '', inline = 'TF5M', group = g_TF)
+
+use_tf6 = input.bool(true, 'Weekly', inline = 'TF6', group = g_TF)
+tf6 = input.timeframe('W', '', inline = 'TF6', group = g_TF)
+tf6_color = input.color(color.new(#FFD700, 70), '', inline = 'TF6', group = g_TF)
+use_tf6_mid = input.bool(true, '50% Level', inline = 'TF6M', group = g_TF)
+tf6_mid_color = input.color(color.new(#FFD700, 50), '', inline = 'TF6M', group = g_TF)
+
+use_tf7 = input.bool(true, 'Monthly', inline = 'TF7', group = g_TF)
+tf7 = input.timeframe('M', '', inline = 'TF7', group = g_TF)
+tf7_color = input.color(color.new(#FF69B4, 70), '', inline = 'TF7', group = g_TF)
+use_tf7_mid = input.bool(true, '50% Level', inline = 'TF7M', group = g_TF)
+tf7_mid_color = input.color(color.new(#FF69B4, 50), '', inline = 'TF7M', group = g_TF)
+
+var g_ALERT = 'CRT Alert Options'
+alert_on_m15 = input.bool(false, 'Alert on M15 touch', group = g_ALERT)
+alert_on_h1 = input.bool(false, 'Alert on H1 touch', group = g_ALERT)
+alert_on_h2 = input.bool(false, 'Alert on H2 touch', group = g_ALERT)
+alert_on_h4 = input.bool(false, 'Alert on H4 touch', group = g_ALERT)
+alert_on_daily = input.bool(false, 'Alert on Daily touch', group = g_ALERT)
+alert_on_weekly = input.bool(false, 'Alert on Weekly touch', group = g_ALERT)
+alert_on_monthly = input.bool(false, 'Alert on Monthly touch', group = g_ALERT)
+
+var g_OPT = 'CRT Options'
+minbars = input.int(1, 'Minimum Bars', group = g_OPT)
+maxbars = input.int(250, 'Maximum Bars', group = g_OPT)
+hllinewidth = input.int(2, 'High/Low Line Width', group = g_OPT)
+midlinewidth = input.int(1, 'Mid Line Width', group = g_OPT)
+
+var g_LABEL = 'CRT Label Options'
+bullishLabelStyle = input.string('Label Up', 'Bullish Label Style', options = ['None', 'Label Up', 'Label Down', 'Label Left', 'Label Right', 'Label Center', 'Triangle Up', 'Triangle Down', 'Triangle Left', 'Triangle Right', 'Flag', 'Circle', 'Square', 'Diamond', 'Cross', 'X-Cross', 'Arrow Up', 'Arrow Down'], group = g_LABEL)
+bearishLabelStyle = input.string('Label Down', 'Bearish Label Style', options = ['None', 'Label Up', 'Label Down', 'Label Left', 'Label Right', 'Label Center', 'Triangle Up', 'Triangle Down', 'Triangle Left', 'Triangle Right', 'Flag', 'Circle', 'Square', 'Diamond', 'Cross', 'X-Cross', 'Arrow Up', 'Arrow Down'], group = g_LABEL)
+labelSize = input.string('Small', 'Label Size', options = ['Auto', 'Tiny', 'Small', 'Normal', 'Large', 'Huge'], group = g_LABEL)
+
+bullishBgColor = input.color(color.new(color.green, 50), 'Bullish Background Color', group = g_LABEL)
+bullishTextColor = input.color(color.green, 'Bullish Text Color', group = g_LABEL)
+bearishBgColor = input.color(color.new(color.red, 50), 'Bearish Background Color', group = g_LABEL)
+bearishTextColor = input.color(color.red, 'Bearish Text Color', group = g_LABEL)
+
+show_m15_labels = input.bool(true, 'Show M15 Labels', group = g_LABEL)
+show_h1_labels = input.bool(true, 'Show H1 Labels', group = g_LABEL)
+show_h2_labels = input.bool(true, 'Show H2 Labels', group = g_LABEL)
+show_h4_labels = input.bool(true, 'Show H4 Labels', group = g_LABEL)
+show_daily_labels = input.bool(true, 'Show Daily Labels', group = g_LABEL)
+show_weekly_labels = input.bool(true, 'Show Weekly Labels', group = g_LABEL)
+show_monthly_labels = input.bool(true, 'Show Monthly Labels', group = g_LABEL)
+max_labels = input.int(50, 'Maximum number of labels to show', minval = 1, maxval = 500, group = g_LABEL)
+show_eol_labels = input.bool(true, 'Show End-of-Line Labels', group = g_LABEL)
+eol_label_offset = input.int(5, 'End-of-Line Label Offset', minval = 1, maxval = 50, group = g_LABEL)
+
+var g_TOUCH = 'CRT Touch Options'
+use_wick_touch = input.bool(true, 'Use Wick Touch', group = g_TOUCH)
+use_body_touch = input.bool(true, 'Use Body Touch', group = g_TOUCH)
+
+// Process timeframe function
+process_tf(tf) =>
+    var float rangeHigh = na
+    var float rangeLow = na
+    var float rangeMid = na
+    var int rangeStart = 0
+    var bool inConsolidation = true
+    var bool bullishTouch = false
+    var bool bearishTouch = false
+
+    [tfOpen, tfHigh, tfLow, tfClose, tfTime] = request.security(syminfo.tickerid, tf, [open, high, low, close, time], barmerge.gaps_off, barmerge.lookahead_on)
+
+    newBar = ta.change(tfTime) != 0
+
+    tfUp = tfHigh
+    tfDown = tfLow
+    tfChildUp = tfOpen > tfClose ? tfOpen : tfClose
+    tfChildDown = tfOpen > tfClose ? tfClose : tfOpen
+
+    if newBar
+        upControl = tfChildUp > rangeHigh and bar_index - rangeStart > minbars and bar_index - rangeStart <= maxbars
+        downControl = tfChildDown < rangeLow and bar_index - rangeStart > minbars and bar_index - rangeStart <= maxbars
+
+        if upControl or downControl
+            inConsolidation := false
+
+        if inConsolidation and tfChildDown <= rangeHigh and tfChildDown >= rangeLow and tfChildUp <= rangeHigh and tfChildUp >= rangeLow and bar_index > 1
+            rangeStart := rangeStart
+        else
+            rangeHigh := tfHigh
+            rangeLow := tfLow
+            rangeStart := bar_index
+            inConsolidation := true
+ 
+        if not inConsolidation and (bar_index - rangeStart > maxbars or bar_index - rangeStart < minbars)
+            inConsolidation := true
+
+        rangeMid := (rangeHigh + rangeLow) / 2
+        bullishTouch := false
+        bearishTouch := false
+
+    if inConsolidation
+        bullishWickTouch = low < rangeLow and close > rangeLow and high < rangeHigh
+        bullishBodyTouch = open < rangeLow and close > rangeLow
+        bearishWickTouch = high > rangeHigh and close < rangeHigh and low > rangeLow
+        bearishBodyTouch = open > rangeHigh and close < rangeHigh
+
+        bullishTouch := use_wick_touch and bullishWickTouch or use_body_touch and bullishBodyTouch
+        bearishTouch := use_wick_touch and bearishWickTouch or use_body_touch and bearishBodyTouch
+
+    [rangeHigh, rangeLow, rangeMid, rangeStart, inConsolidation, newBar, bullishTouch, bearishTouch]
+
+// Process data for each timeframe
+[high1, low1, mid1, start1, inRange1, newBar1, bullishTouch1, bearishTouch1] = process_tf(tf1)
+[high2, low2, mid2, start2, inRange2, newBar2, bullishTouch2, bearishTouch2] = process_tf(tf2)
+[high3, low3, mid3, start3, inRange3, newBar3, bullishTouch3, bearishTouch3] = process_tf(tf3)
+[high4, low4, mid4, start4, inRange4, newBar4, bullishTouch4, bearishTouch4] = process_tf(tf4)
+[high5, low5, mid5, start5, inRange5, newBar5, bullishTouch5, bearishTouch5] = process_tf(tf5)
+[high6, low6, mid6, start6, inRange6, newBar6, bullishTouch6, bearishTouch6] = process_tf(tf6)
+[high7, low7, mid7, start7, inRange7, newBar7, bullishTouch7, bearishTouch7] = process_tf(tf7)
+
+// Plot lines function
+plot_lines(tfColor, midColor, high, low, mid, start, inRange, newBar, useMid, bullishTouch, bearishTouch, tfName) =>
+    var line highLine = na
+    var line lowLine = na
+    var line midLine = na
+
+    if newBar and inRange
+        if not na(highLine)
+            line.delete(highLine)
+            line.delete(lowLine)
+            line.delete(midLine)
+
+        validStart = math.max(start, 0)
+        highLine := line.new(validStart, high, bar_index, high, color = tfColor, width = hllinewidth)
+        lowLine := line.new(validStart, low, bar_index, low, color = tfColor, width = hllinewidth)
+        if useMid
+            midLine := line.new(validStart, mid, bar_index, mid, color = midColor, width = midlinewidth, style = line.style_dashed)
+
+        if show_eol_labels
+            label.new(bar_index + eol_label_offset, high, text = tfName + ' CRT High', color = color.new(tfColor, 70), textcolor = tfColor, style = label.style_none, size = size.small)
+            label.new(bar_index + eol_label_offset, low, text = tfName + ' CRT Low', color = color.new(tfColor, 70), textcolor = tfColor, style = label.style_none, size = size.small)
+
+    if not na(highLine) and inRange
+        line.set_x2(highLine, bar_index)
+        line.set_x2(lowLine, bar_index)
+        if useMid and not na(midLine)
+            line.set_x2(midLine, bar_index)
+
+    [bullishTouch, bearishTouch]
+
+// Plot lines for each timeframe
+if use_tf1
+    [bullishTouch1, bearishTouch1] = plot_lines(tf1_color, tf1_mid_color, high1, low1, mid1, start1, inRange1, newBar1, use_tf1_mid, bullishTouch1, bearishTouch1, 'M15')
+if use_tf2
+    [bullishTouch2, bearishTouch2] = plot_lines(tf2_color, tf2_mid_color, high2, low2, mid2, start2, inRange2, newBar2, use_tf2_mid, bullishTouch2, bearishTouch2, 'H1')
+if use_tf3
+    [bullishTouch3, bearishTouch3] = plot_lines(tf3_color, tf3_mid_color, high3, low3, mid3, start3, inRange3, newBar3, use_tf3_mid, bullishTouch3, bearishTouch3, 'H2')
+if use_tf4
+    [bullishTouch4, bearishTouch4] = plot_lines(tf4_color, tf4_mid_color, high4, low4, mid4, start4, inRange4, newBar4, use_tf4_mid, bullishTouch4, bearishTouch4, 'H4')
+if use_tf5
+    [bullishTouch5, bearishTouch5] = plot_lines(tf5_color, tf5_mid_color, high5, low5, mid5, start5, inRange5, newBar5, use_tf5_mid, bullishTouch5, bearishTouch5, 'D')
+if use_tf6
+    [bullishTouch6, bearishTouch6] = plot_lines(tf6_color, tf6_mid_color, high6, low6, mid6, start6, inRange6, newBar6, use_tf6_mid, bullishTouch6, bearishTouch6, 'W')
+if use_tf7
+    [bullishTouch7, bearishTouch7] = plot_lines(tf7_color, tf7_mid_color, high7, low7, mid7, start7, inRange7, newBar7, use_tf7_mid, bullishTouch7, bearishTouch7, 'M')
+
+// Function to convert string input to label style
+getLabelStyle(styleString) =>
+    switch styleString
+        'None' => label.style_none
+        'Label Up' => label.style_label_up
+        'Label Down' => label.style_label_down
+        'Label Left' => label.style_label_left
+        'Label Right' => label.style_label_right
+        'Label Center' => label.style_label_center
+        'Triangle Up' => label.style_triangleup
+        'Triangle Down' => label.style_triangledown
+        'Flag' => label.style_flag
+        'Circle' => label.style_circle
+        'Square' => label.style_square
+        'Diamond' => label.style_diamond
+        'Cross' => label.style_cross
+        'X-Cross' => label.style_xcross
+        'Arrow Up' => label.style_arrowup
+        'Arrow Down' => label.style_arrowdown
+        => label.style_label_up // default
+
+// Function to convert string input to size
+getLabelSize(sizeString) =>
+    switch sizeString
+        'Auto' => size.auto
+        'Tiny' => size.tiny
+        'Small' => size.small
+        'Normal' => size.normal
+        'Large' => size.large
+        'Huge' => size.huge
+        => size.auto // default
+
+// Enhanced label management with multi-confirmation filtering
+manageLabelCount(labelText, y, bgColor, textColor, style, size) =>
+    if array.size(labels) >= max_labels
+        label.delete(array.shift(labels))
+    newLabel = label.new(bar_index, y, labelText, color = bgColor, textcolor = textColor, style = style, size = size)
+    array.push(labels, newLabel)
+
+// ENHANCED function with MULTI-CONFIRMATION SYSTEM
+checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
+    // Check volume condition if enabled
+    volume_ok = not enable_volume_filter or (volume > volume_avg * volume_multiplier)
+    
+    if show and bullishTouch and volume_ok
+        // For bullish CRT signals, check multi-confirmation consensus
+        if trend_aligned_signal(true)
+            string trend_status = ""
+            if bullish_consensus
+                trend_status := "📈BULL[" + str.tostring(bull_votes) + "v]" // Multi-confirmed bullish
+            else
+                trend_status := "⚠️[" + str.tostring(bull_votes) + "v" + str.tostring(bear_votes) + "]"  // Weak/conflicting signals
+            
+            enhanced_label = 'BUY-' + tfText + trend_status
+            manageLabelCount(enhanced_label, low, bullishBgColor, bullishTextColor, getLabelStyle(bullishLabelStyle), getLabelSize(labelSize))
+    
+    if show and bearishTouch and volume_ok
+        // For bearish CRT signals, check multi-confirmation consensus
+        if trend_aligned_signal(false)
+            string trend_status = ""
+            if bearish_consensus
+                trend_status := "📉BEAR[" + str.tostring(bear_votes) + "v]" // Multi-confirmed bearish
+            else
+                trend_status := "⚠️[" + str.tostring(bear_votes) + "v" + str.tostring(bull_votes) + "]"  // Weak/conflicting signals
+            
+            enhanced_label = 'SELL-' + tfText + trend_status
+            manageLabelCount(enhanced_label, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
+
+// Apply ENHANCED labels for each timeframe
+checkAndCreateLabel(show_m15_labels, bullishTouch1, bearishTouch1, 'M15')
+checkAndCreateLabel(show_h1_labels, bullishTouch2, bearishTouch2, 'H1')
+checkAndCreateLabel(show_h2_labels, bullishTouch3, bearishTouch3, 'H2')
+checkAndCreateLabel(show_h4_labels, bullishTouch4, bearishTouch4, 'H4')
+checkAndCreateLabel(show_daily_labels, bullishTouch5, bearishTouch5, 'D')
+checkAndCreateLabel(show_weekly_labels, bullishTouch6, bearishTouch6, 'W')
+checkAndCreateLabel(show_monthly_labels, bullishTouch7, bearishTouch7, 'M')
+
+// Enhanced Alert conditions with multi-confirmation filtering
+if alert_on_m15 and ((bullishTouch1 and trend_aligned_signal(true)) or (bearishTouch1 and trend_aligned_signal(false)))
+    trend_direction = bullishTouch1 ? "BULLISH" : "BEARISH"
+    confirmation_votes = bullishTouch1 ? bull_votes : bear_votes
+    alert('M15 ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+
+if alert_on_h1 and ((bullishTouch2 and trend_aligned_signal(true)) or (bearishTouch2 and trend_aligned_signal(false)))
+    trend_direction = bullishTouch2 ? "BULLISH" : "BEARISH"
+    confirmation_votes = bullishTouch2 ? bull_votes : bear_votes
+    alert('H1 ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+
+if alert_on_h2 and ((bullishTouch3 and trend_aligned_signal(true)) or (bearishTouch3 and trend_aligned_signal(false)))
+    trend_direction = bullishTouch3 ? "BULLISH" : "BEARISH"
+    confirmation_votes = bullishTouch3 ? bull_votes : bear_votes
+    alert('H2 ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+
+if alert_on_h4 and ((bullishTouch4 and trend_aligned_signal(true)) or (bearishTouch4 and trend_aligned_signal(false)))
+    trend_direction = bullishTouch4 ? "BULLISH" : "BEARISH"
+    confirmation_votes = bullishTouch4 ? bull_votes : bear_votes
+    alert('H4 ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+
+if alert_on_daily and ((bullishTouch5 and trend_aligned_signal(true)) or (bearishTouch5 and trend_aligned_signal(false)))
+    trend_direction = bullishTouch5 ? "BULLISH" : "BEARISH"
+    confirmation_votes = bullishTouch5 ? bull_votes : bear_votes
+    alert('Daily ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+
+if alert_on_weekly and ((bullishTouch6 and trend_aligned_signal(true)) or (bearishTouch6 and trend_aligned_signal(false)))
+    trend_direction = bullishTouch6 ? "BULLISH" : "BEARISH"
+    confirmation_votes = bullishTouch6 ? bull_votes : bear_votes
+    alert('Weekly ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+
+if alert_on_monthly and ((bullishTouch7 and trend_aligned_signal(true)) or (bearishTouch7 and trend_aligned_signal(false)))
+    trend_direction = bullishTouch7 ? "BULLISH" : "BEARISH"
+    confirmation_votes = bullishTouch7 ? bull_votes : bear_votes
+    alert('Monthly ' + trend_direction + ' touch detected - CONSENSUS ALIGNED [' + str.tostring(confirmation_votes) + ' confirmations]', alert.freq_once_per_bar_close)
+
+//==============================================================================
+// LIQUIDITY CONFLICT DASHBOARD
+//==============================================================================
+
+if show_liquidity_dashboard and enable_liquidity_system and barstate.islast
+    var table liq_table = table.new(position.top_left, 3, 6, bgcolor=color.new(color.black, 85), border_width=1)
+    
+    // Header
+    table.cell(liq_table, 0, 0, "🌊 LIQUIDITY ANALYSIS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(liq_table, 1, 0, "STATUS", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    table.cell(liq_table, 2, 0, "SCORE", text_color=color.white, text_size=size.normal, bgcolor=color.new(color.blue, 70))
+    
+    // Conflict Status
+    conflict_color = is_major_conflict ? color.red : has_conflict ? color.orange : color.green
+    conflict_text = is_major_conflict ? "🔴 MAJOR CONFLICT" : has_conflict ? "🟡 MINOR CONFLICT" : "🟢 NO CONFLICT"
+    table.cell(liq_table, 0, 1, conflict_text, text_color=conflict_color, text_size=size.small)
+    table.cell(liq_table, 1, 1, winner_direction, text_color=color.white, text_size=size.small)
+    table.cell(liq_table, 2, 1, str.tostring(confidence) + "%", text_color=color.white, text_size=size.small)
+    
+    // Bullish Forces
+    table.cell(liq_table, 0, 2, "📈 BULLISH (SSL Swept)", text_color=color.lime, text_size=size.small)
+    bull_status = liq_daily.ssl_swept ? "D✅" : "" + (liq_4h.ssl_swept ? " 4H✅" : "") + (liq_1h.ssl_swept ? " 1H✅" : "") + (liq_15m.ssl_swept ? " 15M✅" : "")
+    table.cell(liq_table, 1, 2, bull_status != "" ? bull_status : "NONE", text_color=color.white, text_size=size.small)
+    table.cell(liq_table, 2, 2, str.tostring(bull_score), text_color=color.lime, text_size=size.small)
+    
+    // Bearish Forces
+    table.cell(liq_table, 0, 3, "📉 BEARISH (BSL Swept)", text_color=color.red, text_size=size.small)
+    bear_status = liq_daily.bsl_swept ? "D✅" : "" + (liq_4h.bsl_swept ? " 4H✅" : "") + (liq_1h.bsl_swept ? " 1H✅" : "") + (liq_15m.bsl_swept ? " 15M✅" : "")
+    table.cell(liq_table, 1, 3, bear_status != "" ? bear_status : "NONE", text_color=color.white, text_size=size.small)
+    table.cell(liq_table, 2, 3, str.tostring(bear_score), text_color=color.red, text_size=size.small)
+    
+    // Winner Summary
+    winner_color = winner_direction == "BULLISH" ? color.lime : winner_direction == "BEARISH" ? color.red : color.gray
+    table.cell(liq_table, 0, 4, "🏆 LIKELY DIRECTION", text_color=color.white, text_size=size.small, bgcolor=color.new(color.purple, 70))
+    table.cell(liq_table, 1, 4, winner_direction, text_color=winner_color, text_size=size.small, bgcolor=color.new(color.purple, 70))
+    table.cell(liq_table, 2, 4, str.tostring(confidence) + "%", text_color=color.white, text_size=size.small, bgcolor=color.new(color.purple, 70))
+    
+    // Alert Status
+    alert_text = is_major_conflict ? "⚠️ TRADE CAREFULLY" : has_conflict ? "⚠️ MINOR CONFLICT" : "✅ CLEAR DIRECTION"
+    alert_color = is_major_conflict ? color.red : has_conflict ? color.orange : color.green
+    table.cell(liq_table, 0, 5, alert_text, text_color=alert_color, text_size=size.small, bgcolor=color.new(color.gray, 80))
+    table.cell(liq_table, 1, 5, "CONFIDENCE", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 80))
+    table.cell(liq_table, 2, 5, str.tostring(confidence) + "%", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 80))
+
+// Major conflict alert
+if is_major_conflict and enable_liquidity_system
+    alert("🔴 MAJOR LIQUIDITY CONFLICT DETECTED!\n" + 
+          "Bullish Score: " + str.tostring(bull_score) + "\n" + 
+          "Bearish Score: " + str.tostring(bear_score) + "\n" + 
+          "Winner: " + winner_direction + " (" + str.tostring(confidence) + "% confidence)\n" + 
+          "⚠️ TRADE WITH EXTREME CAUTION!", alert.freq_once_per_bar)
+
+//==============================================================================
+// REST OF ORIGINAL SCRIPT CONTINUES FROM HERE
+//==============================================================================
+
+// Enhanced CRT labels with liquidity conflict awareness
+enhanced_checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
+    if show and bullishTouch
+        // Add liquidity conflict info to label
+        conflict_info = is_major_conflict ? "⚠️" : has_conflict ? "⚡" : "✅"
+        direction_confidence = winner_direction == "BULLISH" ? "📈" + str.tostring(confidence) + "%" : "⚠️" + str.tostring(confidence) + "%"
+        enhanced_label = 'BUY-' + tfText + conflict_info + direction_confidence
+        manageLabelCount(enhanced_label, low, bullishBgColor, bullishTextColor, getLabelStyle(bullishLabelStyle), getLabelSize(labelSize))
+    
+    if show and bearishTouch
+        // Add liquidity conflict info to label
+        conflict_info = is_major_conflict ? "⚠️" : has_conflict ? "⚡" : "✅"
+        direction_confidence = winner_direction == "BEARISH" ? "📉" + str.tostring(confidence) + "%" : "⚠️" + str.tostring(confidence) + "%"
+        enhanced_label = 'SELL-' + tfText + conflict_info + direction_confidence
+        manageLabelCount(enhanced_label, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
+
+// Apply ENHANCED labels for each timeframe with liquidity awareness
+enhanced_checkAndCreateLabel(show_m15_labels, bullishTouch1, bearishTouch1, 'M15')
+enhanced_checkAndCreateLabel(show_h1_labels, bullishTouch2, bearishTouch2, 'H1')
+enhanced_checkAndCreateLabel(show_h2_labels, bullishTouch3, bearishTouch3, 'H2')
+enhanced_checkAndCreateLabel(show_h4_labels, bullishTouch4, bearishTouch4, 'H4')
+enhanced_checkAndCreateLabel(show_daily_labels, bullishTouch5, bearishTouch5, 'D')
+enhanced_checkAndCreateLabel(show_weekly_labels, bullishTouch6, bearishTouch6, 'W')
+enhanced_checkAndCreateLabel(show_monthly_labels, bullishTouch7, bearishTouch7, 'M')
+
+// Enhanced Alert conditions with liquidity conflict awareness
+if alert_on_m15 and (bullishTouch1 or bearishTouch1)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('M15 touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_h1 and (bullishTouch2 or bearishTouch2)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('H1 touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_h2 and (bullishTouch3 or bearishTouch3)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('H2 touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_h4 and (bullishTouch4 or bearishTouch4)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('H4 touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_daily and (bullishTouch5 or bearishTouch5)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('Daily touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_weekly and (bullishTouch6 or bearishTouch6)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('Weekly touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
+
+if alert_on_monthly and (bullishTouch7 or bearishTouch7)
+    conflict_status = is_major_conflict ? " 🔴 MAJOR CONFLICT" : has_conflict ? " ⚡ MINOR CONFLICT" : " ✅ CLEAR"
+    alert('Monthly touch detected' + conflict_status + ' | Winner: ' + winner_direction + ' (' + str.tostring(confidence) + '%)', alert.freq_once_per_bar_close)
