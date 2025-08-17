@@ -64,11 +64,30 @@ var line immediate_sfp_bullish_line = na
 var label immediate_sfp_bearish_label = na
 var label immediate_sfp_bullish_label = na
 
+// SFP state variables (needed for SMT gating)
+var int lastBearishSfpRaidTime = na
+var int lastBullishSfpRaidTime = na
+var int lastBearishSfpRaidCounter = na
+var int lastBullishSfpRaidCounter = na
+var int lastBearishSfpTimeoutCounter = na
+var int lastBullishSfpTimeoutCounter = na
+
+var int sfp_bar_counter = 0
+var int timeout_bar_counter = 0
+
 // Get higher timeframe data for immediate detection
 [htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, timeframeInput_SFP, [high, low, close, time], barmerge.gaps_off, barmerge.lookahead_off)
 
 // Detect new higher timeframe bar
 bool is_new_htf_bar = ta.change(htf_time) != 0
+
+// Increment counters
+if is_new_htf_bar
+    sfp_bar_counter += 1
+
+// Increment Custom Timeout Counter if enabled
+if useCustomTimeoutTf and ta.change(time(raidTimeoutTimeframe)) != 0
+    timeout_bar_counter += 1
 
 // Immediate pivot detection
 if enableImmediateSFP and is_new_htf_bar
