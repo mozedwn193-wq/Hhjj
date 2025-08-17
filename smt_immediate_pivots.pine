@@ -38,7 +38,7 @@ enableAlerts_SMT1 = input.bool(true, "Enable Alerts", group = GRP_SMT1, tooltip 
 string GRP_TIMEFRAMES_STRENGTH1 = "Timeframe & Strength Settings (Timeframe 1)"
 timeframeInput_SMT1 = input.timeframe('240', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH1, tooltip = "Sets the higher timeframe (HTF) on which the main pivots are identified and SMTs are confirmed.")
 leftBars_SMT1 = input.int(1, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH1, minval = 1, tooltip = "Defines the strength of a pivot. This is the number of bars to the left of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low).")
-rightBars_SMT1 = input.int(1, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH1, minval = 1, tooltip = "Defines the strength of a pivot. This is the number of bars to the right of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low).")
+rightBars_SMT1 = input.int(0, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH1, minval = 0, tooltip = "Defines the strength of a pivot. This is the number of bars to the right of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low). Set to 0 for immediate pivot detection.")
 intradayTimeframe_SMT1 = input.timeframe('15', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH1, tooltip = "Sets the lower timeframe (LTF) used for Early SMT Detection. The unconfirmed signals will only appear when your chart's timeframe is equal to or lower than this setting.")
 
 string GRP_CROSSES_SMT1 = "Pivot Cross Colors (Timeframe 1)"
@@ -55,7 +55,7 @@ enableAlerts_SMT2 = input.bool(true, "Enable Alerts", group = GRP_SMT2, tooltip 
 string GRP_TIMEFRAMES_STRENGTH2 = "Timeframe & Strength Settings (Timeframe 2)"
 timeframeInput_SMT2 = input.timeframe('60', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH2, tooltip = "Sets the higher timeframe (HTF) on which the main pivots are identified and SMTs are confirmed.")
 leftBars_SMT2 = input.int(2, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH2, minval = 1, tooltip = "Defines the strength of a pivot. This is the number of bars to the left of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low).")
-rightBars_SMT2 = input.int(2, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH2, minval = 1, tooltip = "Defines the strength of a pivot. This is the number of bars to the right of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low).")
+rightBars_SMT2 = input.int(0, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH2, minval = 0, tooltip = "Defines the strength of a pivot. This is the number of bars to the right of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low). Set to 0 for immediate pivot detection.")
 intradayTimeframe_SMT2 = input.timeframe('5', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH2, tooltip = "Sets the lower timeframe (LTF) used for Early SMT Detection. The unconfirmed signals will only appear when your chart's timeframe is equal to or lower than this setting.")
 
 string GRP_CROSSES_SMT2 = "Pivot Cross Colors (Timeframe 2)"
@@ -72,7 +72,7 @@ enableAlerts_SMT3 = input.bool(true, "Enable Alerts", group = GRP_SMT3)
 string GRP_TIMEFRAMES_STRENGTH3 = "Timeframe & Strength Settings (Timeframe 3)"
 timeframeInput_SMT3 = input.timeframe('D', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH3)
 leftBars_SMT3 = input.int(3, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH3, minval = 1)
-rightBars_SMT3 = input.int(3, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH3, minval = 1)
+rightBars_SMT3 = input.int(0, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH3, minval = 0)
 intradayTimeframe_SMT3 = input.timeframe('60', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH3)
 
 string GRP_CROSSES_SMT3 = "Pivot Cross Colors (Timeframe 3)"
@@ -89,7 +89,7 @@ enableAlerts_SMT4 = input.bool(true, "Enable Alerts", group = GRP_SMT4)
 string GRP_TIMEFRAMES_STRENGTH4 = "Timeframe & Strength Settings (Timeframe 4)"
 timeframeInput_SMT4 = input.timeframe('W', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH4)
 leftBars_SMT4 = input.int(4, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH4, minval = 1)
-rightBars_SMT4 = input.int(4, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH4, minval = 1)
+rightBars_SMT4 = input.int(0, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH4, minval = 0)
 intradayTimeframe_SMT4 = input.timeframe('240', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH4)
 
 string GRP_CROSSES_SMT4 = "Pivot Cross Colors (Timeframe 4)"
@@ -106,7 +106,7 @@ enableAlerts_SMT5 = input.bool(true, "Enable Alerts", group = GRP_SMT5)
 string GRP_TIMEFRAMES_STRENGTH5 = "Timeframe & Strength Settings (Timeframe 5)"
 timeframeInput_SMT5 = input.timeframe('30', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH5)
 leftBars_SMT5 = input.int(5, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH5, minval = 1)
-rightBars_SMT5 = input.int(5, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH5, minval = 1)
+rightBars_SMT5 = input.int(0, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH5, minval = 0)
 intradayTimeframe_SMT5 = input.timeframe('5', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH5)
 
 string GRP_CROSSES_SMT5 = "Pivot Cross Colors (Timeframe 5)"
