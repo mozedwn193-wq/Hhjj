@@ -51,17 +51,17 @@ Bar 2: Touch signal appears immediately
 ```pinescript
 // Original SFP Logic
 // 1. Pivot Detection (Delayed)
-if is_new_htf_bar_SFP  // Only runs monthly
+if is_new_htf_bar_SFP  // Runs on customizable timeframe
     int pivot_idx_h = array.size(sfp_history_highs) - 1 - rightBars_SFP
-    // Checks pivot from 2 months ago!
+    // Checks pivot from rightBars_SFP bars ago!
 
 // 2. Raid Detection (Delayed)
 if sfp_completed_high > pivot_price and sfp_completed_close < pivot_price
-    // Raid detected - but only after monthly bar closes
+    // Raid detected - but only after higher timeframe bar closes
 
 // 3. SFP Confirmation (Delayed)
 if sfp_completed_close < pendingBearishSfpPrice
-    // SFP confirmed - but only after daily bar closes
+    // SFP confirmed - but only after confirmation timeframe bar closes
 ```
 
 ### **What It Shows:**
@@ -74,7 +74,7 @@ if sfp_completed_close < pendingBearishSfpPrice
     Pivot High
         ↓
     ┌─────┐
-    │     │ ← SFP Line (appears months later)
+    │     │ ← SFP Line (appears after delays)
     │     │
     │     │
     └─────┘
@@ -84,11 +84,11 @@ if sfp_completed_close < pendingBearishSfpPrice
 
 ### **Timeline (Delayed):**
 ```
-Month 1: Pivot forms at $100
-Month 3: Pivot confirmed (2 months late!)
-Month 4: Raid detected (1 month late!)
-Month 5: SFP appears (1 month late!)
-Total: 4+ months delay!
+Bar 1: Pivot forms at $100
+Bar 3: Pivot confirmed (rightBars_SFP bars late!)
+Bar 4: Raid detected (1 bar late!)
+Bar 5: SFP appears (confirmation bar late!)
+Total: Multiple bars delay!
 ```
 
 ## **Key Differences**
@@ -96,12 +96,12 @@ Total: 4+ months delay!
 | Aspect | Multi-Timeframe Intrabar | Original SFP |
 |--------|-------------------------|--------------|
 | **Purpose** | Shows consolidation ranges | Shows market manipulation |
-| **Detection** | Immediate | Delayed (months) |
-| **Timeframes** | Multiple (4H-6M) | Monthly only |
+| **Detection** | Immediate | Delayed (multiple bars) |
+| **Timeframes** | Multiple (4H-6M) | Customizable (any timeframe) |
 | **Visual** | Horizontal lines | Pivot + SFP lines |
 | **Signals** | Touch signals | SFP confirmation |
 | **Use Case** | Support/resistance | Market structure |
-| **Delay** | 0 bars | 4+ months |
+| **Delay** | 0 bars | Multiple bars |
 
 ## **Why Intrabar Appears Immediately**
 
@@ -128,11 +128,11 @@ lowLine := line.new(validStart, low, bar_index, low, color=tfColor)
 ### **SFP Logic:**
 ```pinescript
 // SFP - Delayed Detection
-if is_new_htf_bar_SFP  // Only runs monthly
-    // Wait for monthly bar to close
-    // Check historical data from 2 months ago
+if is_new_htf_bar_SFP  // Runs on customizable timeframe
+    // Wait for higher timeframe bar to close
+    // Check historical data from rightBars_SFP bars ago
     // Multiple confirmation steps
-    // Long delays
+    // Multiple bar delays
 ```
 
 **Why It's Delayed:**
@@ -154,11 +154,11 @@ rightBars_SFP = 0  // Check current month pivot
 
 ### **Option 2: Use Lower Timeframes**
 ```pinescript
-// Original (monthly)
-timeframeInput_SFP = input.timeframe('1M', 'Pivot Timeframe')
+// Original (4H example)
+timeframeInput_SFP = input.timeframe('240', 'Pivot Timeframe')
 
-// Reduced (daily)
-timeframeInput_SFP = input.timeframe('1D', 'Pivot Timeframe')
+// Reduced (1H example)
+timeframeInput_SFP = input.timeframe('60', 'Pivot Timeframe')
 ```
 
 ### **Option 3: Immediate Confirmation**
@@ -180,7 +180,7 @@ if close < pendingBearishSfpPrice
 
 ### **Original SFP:**
 - **Purpose**: Shows market manipulation patterns
-- **Speed**: Delayed (4+ months delay)
+- **Speed**: Delayed (multiple bars delay)
 - **Use**: Market structure analysis, trend reversal signals
 - **Visual**: Pivot lines + SFP lines
 
