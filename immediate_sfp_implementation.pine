@@ -1,0 +1,222 @@
+//@version=6
+// -----------------------------------------------------------------------------
+// Title:         SMT (SFP Gated) + Advanced Options - IMMEDIATE SFP
+// Author:        Nick (modified with immediate SFP detection)
+// Version:       3.0.8
+// -----------------------------------------------------------------------------
+
+import TradingView/ta/6 as ta
+
+indicator('SMT (SFP Gated) + Advanced Options - IMMEDIATE', 'SMT Adv Imm', overlay = true, max_labels_count=500, max_lines_count=500)
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+string GRP_MASTER_ASSET = "Comparison Asset"
+masterComparisonAsset = input.symbol("CME_MINI_DL:NQ1!", "Asset", group = GRP_MASTER_ASSET, tooltip = "Select the second asset to compare against the main chart's asset for detecting SMT.")
+showPivotALabel = input.bool(true, "Show Pivot 'A' Label", group = GRP_MASTER_ASSET, tooltip = "Shows/hides the 'A' label on the first pivot of a potential SMT setup. This is the pivot the script watches for a subsequent high/low to diverge from.")
+
+// --- SFP Timeframe ---
+string GRP_SFP = "SFP (Swing Failure) Timeframe"
+enableSFP = input.bool(true, "Enable SFP Detection", group = GRP_SFP, tooltip = "Enable or disable the Swing Failure Pattern (SFP) detection module. SFP is used to 'gate' or validate the SMT signals.")
+showPivotCrosses_SFP = input.bool(true, 'Show Pivots', group = GRP_SFP, tooltip="Shows a small 'x' on SFP timeframe pivots when they first form.")
+showSfpLines = input.bool(true, "Show SFP Lines", group = GRP_SFP, inline = "sfpLineGroup", tooltip = "Shows horizontal lines for detected swing failure pattern (SFP) raids.")
+maxSfpLines = input.int(2, "Limit", group = GRP_SFP, inline = "sfpLineGroup", minval = 1, tooltip = "Sets the maximum number of confirmed SFP raid lines to display on the chart. Helps keep the chart clean.")
+enableSfpAlerts = input.bool(true, "Enable SFP Alerts", group = GRP_SFP, tooltip="Enables alerts for both unconfirmed raids and confirmed Swing Failure Patterns (SFP).")
+
+string GRP_SFP_STRENGTH = "SFP Timeframe & Strength Settings"
+timeframeInput_SFP = input.timeframe('240', 'Pivot Timeframe', group = GRP_SFP_STRENGTH, tooltip = "The primary timeframe on which Swing Failure Pattern (SFP) pivots are detected. A higher timeframe (e.g., 4H) finds more significant pivots.")
+useSfpPatternTf = input.bool(false, "Use Separate Confirmation TF", group = GRP_SFP_STRENGTH, tooltip = "Enable this to use a different (usually lower) timeframe to confirm the SFP. The confirmation happens when a candle on this TF closes back across the raided pivot level.")
+sfpPatternTimeframe = input.timeframe('60', title="", group = GRP_SFP_STRENGTH, tooltip="The timeframe for the candle that confirms the SFP by closing back across the pivot level.")
+leftBars_SFP = input.int(5, 'Left Strength', group = GRP_SFP_STRENGTH, minval = 1, tooltip = "The number of bars to the left of a pivot candle that must be lower (for a pivot high) or higher (for a pivot low) on the SFP timeframe.")
+rightBars_SFP = input.int(1, 'Right Strength', group = GRP_SFP_STRENGTH, minval = 0, tooltip = "The number of bars to the right of a pivot candle that must be lower (for a pivot high) or higher (for a pivot low) on the SFP timeframe. This confirms the pivot's existence.")
+lookbackPeriod_SFP = input.int(35, "Max Lookback for Raids (in Pivot TF Bars)", group = GRP_SFP_STRENGTH, minval = 1, tooltip="The script will ignore pivots that are older than this many SFP Pivot Timeframe bars.")
+useCustomTimeoutTf = input.bool(false, "Use Custom Timeout TF", group = GRP_SFP_STRENGTH, tooltip = "Enable to use a separate timeframe for the 'Raid Expiration' bar counter. If disabled, the SFP Pivot Timeframe will be used.")
+raidTimeoutTimeframe = input.timeframe('60', "", group = GRP_SFP_STRENGTH, tooltip="The timeframe used for counting the Raid Expiration bars. If unchecked, the Pivot Timeframe is used.")
+raidTimeoutBars = input.int(1, "Raid Expiration (Bars)", group = GRP_SFP_STRENGTH, minval=1, tooltip="Max number of bars after a raid that an SMT is still valid. An SMT will only be confirmed if it occurs within this many bars of the SFP.")
+
+// NEW: Immediate SFP Detection Settings
+string GRP_IMMEDIATE_SFP = "Immediate SFP Detection"
+enableImmediateSFP = input.bool(true, "Enable Immediate SFP", group = GRP_IMMEDIATE_SFP, tooltip = "Enable immediate SFP detection without waiting for bar closes.")
+useRealtimeConfirmation = input.bool(true, "Use Real-time Confirmation", group = GRP_IMMEDIATE_SFP, tooltip = "Use current bar's close instead of waiting for confirmation timeframe bar to close.")
+showPotentialSFP = input.bool(true, "Show Potential SFP", group = GRP_IMMEDIATE_SFP, tooltip = "Show potential SFP signals before full confirmation.")
+
+// ... existing code ...
+// (Keep all the existing SMT modules and other inputs as they are)
+
+// =============================================================================
+// IMMEDIATE SFP LOGIC
+// =============================================================================
+
+// Real-time SFP detection variables
+var array<float> immediate_sfp_highs = array.new_float()
+var array<float> immediate_sfp_lows = array.new_float()
+var array<int> immediate_sfp_times = array.new_int()
+var array<bool> immediate_sfp_is_high = array.new_bool()
+
+var float pending_bearish_sfp_price = na
+var float pending_bullish_sfp_price = na
+var int pending_bearish_sfp_time = na
+var int pending_bullish_sfp_time = na
+
+var line immediate_sfp_bearish_line = na
+var line immediate_sfp_bullish_line = na
+var label immediate_sfp_bearish_label = na
+var label immediate_sfp_bullish_label = na
+
+// Get higher timeframe data for immediate detection
+[htf_high, htf_low, htf_close, htf_time] = request.security(syminfo.tickerid, timeframeInput_SFP, [high, low, close, time], barmerge.gaps_off, barmerge.lookahead_off)
+
+// Detect new higher timeframe bar
+bool is_new_htf_bar = ta.change(htf_time) != 0
+
+// Immediate pivot detection
+if enableImmediateSFP and is_new_htf_bar
+    // Add new bar data
+    array.push(immediate_sfp_highs, htf_high)
+    array.push(immediate_sfp_lows, htf_low)
+    array.push(immediate_sfp_times, htf_time)
+    
+    // Keep only recent bars
+    if array.size(immediate_sfp_highs) > lookbackPeriod_SFP
+        array.shift(immediate_sfp_highs)
+        array.shift(immediate_sfp_lows)
+        array.shift(immediate_sfp_times)
+    
+    // Check for pivots with reduced rightBars_SFP (Option 1 already implemented)
+    if array.size(immediate_sfp_highs) >= leftBars_SFP + rightBars_SFP + 1
+        int pivot_idx = array.size(immediate_sfp_highs) - 1 - rightBars_SFP
+        
+        // Check for pivot high
+        bool is_pivot_high = true
+        float pivot_high_price = array.get(immediate_sfp_highs, pivot_idx)
+        
+        for i = 0 to leftBars_SFP + rightBars_SFP
+            if i != leftBars_SFP
+                float check_price = array.get(immediate_sfp_highs, pivot_idx - leftBars_SFP + i)
+                if check_price >= pivot_high_price
+                    is_pivot_high := false
+                    break
+        
+        if is_pivot_high
+            // Pivot high detected - show immediately
+            if showPivotCrosses_SFP
+                label.new(array.get(immediate_sfp_times, pivot_idx), pivot_high_price, "x", xloc=xloc.bar_time, style=label.style_xcross, color=color.red, size=size.tiny)
+            
+            // Store pending bearish SFP level
+            pending_bearish_sfp_price := pivot_high_price
+            pending_bearish_sfp_time := array.get(immediate_sfp_times, pivot_idx)
+        
+        // Check for pivot low
+        bool is_pivot_low = true
+        float pivot_low_price = array.get(immediate_sfp_lows, pivot_idx)
+        
+        for i = 0 to leftBars_SFP + rightBars_SFP
+            if i != leftBars_SFP
+                float check_price = array.get(immediate_sfp_lows, pivot_idx - leftBars_SFP + i)
+                if check_price <= pivot_low_price
+                    is_pivot_low := false
+                    break
+        
+        if is_pivot_low
+            // Pivot low detected - show immediately
+            if showPivotCrosses_SFP
+                label.new(array.get(immediate_sfp_times, pivot_idx), pivot_low_price, "x", xloc=xloc.bar_time, style=label.style_xcross, color=color.green, size=size.tiny)
+            
+            // Store pending bullish SFP level
+            pending_bullish_sfp_price := pivot_low_price
+            pending_bullish_sfp_time := array.get(immediate_sfp_times, pivot_idx)
+
+// Immediate SFP detection (Option 3 implementation)
+if enableImmediateSFP
+    // Check for bearish SFP immediately
+    if not na(pending_bearish_sfp_price)
+        // OPTION 3: Use real-time confirmation instead of waiting for bar close
+        float confirmation_close = useRealtimeConfirmation ? close : request.security(syminfo.tickerid, sfpPatternTimeframe, close[1])
+        
+        // Check if current bar raids the pivot and reverses
+        if high > pending_bearish_sfp_price and confirmation_close < pending_bearish_sfp_price
+            // Bearish SFP confirmed immediately!
+            
+            // Draw SFP line immediately
+            if na(immediate_sfp_bearish_line)
+                immediate_sfp_bearish_line := line.new(pending_bearish_sfp_time, pending_bearish_sfp_price, time, pending_bearish_sfp_price, xloc=xloc.bar_time, color=color.red, width=2)
+                immediate_sfp_bearish_label := label.new(time, pending_bearish_sfp_price, "SFP Bearish\nImmediate", xloc=xloc.bar_time, color=color.red, textcolor=color.white, style=label.style_label_down)
+            else
+                line.set_x2(immediate_sfp_bearish_line, time)
+                label.set_x(immediate_sfp_bearish_label, time)
+            
+            // Update SFP state for SMT gating
+            lastBearishSfpRaidTime := time
+            lastBearishSfpRaidCounter := sfp_bar_counter
+            
+            if enableSfpAlerts
+                alert("Immediate Bearish SFP Detected", alert.freq_once_per_bar)
+            
+            // Clear pending level
+            pending_bearish_sfp_price := na
+            pending_bearish_sfp_time := na
+    
+    // Check for bullish SFP immediately
+    if not na(pending_bullish_sfp_price)
+        // OPTION 3: Use real-time confirmation instead of waiting for bar close
+        float confirmation_close = useRealtimeConfirmation ? close : request.security(syminfo.tickerid, sfpPatternTimeframe, close[1])
+        
+        // Check if current bar raids the pivot and reverses
+        if low < pending_bullish_sfp_price and confirmation_close > pending_bullish_sfp_price
+            // Bullish SFP confirmed immediately!
+            
+            // Draw SFP line immediately
+            if na(immediate_sfp_bullish_line)
+                immediate_sfp_bullish_line := line.new(pending_bullish_sfp_time, pending_bullish_sfp_price, time, pending_bullish_sfp_price, xloc=xloc.bar_time, color=color.green, width=2)
+                immediate_sfp_bullish_label := label.new(time, pending_bullish_sfp_price, "SFP Bullish\nImmediate", xloc=xloc.bar_time, color=color.green, textcolor=color.white, style=label.style_label_up)
+            else
+                line.set_x2(immediate_sfp_bullish_line, time)
+                label.set_x(immediate_sfp_bullish_label, time)
+            
+            // Update SFP state for SMT gating
+            lastBullishSfpRaidTime := time
+            lastBullishSfpRaidCounter := sfp_bar_counter
+            
+            if enableSfpAlerts
+                alert("Immediate Bullish SFP Detected", alert.freq_once_per_bar)
+            
+            // Clear pending level
+            pending_bullish_sfp_price := na
+            pending_bullish_sfp_time := na
+
+// Show potential SFP signals (before full confirmation)
+if enableImmediateSFP and showPotentialSFP
+    if not na(pending_bearish_sfp_price)
+        // Show potential bearish SFP
+        if high > pending_bearish_sfp_price and close > pending_bearish_sfp_price
+            // Price raided but hasn't reversed yet
+            label.new(time, high, "Potential\nBearish SFP", xloc=xloc.bar_time, color=color.orange, textcolor=color.white, style=label.style_label_down, size=size.small)
+    
+    if not na(pending_bullish_sfp_price)
+        // Show potential bullish SFP
+        if low < pending_bullish_sfp_price and close < pending_bullish_sfp_price
+            // Price raided but hasn't reversed yet
+            label.new(time, low, "Potential\nBullish SFP", xloc=xloc.bar_time, color=color.orange, textcolor=color.white, style=label.style_label_up, size=size.small)
+
+// =============================================================================
+// ORIGINAL SFP LOGIC (KEPT FOR COMPATIBILITY)
+// =============================================================================
+
+// ... existing SFP logic code ...
+// (Keep all the original SFP logic as backup or for comparison)
+
+// =============================================================================
+// SMT MODULES (UNCHANGED)
+// =============================================================================
+
+// ... existing SMT modules code ...
+// (Keep all the existing SMT logic exactly as it is)
+
+// =============================================================================
+// PLOTTING
+// =============================================================================
+
+// Plot immediate SFP levels
+plot(enableImmediateSFP and not na(pending_bearish_sfp_price) ? pending_bearish_sfp_price : na, "Pending Bearish SFP", color=color.red, style=plot.style_line, linewidth=1)
+plot(enableImmediateSFP and not na(pending_bullish_sfp_price) ? pending_bullish_sfp_price : na, "Pending Bullish SFP", color=color.green, style=plot.style_line, linewidth=1)
