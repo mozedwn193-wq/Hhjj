@@ -1,0 +1,115 @@
+//@version=6
+// -----------------------------------------------------------------------------
+// Title:         Standalone SMT (with Time-Based Pivot Engine) - IMMEDIATE PIVOTS
+// Author:        Nick
+// Version:       7.6.0
+// Description: - Added two additional Time Session Filters, allowing for up to three distinct time windows for SMT plotting.
+//              - Fixed a bug where 'Pivot A' labels for SMT Timeframes 3 and 4 were not being properly deleted.
+//              - SMT labels now include the correlated asset's ticker for better context.
+//              - MODIFIED: Pivot plotting now happens immediately when detected, not waiting for new HTF bar.
+// -----------------------------------------------------------------------------
+
+import TradingView/ta/6 as ta
+
+indicator('Standalone SMT - Immediate Pivots', 'SMT Imm', overlay = true, max_labels_count=500, max_lines_count=500)
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+string GRP_TIME_FILTER = "Time Session Filter"
+enableTimeFilter1 = input.bool(false, "Enable Session Filter 1", group = GRP_TIME_FILTER, tooltip="If checked, the indicator will only plot SMT signals within this specified trading session.")
+timeSession1 = input.session("0800-1200", "Trading Session 1", group = GRP_TIME_FILTER, tooltip="Define the time window for plotting SMTs. Format is HHMM-HHMM. The session is interpreted based on the chart's timezone setting. Example for London session: 0800-1700")
+enableTimeFilter2 = input.bool(false, "Enable Session Filter 2", group = GRP_TIME_FILTER, tooltip="If checked, the indicator will only plot SMT signals within this specified trading session.")
+timeSession2 = input.session("1300-1700", "Trading Session 2", group = GRP_TIME_FILTER, tooltip="Define the time window for plotting SMTs. Format is HHMM-HHMM. The session is interpreted based on the chart's timezone setting. Example for New York session: 1300-2200")
+enableTimeFilter3 = input.bool(false, "Enable Session Filter 3", group = GRP_TIME_FILTER, tooltip="If checked, the indicator will only plot SMT signals within this specified trading session.")
+timeSession3 = input.session("0000-0700", "Trading Session 3", group = GRP_TIME_FILTER, tooltip="Define the time window for plotting SMTs. Format is HHMM-HHMM. The session is interpreted based on the chart's timezone setting. Example for Asian session: 0000-0900")
+
+
+string GRP_MASTER_ASSET = "Comparison Asset"
+masterComparisonAsset = input.symbol("CME_MINI_DL:NQ1!", "Asset", group = GRP_MASTER_ASSET, tooltip = "Select the second asset to compare against the main chart's asset for detecting SMT.")
+showPivotALabel = input.bool(true, "Show Pivot 'A' Label", group = GRP_MASTER_ASSET, tooltip = "A master switch to show or hide the 'A' label on the first pivot of all potential SMT setups across all timeframes.")
+
+// --- SMT Timeframe 1 ---
+string GRP_SMT1 = "SMT Settings (Timeframe 1)"
+enableSMT1 = input.bool(true, "Enable Timeframe 1", group = GRP_SMT1, tooltip = "Master switch to turn the entire SMT detection logic on or off for the first timeframe.")
+showPivotCrosses_SMT1 = input.bool(true, 'Show Pivots', group = GRP_SMT1, tooltip = "Toggles the visibility of the '+' markers on all identified Higher Timeframe pivots.")
+enableEarlySmtDetection_SMT1 = input.bool(true, "Enable LTF Detection", group = GRP_SMT1, tooltip = "Enables the logic to look for SMT divergences on a lower timeframe (LTF), providing early, unconfirmed signals before the higher timeframe (HTF) bar closes.")
+enableAlerts_SMT1 = input.bool(true, "Enable Alerts", group = GRP_SMT1, tooltip = "Enables alerts for both unconfirmed (LTF) and confirmed (HTF) SMT signals.")
+
+string GRP_TIMEFRAMES_STRENGTH1 = "Timeframe & Strength Settings (Timeframe 1)"
+timeframeInput_SMT1 = input.timeframe('240', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH1, tooltip = "Sets the higher timeframe (HTF) on which the main pivots are identified and SMTs are confirmed.")
+leftBars_SMT1 = input.int(1, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH1, minval = 1, tooltip = "Defines the strength of a pivot. This is the number of bars to the left of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low).")
+rightBars_SMT1 = input.int(1, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH1, minval = 1, tooltip = "Defines the strength of a pivot. This is the number of bars to the right of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low).")
+intradayTimeframe_SMT1 = input.timeframe('15', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH1, tooltip = "Sets the lower timeframe (LTF) used for Early SMT Detection. The unconfirmed signals will only appear when your chart's timeframe is equal to or lower than this setting.")
+
+string GRP_CROSSES_SMT1 = "Pivot Cross Colors (Timeframe 1)"
+phColor_SMT1 = input.color(color.red, "High Color", group = GRP_CROSSES_SMT1, tooltip = "Sets the color for bearish elements: high pivots, bearish SMT lines, and labels.")
+plColor_SMT1 = input.color(color.green, "Low Color", group = GRP_CROSSES_SMT1, tooltip = "Sets the color for bullish elements: low pivots, bullish SMT lines, and labels.")
+
+// --- SMT Timeframe 2 ---
+string GRP_SMT2 = "SMT Settings (Timeframe 2)"
+enableSMT2 = input.bool(false, "Enable Timeframe 2", group = GRP_SMT2, tooltip = "Master switch to turn the entire SMT detection logic on or off for the second timeframe.")
+showPivotCrosses_SMT2 = input.bool(true, 'Show Pivots', group = GRP_SMT2, tooltip = "Toggles the visibility of the '+' markers on all identified Higher Timeframe pivots.")
+enableEarlySmtDetection_SMT2 = input.bool(true, "Enable LTF Detection", group = GRP_SMT2, tooltip = "Enables the logic to look for SMT divergences on a lower timeframe (LTF), providing early, unconfirmed signals before the higher timeframe (HTF) bar closes.")
+enableAlerts_SMT2 = input.bool(true, "Enable Alerts", group = GRP_SMT2, tooltip = "Enables alerts for both unconfirmed (LTF) and confirmed (HTF) SMT signals.")
+
+string GRP_TIMEFRAMES_STRENGTH2 = "Timeframe & Strength Settings (Timeframe 2)"
+timeframeInput_SMT2 = input.timeframe('60', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH2, tooltip = "Sets the higher timeframe (HTF) on which the main pivots are identified and SMTs are confirmed.")
+leftBars_SMT2 = input.int(2, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH2, minval = 1, tooltip = "Defines the strength of a pivot. This is the number of bars to the left of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low).")
+rightBars_SMT2 = input.int(2, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH2, minval = 1, tooltip = "Defines the strength of a pivot. This is the number of bars to the right of a pivot candle that must have lower highs (for a pivot high) or higher lows (for a pivot low).")
+intradayTimeframe_SMT2 = input.timeframe('5', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH2, tooltip = "Sets the lower timeframe (LTF) used for Early SMT Detection. The unconfirmed signals will only appear when your chart's timeframe is equal to or lower than this setting.")
+
+string GRP_CROSSES_SMT2 = "Pivot Cross Colors (Timeframe 2)"
+phColor_SMT2 = input.color(color.orange, "High Color", group = GRP_CROSSES_SMT2, tooltip = "Sets the color for bearish elements: high pivots, bearish SMT lines, and labels.")
+plColor_SMT2 = input.color(color.blue, "Low Color", group = GRP_CROSSES_SMT2, tooltip = "Sets the color for bullish elements: low pivots, bullish SMT lines, and labels.")
+
+// --- SMT Timeframe 3 ---
+string GRP_SMT3 = "SMT Settings (Timeframe 3)"
+enableSMT3 = input.bool(false, "Enable Timeframe 3", group = GRP_SMT3)
+showPivotCrosses_SMT3 = input.bool(true, 'Show Pivots', group = GRP_SMT3)
+enableEarlySmtDetection_SMT3 = input.bool(true, "Enable LTF Detection", group = GRP_SMT3)
+enableAlerts_SMT3 = input.bool(true, "Enable Alerts", group = GRP_SMT3)
+
+string GRP_TIMEFRAMES_STRENGTH3 = "Timeframe & Strength Settings (Timeframe 3)"
+timeframeInput_SMT3 = input.timeframe('D', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH3)
+leftBars_SMT3 = input.int(3, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH3, minval = 1)
+rightBars_SMT3 = input.int(3, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH3, minval = 1)
+intradayTimeframe_SMT3 = input.timeframe('60', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH3)
+
+string GRP_CROSSES_SMT3 = "Pivot Cross Colors (Timeframe 3)"
+phColor_SMT3 = input.color(color.new(color.fuchsia, 20), "High Color", group = GRP_CROSSES_SMT3)
+plColor_SMT3 = input.color(color.new(color.purple, 20), "Low Color", group = GRP_CROSSES_SMT3)
+
+// --- SMT Timeframe 4 ---
+string GRP_SMT4 = "SMT Settings (Timeframe 4)"
+enableSMT4 = input.bool(false, "Enable Timeframe 4", group = GRP_SMT4)
+showPivotCrosses_SMT4 = input.bool(true, 'Show Pivots', group = GRP_SMT4)
+enableEarlySmtDetection_SMT4 = input.bool(true, "Enable LTF Detection", group = GRP_SMT4)
+enableAlerts_SMT4 = input.bool(true, "Enable Alerts", group = GRP_SMT4)
+
+string GRP_TIMEFRAMES_STRENGTH4 = "Timeframe & Strength Settings (Timeframe 4)"
+timeframeInput_SMT4 = input.timeframe('W', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH4)
+leftBars_SMT4 = input.int(4, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH4, minval = 1)
+rightBars_SMT4 = input.int(4, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH4, minval = 1)
+intradayTimeframe_SMT4 = input.timeframe('240', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH4)
+
+string GRP_CROSSES_SMT4 = "Pivot Cross Colors (Timeframe 4)"
+phColor_SMT4 = input.color(color.new(color.teal, 20), "High Color", group = GRP_CROSSES_SMT4)
+plColor_SMT4 = input.color(color.new(color.aqua, 20), "Low Color", group = GRP_CROSSES_SMT4)
+
+// --- SMT Timeframe 5 ---
+string GRP_SMT5 = "SMT Settings (Timeframe 5)"
+enableSMT5 = input.bool(false, "Enable Timeframe 5", group = GRP_SMT5)
+showPivotCrosses_SMT5 = input.bool(true, 'Show Pivots', group = GRP_SMT5)
+enableEarlySmtDetection_SMT5 = input.bool(true, "Enable LTF Detection", group = GRP_SMT5)
+enableAlerts_SMT5 = input.bool(true, "Enable Alerts", group = GRP_SMT5)
+
+string GRP_TIMEFRAMES_STRENGTH5 = "Timeframe & Strength Settings (Timeframe 5)"
+timeframeInput_SMT5 = input.timeframe('30', 'Timeframe', group = GRP_TIMEFRAMES_STRENGTH5)
+leftBars_SMT5 = input.int(5, 'Left Strength', group = GRP_TIMEFRAMES_STRENGTH5, minval = 1)
+rightBars_SMT5 = input.int(5, 'Right Strength', group = GRP_TIMEFRAMES_STRENGTH5, minval = 1)
+intradayTimeframe_SMT5 = input.timeframe('5', "LTF Detection", group = GRP_TIMEFRAMES_STRENGTH5)
+
+string GRP_CROSSES_SMT5 = "Pivot Cross Colors (Timeframe 5)"
+phColor_SMT5 = input.color(color.new(color.gray, 20), "High Color", group = GRP_CROSSES_SMT5)
+plColor_SMT5 = input.color(color.new(color.silver, 20), "Low Color", group = GRP_CROSSES_SMT5)
