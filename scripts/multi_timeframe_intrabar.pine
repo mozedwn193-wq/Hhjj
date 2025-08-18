@@ -184,8 +184,9 @@ process_tf(tf) =>
         bool seqAllowBull = na
         bool seqAllowBear = na
         if oe_mode == "By Lower TF Sequence"
-            float[] lHigh = request.security_lower_tf(syminfo.tickerid, oe_seq_ltf, high)
-            float[] lLow  = request.security_lower_tf(syminfo.tickerid, oe_seq_ltf, low)
+            string ltf = resolve_seq_ltf(tf)
+            float[] lHigh = request.security_lower_tf(syminfo.tickerid, ltf, high)
+            float[] lLow  = request.security_lower_tf(syminfo.tickerid, ltf, low)
             int firstHit = 0
             for i = 0 to array.size(lHigh) - 1
                 if firstHit == 0
