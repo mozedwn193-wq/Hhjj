@@ -94,7 +94,13 @@ touch_buffer_ticks = input.int(0, "Touch buffer (ticks)", minval=0, group=g_TOUC
 
 // Opposite-edge allowance rules
 var g_OE = "Opposite-Edge Rules"
-oe_mode = input.string("By Candle Type", "Opposite-edge mode", options=["Always On", "Always Off", "By Candle Type"], group=g_OE)
+oe_mode = input.string("By Direction", "Opposite-edge mode", options=["Always On", "Always Off", "By Direction", "By Volatility/Structure"], group=g_OE)
+// By Direction settings
+oe_allow_on_bullish = input.bool(true, "Allow on Bullish bar", group=g_OE)
+oe_allow_on_bearish = input.bool(true, "Allow on Bearish bar", group=g_OE)
+oe_allow_on_doji = input.bool(false, "Allow on Doji", group=g_OE)
+oe_doji_body_ratio = input.float(0.2, "Doji max body/range", minval=0.0, maxval=1.0, step=0.05, group=g_OE)
+// By Volatility/Structure settings
 oe_atr_len = input.int(14, "ATR Length", minval=1, group=g_OE)
 oe_atr_mult = input.float(1.5, "Wide-range ATR multiplier", minval=0.1, step=0.1, group=g_OE)
 oe_trend_body_ratio = input.float(0.6, "Trend bar min body/TR", minval=0.0, maxval=1.0, step=0.05, group=g_OE)
@@ -149,10 +155,13 @@ process_tf(tf) =>
         isWide = tr >= oe_atr_mult * atrVal
         body = math.abs(close - open)
         range = math.max(high - low, syminfo.mintick)
-        bodyToTr = body / range
-        isTrend = bodyToTr >= oe_trend_body_ratio
+        bodyToRange = body / range
+        isTrend = bodyToRange >= oe_trend_body_ratio
         isOutside = high > high[1] and low < low[1]
-        allowOpp = oe_mode == "Always On" ? true : oe_mode == "Always Off" ? false : ((oe_allow_on_wide and isWide) or (oe_allow_on_outside and isOutside) or (oe_allow_on_trend and isTrend))
+        isBull = close > open
+        isBear = close < open
+        isDoji = bodyToRange <= oe_doji_body_ratio
+        allowOpp = oe_mode == "Always On" ? true : oe_mode == "Always Off" ? false : oe_mode == "By Direction" ? ((isBull and oe_allow_on_bullish) or (isBear and oe_allow_on_bearish) or (isDoji and oe_allow_on_doji)) : ((oe_allow_on_wide and isWide) or (oe_allow_on_outside and isOutside) or (oe_allow_on_trend and isTrend))
         hitOppositeOnBull = highHit
         hitOppositeOnBear = lowHit
 
