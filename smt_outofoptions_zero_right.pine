@@ -1,0 +1,284 @@
+// © OutOfOptions
+//@version=6
+indicator("SMT Divergences [OutOfOptions] - Zero Right", "SMT [😮] Zero", overlay=true, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+
+import outofoptions/OutofOptionsHelperLibrary/14 as H
+
+var const color na_color = color.new(color.gray,100)
+
+left        = input.int(0, 'Pivot Strength', minval = 0, tooltip = "Set to 0 for immediate pivot detection, or higher for confirmation bars")
+ticker      = input.symbol('', "Ticker", tooltip = "Leave empty when using NQ/ES for automatic pairing, NQ to ES and ES to NQ")
+candleCheck = input.bool(true, "Candle Direction Validation", tooltip="Validate that bullish SMTs are made with a bullish (up) candle and bearish SMT with a bearish (down) candle", display=display.status_line)
+delBroken   = input.bool(false, "Remove Broken SMTs", display=display.status_line)
+realTime    = input.bool(false, "Work in Realtime", display=display.status_line, tooltip="Will try to identify SMTs in real-time, may result in detection of SMTs that are immidiately broken")
+
+bullColor   = input.color(color.black, 'Bullish: Color', group="Appearance", inline="bull", display = display.none)
+bullWidth   = input.int(1, " Width", minval=1, maxval=5, step=1, group="Appearance", inline="bull", display = display.none)
+bullStyle   = input.enum(H.ln.sol, " Style", group="Appearance", inline="bull", display = display.none)
+
+bearColor   = input.color(color.black, 'Bearish: Color', group="Appearance", inline="bear", display = display.none)
+bearWidth   = input.int(1, " Width", minval=1, maxval=5, step=1, group="Appearance", inline="bear", display = display.none)
+bearStyle   = input.enum(H.ln.sol, " Style", group="Appearance", inline="bear", display = display.none)
+
+showLabel   = input.bool(true, "Show Label", group="Appearance")
+labelColor  = input.color(color.black, "Label Color", group="Appearance", inline="label")
+labelSize   = input.enum(H.ls.small, " Size", group="Appearance", display = display.none, inline="label")
+
+alertFormation  = input.bool(true, "Formation", group="Alert Settings", inline="alert")
+alertBreak      = input.bool(true, "Breakage", group="Alert Settings", inline="alert")
+
+var int length = realTime ? 0 : left
+var int one_bar = H.oneBar()
+
+// @returns string
+getTicker() =>
+    string match = str.match(syminfo.ticker, "^M?(ES|NQ)[1\\w][!\\d]+$")
+    if match == ''
+        runtime.error('Cannot determine corresponding ticket to "' + syminfo.ticker + '" automatically')
+
+    int offset = str.startswith(match, 'M') ? 1 : 0
+
+    string prefix = str.substring(match, offset, 2 + offset)
+    string suffix = str.substring(match, 2 + offset)
+
+    "CME_MINI:" + (offset == 1 ? "M" : "") + (prefix == "NQ" ? "ES" : "NQ") + suffix
+
+var string matchSymbol = ticker == '' ? getTicker() : ticker
+var string tickerName = syminfo.ticker(matchSymbol)
+
+type smt
+    line ln
+    label lb
+    float price
+    float lastPrice
+
+var smt[] SMbu = array.new<smt>()
+var smt[] SMbe = array.new<smt>()
+
+var float lastBUsmt = 0
+var float lastBEsmt = 0
+
+// @returns float
+drawSMT(int tm, float p1, float p2, bool bull) =>
+    bool ok = length > 0 ? (bull ? low > low[length] : high < high[length]) : true
+    if time[length] - tm > one_bar and ok
+        int o = length
+        float p2final = p2
+        if bull
+            while low[o + 1] <= low[o]
+                o := o + 1
+            p2final := low[o]
+        else
+            while high[o + 1] >= high[o]
+                o := o + 1
+            p2final := high[o]
+
+        int bars = math.round((time[o] - tm + one_bar * length) / one_bar)
+        int newTm = tm
+        float p1final = p1
+        if bars < 4900 and bars > 0
+            while time[bars] < tm
+                bars := bars - 1
+            while bull ? low[bars + 1] < low[bars] : high[bars + 1] > high[bars]
+                bars := bars + 1
+            newTm   := time[bars]
+            p1final := bull ? low[bars] : high[bars] 
+
+        if time[o] - newTm > one_bar
+            if alertFormation
+                string msg = (bull ? "Bullish" : "Bearish") + " " + timeframe.period + " SMT Formed (Edge: + " + H.S(p2final) + " Extreme: + " + H.S(bull ? math.min(p1,p2final) : math.max(p1,p2final)) +  ")"
+                alert(msg, alert.freq_once_per_bar)
+
+            line l = line.new(newTm, p1final, time[o], p2final, xloc=xloc.bar_time, color=bull ? bullColor : bearColor, width=bull ? bullWidth : bearWidth, style = H.lineStyle(bull ? bullStyle : bearStyle))
+            label b = showLabel ? label.new(math.round(math.avg(newTm, time[o])), H.avg(p1final, p2final), "SMT - " + tickerName, color=na_color, style = bull ? label.style_label_up : label.style_label_down, textcolor = labelColor, xloc = xloc.bar_time, size = str.lower(str.tostring(labelSize))) : na
+            float p = bull ? math.min(p1final, p2final) : math.max(p1final, p2final)
+            (bull ? SMbu : SMbe).push(smt.new(l, b, p, p2final))
+            p
+        else
+            bull ? lastBUsmt : lastBEsmt
+    else
+        bull ? lastBUsmt : lastBEsmt
+
+type liquidity
+    float price
+    int time
+    float ref_price
+
+// @returns liquidity
+sweep(liquidity[] source, float price, bool up) =>
+    liquidity l = na
+    while source.size() > 0
+        float lastPrice = source.last().price
+        if up ? price > lastPrice : price < lastPrice
+            l := source.pop()
+        else
+            break
+    l
+
+// @returns liquidity
+check(liquidity l, liquidity[] ll, bool up) =>
+    liquidity vl = liquidity.new(l.ref_price, l.time)
+    int size = ll.size() - 1
+
+    if size > 0 
+        for i = size to 0
+            liquidity last = ll.get(i)
+            if last.time < l.time
+                break
+            if last.time > l.time and (up ? last.price < l.ref_price : last.price > l.ref_price)
+                vl := last
+                break
+    vl
+
+// @returns int
+validateSMT(liquidity[] ll, liquidity s, bool up) =>
+    int b = 0
+    if ll.size() > 0
+        liquidity last = ll.last()
+        if ((up ? last.price > s.ref_price : last.price < s.ref_price) and last.time > s.time) == true
+            b := (time - last.time) / one_bar
+    b
+
+if delBroken or alertBreak
+    bool checkSMTs = high > lastBEsmt and lastBEsmt > 0
+    bool alerted = false
+    if checkSMTs == false and SMbe.size() > 1
+        if high > SMbe.get(-2).price
+            checkSMTs := true
+        else if SMbe.size() > 2 and high > SMbe.get(-3).price
+            checkSMTs := true
+
+    if checkSMTs
+        lastBEsmt := 0
+        for [i, la] in SMbe
+            if high > la.price
+                if alertBreak and alerted == false
+                    alert("Bearish " + timeframe.period + " SMT Broken", alert.freq_once_per_bar)
+                    alerted := true
+                if delBroken
+                    la.ln.delete()
+                    la.lb.delete()
+                    SMbe.remove(i)
+        if SMbe.size() > 0
+            lastBEsmt := SMbe.last().price
+
+    checkSMTs := low < lastBUsmt and lastBUsmt > 0
+    alerted := false
+    if checkSMTs == false and SMbu.size() > 1
+        if low < SMbu.get(-2).price
+            checkSMTs := true
+        else if SMbu.size() > 2 and low < SMbu.get(-3).price
+            checkSMTs := true
+
+    if checkSMTs
+        lastBUsmt := 0
+        for [i, la] in SMbu
+            if low < la.price
+                if alertBreak and alerted == false
+                    alert("Bullish " + timeframe.period + " SMT Broken", alert.freq_once_per_bar)
+                    alerted := true
+                if delBroken
+                    la.ln.delete()
+                    la.lb.delete()
+                    SMbu.remove(i)
+        if SMbu.size() > 0
+            lastBUsmt := SMbu.last().price
+
+if length == 0
+    if SMbu.size() > 0 
+        smt t = SMbu.last()
+        if time - t.ln.get_x2() == one_bar and low < t.ln.get_y2()
+            if t.price == t.ln.get_y2()
+                t.price := low
+            t.ln.set_xy2(time, low)
+
+    if SMbe.size() > 0
+        smt t = SMbe.last()
+        if time - t.ln.get_x2() == one_bar and high > t.ln.get_y2()
+            if t.price == t.ln.get_y2()
+                t.price := high
+            t.ln.set_xy2(time, high)
+
+var liquidity[] h1 = array.new<liquidity>()
+var liquidity[] l1 = array.new<liquidity>()
+var liquidity[] h2 = array.new<liquidity>()
+var liquidity[] l2 = array.new<liquidity>()
+
+if barstate.isconfirmed
+    [hh, ll, oo, cc] = request.security(matchSymbol, timeframe.period, [high, low, open, close])
+
+    float h = ta.pivothigh(left, length)
+    float ht = ta.pivothigh(hh, left, length)
+    if not na(ht) and length == 0 and ht == hh[1]
+        ht := na
+
+    liquidity s1 = not na(h) ? sweep(h1, h, true) : na
+    liquidity s2 = not na(ht) ? sweep(h2, ht, true) : na
+
+    if not na(s1)
+        if (candleCheck ? H.isDown(length) and oo[length] > cc[length] : true) and time[length] - s1.time > one_bar * length
+            if na(s2)
+                if hh[length] < s1.ref_price
+                    lastBEsmt := drawSMT(s1.time, s1.price, h, false)
+                else if h2.size() > 0
+                    liquidity last = h2.last()
+                    int b = (time - last.time) / one_bar
+                    if b > 0 and b < 5000
+                        if last.price > hh[length] and high[b] < h
+                            lastBEsmt := drawSMT(last.time, last.ref_price, h, false)
+            else if s1.time < s2.time and hh[length] < s1.ref_price
+                lastBEsmt := drawSMT(s1.time, s1.price, h, false)
+            else if s1.time > s2.time and s2.ref_price > high[length]
+                int b = validateSMT(h1, s2, true)
+                if b > 0 and b < 5000 ? hh[b] < ht : true
+                    liquidity lc = check(s2, h1, false)
+                    lastBEsmt := drawSMT(lc.time, lc.price, high[length], false)
+    else if not na(s2)
+        if (candleCheck ? H.isDown(length) and oo[length] > cc[length] : true) and time[length] - s2.time > one_bar * length
+            if s2.ref_price > high[length]
+                int b = validateSMT(h1, s2, true)
+                if b > 0 and b < 5000 ? hh[b] < ht : true
+                    liquidity lc = check(s2, h1, false)
+                    lastBEsmt := drawSMT(lc.time, lc.price, high[length], false)
+
+    float l = ta.pivotlow(left, length) 
+    float lt = ta.pivotlow(ll, left, length)
+    if not na(lt) and length == 0 and lt == ll[1]
+        lt := na
+
+    liquidity s3 = not na(l) ? sweep(l1, l, false) : na
+    liquidity s4 = not na(lt) ? sweep(l2, lt, false) : na
+    if not na(s3)
+        if (candleCheck ? H.isUp(length) and cc[length] > oo[length] : true) and time[length] - s3.time > one_bar * length
+            if na(s4)
+                if ll[length] > s3.ref_price
+                    lastBUsmt := drawSMT(s3.time, s3.price, l, true)
+                else if l2.size() > 0
+                    liquidity last = l2.last()
+                    int b = (time - last.time) / one_bar
+                    if b > 0 and b < 5000
+                        if last.price < ll[length] and low[b] > l
+                            lastBUsmt := drawSMT(last.time, last.ref_price, l, true)
+            else if s3.time < s4.time and ll[length] > s3.ref_price
+                lastBUsmt := drawSMT(s3.time, s3.price, l, true)
+            else if s3.time > s4.time and low[length] > s4.ref_price
+                int b = validateSMT(l1, s4, false)
+                if b > 0 and b < 5000 ? ll[b] < lt : true
+                    liquidity lc = check(s4, l1, true)
+                    lastBUsmt := drawSMT(lc.time, lc.price, low[length], true)
+    else if not na(s4)
+        if (candleCheck ? H.isUp(length) and cc[length] > oo[length] : true) and time[length] - s4.time > one_bar * length
+            if low[length] > s4.ref_price
+                int b = validateSMT(l1, s4, false)
+                if b > 0 and b < 5000 ? ll[b] < lt : true
+                    liquidity lc = check(s4, l1, true)
+                    lastBUsmt := drawSMT(lc.time, lc.price, low[length], true)
+
+    if not na(h)
+        h1.push(liquidity.new(h, time[length], hh[length]))
+    if not na(ht)
+        h2.push(liquidity.new(ht, time[length], high[length]))
+    if not na(l)
+        l1.push(liquidity.new(l, time[length], ll[length]))
+    if not na(lt)
+        l2.push(liquidity.new(lt, time[length], low[length]))

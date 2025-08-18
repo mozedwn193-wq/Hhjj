@@ -1,0 +1,550 @@
+//@version=5
+indicator("Enhanced Multi-Timeframe SFP + Pivots", overlay=true, max_lines_count=500, max_labels_count=500, max_bars_back = 5000)
+
+// Explicitly set max_bars_back for key variables
+max_bars_back(time, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(close, 5000)
+max_bars_back(open, 5000)
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+
+// Timeframe Settings
+var g_TF = "Timeframes"
+use_tf1         = input.bool(true, "4 Hours", inline = "TF1", group = g_TF)
+tf1             = input.timeframe("240", "", inline = "TF1", group = g_TF)
+tf1_color       = input.color(color.new(#FF1493, 70), "", inline = "TF1", group = g_TF)
+use_tf1_mid     = input.bool(true, "50% Level", inline = "TF1M", group = g_TF)
+tf1_mid_color   = input.color(color.new(#FF1493, 50), "", inline = "TF1M", group = g_TF)
+
+use_tf2         = input.bool(true, "6 Hours", inline = "TF2", group = g_TF)
+tf2             = input.timeframe("360", "", inline = "TF2", group = g_TF)
+tf2_color       = input.color(color.new(#FF4500, 70), "", inline = "TF2", group = g_TF)
+use_tf2_mid     = input.bool(true, "50% Level", inline = "TF2M", group = g_TF)
+tf2_mid_color   = input.color(color.new(#FF4500, 50), "", inline = "TF2M", group = g_TF)
+
+use_tf3         = input.bool(true, "Daily", inline = "TF3", group = g_TF)
+tf3             = input.timeframe("D", "", inline = "TF3", group = g_TF)
+tf3_color       = input.color(color.new(#32CD32, 70), "", inline = "TF3", group = g_TF)
+use_tf3_mid     = input.bool(true, "50% Level", inline = "TF3M", group = g_TF)
+tf3_mid_color   = input.color(color.new(#32CD32, 50), "", inline = "TF3M", group = g_TF)
+
+use_tf4         = input.bool(true, "2 Days", inline = "TF4", group = g_TF)
+tf4             = input.timeframe("2D", "", inline = "TF4", group = g_TF)
+tf4_color       = input.color(color.new(#1E90FF, 70), "", inline = "TF4", group = g_TF)
+use_tf4_mid     = input.bool(true, "50% Level", inline = "TF4M", group = g_TF)
+tf4_mid_color   = input.color(color.new(#1E90FF, 50), "", inline = "TF4M", group = g_TF)
+
+use_tf5         = input.bool(true, "3 Days", inline = "TF5", group = g_TF)
+tf5             = input.timeframe("3D", "", inline = "TF5", group = g_TF)
+tf5_color       = input.color(color.new(#9932CC, 70), "", inline = "TF5", group = g_TF)
+use_tf5_mid     = input.bool(true, "50% Level", inline = "TF5M", group = g_TF)
+tf5_mid_color   = input.color(color.new(#9932CC, 50), "", inline = "TF5M", group = g_TF)
+
+use_tf6         = input.bool(true, "Weekly", inline = "TF6", group = g_TF)
+tf6             = input.timeframe("W", "", inline = "TF6", group = g_TF)
+tf6_color       = input.color(color.new(#FFD700, 70), "", inline = "TF6", group = g_TF)
+use_tf6_mid     = input.bool(true, "50% Level", inline = "TF6M", group = g_TF)
+tf6_mid_color   = input.color(color.new(#FFD700, 50), "", inline = "TF6M", group = g_TF)
+
+use_tf7         = input.bool(true, "Monthly", inline = "TF7", group = g_TF)
+tf7             = input.timeframe("M", "", inline = "TF7", group = g_TF)
+tf7_color       = input.color(color.new(#FF69B4, 70), "", inline = "TF7", group = g_TF)
+use_tf7_mid     = input.bool(true, "50% Level", inline = "TF7M", group = g_TF)
+tf7_mid_color   = input.color(color.new(#FF69B4, 50), "", inline = "TF7M", group = g_TF)
+
+use_tf8         = input.bool(true, "3 Months", inline = "TF8", group = g_TF)
+tf8             = input.timeframe("3M", "", inline = "TF8", group = g_TF)
+tf8_color       = input.color(color.new(#20B2AA, 70), "", inline = "TF8", group = g_TF)
+use_tf8_mid     = input.bool(true, "50% Level", inline = "TF8M", group = g_TF)
+tf8_mid_color   = input.color(color.new(#20B2AA, 50), "", inline = "TF8M", group = g_TF)
+
+use_tf9         = input.bool(true, "6 Months", inline = "TF9", group = g_TF)
+tf9             = input.timeframe("6M", "", inline = "TF9", group = g_TF)
+tf9_color       = input.color(color.new(#8A2BE2, 70), "", inline = "TF9", group = g_TF)
+use_tf9_mid     = input.bool(true, "50% Level", inline = "TF9M", group = g_TF)
+tf9_mid_color   = input.color(color.new(#8A2BE2, 50), "", inline = "TF9M", group = g_TF)
+
+// SFP and Pivot Settings
+var g_SFP = "SFP & Pivot Detection"
+enable_sfp      = input.bool(true, "Enable SFP Detection", group = g_SFP)
+enable_pivots   = input.bool(true, "Enable Pivot Detection", group = g_SFP)
+pivot_strength  = input.int(2, "Pivot Strength (Bars)", minval=1, maxval=10, group = g_SFP)
+sfp_timeout     = input.int(10, "SFP Timeout (Bars)", minval=1, maxval=50, group = g_SFP)
+
+// SFP Colors
+sfp_bearish_color = input.color(color.red, "Bearish SFP Color", group = g_SFP)
+sfp_bullish_color = input.color(color.green, "Bullish SFP Color", group = g_SFP)
+pivot_high_color = input.color(color.orange, "Pivot High Color", group = g_SFP)
+pivot_low_color = input.color(color.blue, "Pivot Low Color", group = g_SFP)
+
+// Alert Options
+var g_ALERT = "Alert Options"
+alert_on_sfp    = input.bool(false, "Alert on SFP", group = g_ALERT)
+alert_on_pivot  = input.bool(false, "Alert on Pivot", group = g_ALERT)
+alert_on_m30   = input.bool(false, "Alert on 4H touch", group = g_ALERT)
+alert_on_h1    = input.bool(false, "Alert on 6H touch", group = g_ALERT)
+alert_on_h2    = input.bool(false, "Alert on Daily touch", group = g_ALERT)
+alert_on_h4    = input.bool(false, "Alert on 2D touch", group = g_ALERT)
+alert_on_daily = input.bool(false, "Alert on 3D touch", group = g_ALERT)
+alert_on_weekly = input.bool(false, "Alert on Weekly touch", group = g_ALERT)
+alert_on_monthly = input.bool(false, "Alert on Monthly touch", group = g_ALERT)
+
+// Options
+var g_OPT = "Options"
+minbars         = input.int(1, "Minimum Bars", group = g_OPT)
+maxbars         = input.int(250, "Maximum Bars", group = g_OPT)
+hllinewidth     = input.int(2, "High/Low Line Width", group = g_OPT)
+midlinewidth    = input.int(1, "Mid Line Width", group = g_OPT)
+
+// Label Options
+var g_LABEL = "Label Options"
+bullishLabelStyle = input.string("Label Up", "Bullish Label Style", options=[  "None", "Label Up", "Label Down", "Label Left", "Label Right", "Label Center",   "Triangle Up", "Triangle Down", "Triangle Left", "Triangle Right",   "Flag", "Circle", "Square", "Diamond", "Cross", "X-Cross", "Arrow Up", "Arrow Down" ], group=g_LABEL)
+bearishLabelStyle = input.string("Label Down", "Bearish Label Style", options=[ "None", "Label Up", "Label Down", "Label Left", "Label Right", "Label Center", "Triangle Up", "Triangle Down", "Triangle Left", "Triangle Right", "Flag", "Circle", "Square", "Diamond",  "Cross", "X-Cross", "Arrow Up", "Arrow Down"  ], group=g_LABEL)
+labelSize = input.string("Small", "Label Size", options=["Auto", "Tiny", "Small", "Normal", "Large", "Huge"], group=g_LABEL)
+
+bullishBgColor = input.color(color.new(color.green, 50), "Bullish Background Color", group=g_LABEL)
+bullishTextColor = input.color(color.green, "Bullish Text Color", group=g_LABEL)
+bearishBgColor = input.color(color.new(color.red, 50), "Bearish Background Color", group=g_LABEL)
+bearishTextColor = input.color(color.red, "Bearish Text Color", group=g_LABEL)
+
+show_m30_labels = input.bool(true, "Show 4H Labels", group = g_LABEL)
+show_h1_labels  = input.bool(true, "Show 6H Labels", group = g_LABEL)
+show_h2_labels  = input.bool(true, "Show Daily Labels", group = g_LABEL)
+show_h4_labels  = input.bool(true, "Show 2D Labels", group = g_LABEL)
+show_daily_labels = input.bool(true, "Show 3D Labels", group = g_LABEL)
+show_weekly_labels = input.bool(true, "Show Weekly Labels", group = g_LABEL)
+show_monthly_labels = input.bool(true, "Show Monthly Labels", group = g_LABEL)
+max_labels      = input.int(50, "Maximum number of labels to show", minval=1, maxval=500, group = g_LABEL)
+show_eol_labels = input.bool(true, "Show End-of-Line Labels", group = g_LABEL)
+eol_label_offset = input.int(5, "End-of-Line Label Offset", minval=1, maxval=50, group = g_LABEL)
+
+var g_TOUCH = "Touch Options"
+use_wick_touch = input.bool(true, "Use Wick Touch", group=g_TOUCH)
+use_body_touch = input.bool(true, "Use Body Touch", group=g_TOUCH)
+
+// =============================================================================
+// SFP AND PIVOT DETECTION FUNCTIONS
+// =============================================================================
+
+// Real-time pivot detection function
+detectPivot(high_array, low_array, time_array, strength) =>
+    var float pivot_high = na
+    var float pivot_low = na
+    var int pivot_high_time = na
+    var int pivot_low_time = na
+    var bool pivot_high_detected = false
+    var bool pivot_low_detected = false
+    
+    if array.size(high_array) >= strength * 2 + 1
+        // Check for pivot high
+        center_idx = array.size(high_array) - 1 - strength
+        center_high = array.get(high_array, center_idx)
+        is_pivot_high = true
+        
+        for i = 1 to strength
+            if array.get(high_array, center_idx - i) >= center_high or array.get(high_array, center_idx + i) >= center_high
+                is_pivot_high := false
+                break
+        
+        if is_pivot_high and not pivot_high_detected
+            pivot_high := center_high
+            pivot_high_time := array.get(time_array, center_idx)
+            pivot_high_detected := true
+        
+        // Check for pivot low
+        center_low = array.get(low_array, center_idx)
+        is_pivot_low = true
+        
+        for i = 1 to strength
+            if array.get(low_array, center_idx - i) <= center_low or array.get(low_array, center_idx + i) <= center_low
+                is_pivot_low := false
+                break
+        
+        if is_pivot_low and not pivot_low_detected
+            pivot_low := center_low
+            pivot_low_time := array.get(time_array, center_idx)
+            pivot_low_detected := true
+    
+    [pivot_high, pivot_low, pivot_high_time, pivot_low_time, pivot_high_detected, pivot_low_detected]
+
+// Real-time SFP detection function
+detectSFP(pivot_high, pivot_low, pivot_high_time, pivot_low_time, current_high, current_low, current_close, current_time) =>
+    var float sfp_bearish_level = na
+    var float sfp_bullish_level = na
+    var int sfp_bearish_time = na
+    var int sfp_bullish_time = na
+    var bool sfp_bearish_detected = false
+    var bool sfp_bullish_detected = false
+    var int sfp_bearish_counter = 0
+    var int sfp_bullish_counter = 0
+    
+    // Bearish SFP: Price raids above pivot high then closes below
+    if not na(pivot_high) and not sfp_bearish_detected
+        if current_high > pivot_high and current_close < pivot_high
+            sfp_bearish_level := pivot_high
+            sfp_bearish_time := current_time
+            sfp_bearish_detected := true
+            sfp_bearish_counter := 0
+        else if current_high > pivot_high
+            sfp_bearish_counter += 1
+            if sfp_bearish_counter > sfp_timeout
+                sfp_bearish_level := na
+                sfp_bearish_time := na
+                sfp_bearish_counter := 0
+    
+    // Bullish SFP: Price raids below pivot low then closes above
+    if not na(pivot_low) and not sfp_bullish_detected
+        if current_low < pivot_low and current_close > pivot_low
+            sfp_bullish_level := pivot_low
+            sfp_bullish_time := current_time
+            sfp_bullish_detected := true
+            sfp_bullish_counter := 0
+        else if current_low < pivot_low
+            sfp_bullish_counter += 1
+            if sfp_bullish_counter > sfp_timeout
+                sfp_bullish_level := na
+                sfp_bullish_time := na
+                sfp_bullish_counter := 0
+    
+    [sfp_bearish_level, sfp_bullish_level, sfp_bearish_time, sfp_bullish_time, sfp_bearish_detected, sfp_bullish_detected]
+
+// =============================================================================
+// ENHANCED PROCESS_TF FUNCTION WITH SFP AND PIVOT DETECTION
+// =============================================================================
+
+process_tf_enhanced(tf, tf_name) =>
+    var float rangeHigh = na
+    var float rangeLow = na
+    var float rangeMid = na
+    var int rangeStart = 0
+    var bool inConsolidation = true
+    var bool bullishTouch = false
+    var bool bearishTouch = false
+    
+    // Arrays for pivot detection
+    var array<float> high_array = array.new_float()
+    var array<float> low_array = array.new_float()
+    var array<int> time_array = array.new_int()
+    
+    // SFP and pivot variables
+    var float tf_pivot_high = na
+    var float tf_pivot_low = na
+    var int tf_pivot_high_time = na
+    var int tf_pivot_low_time = na
+    var bool tf_pivot_high_detected = false
+    var bool tf_pivot_low_detected = false
+    var float tf_sfp_bearish_level = na
+    var float tf_sfp_bullish_level = na
+    var int tf_sfp_bearish_time = na
+    var int tf_sfp_bullish_time = na
+    var bool tf_sfp_bearish_detected = false
+    var bool tf_sfp_bullish_detected = false
+    
+    [tfOpen, tfHigh, tfLow, tfClose, tfTime] = request.security(syminfo.tickerid, tf, [open, high, low, close, time], barmerge.gaps_off, barmerge.lookahead_on)
+    
+    newBar = ta.change(tfTime) != 0
+    
+    tfUp = tfHigh
+    tfDown = tfLow
+    tfChildUp = tfOpen > tfClose ? tfOpen : tfClose
+    tfChildDown = tfOpen > tfClose ? tfClose : tfOpen
+    
+    // Add data to arrays for pivot detection
+    if newBar
+        array.push(high_array, tfHigh)
+        array.push(low_array, tfLow)
+        array.push(time_array, tfTime)
+        
+        // Keep arrays manageable size
+        if array.size(high_array) > 100
+            array.shift(high_array)
+            array.shift(low_array)
+            array.shift(time_array)
+    
+    if newBar
+        upControl = tfChildUp > rangeHigh and bar_index - rangeStart > minbars and bar_index - rangeStart <= maxbars
+        downControl = tfChildDown < rangeLow and bar_index - rangeStart > minbars and bar_index - rangeStart <= maxbars
+        
+        if (upControl or downControl)
+            inConsolidation := false
+        
+        if (inConsolidation and tfChildDown <= rangeHigh and tfChildDown >= rangeLow and tfChildUp <= rangeHigh and tfChildUp >= rangeLow and bar_index > 1)
+            rangeStart := rangeStart
+        else
+            rangeHigh := tfHigh
+            rangeLow := tfLow
+            rangeStart := bar_index
+            inConsolidation := true
+        
+        if not inConsolidation and (bar_index - rangeStart > maxbars or bar_index - rangeStart < minbars)
+            inConsolidation := true
+        
+        rangeMid := (rangeHigh + rangeLow) / 2
+        bullishTouch := false
+        bearishTouch := false
+        
+        // Detect pivots
+        if enable_pivots and array.size(high_array) >= pivot_strength * 2 + 1
+            [pivot_high, pivot_low, pivot_high_time, pivot_low_time, pivot_high_detected, pivot_low_detected] = detectPivot(high_array, low_array, time_array, pivot_strength)
+            
+            if pivot_high_detected and not tf_pivot_high_detected
+                tf_pivot_high := pivot_high
+                tf_pivot_high_time := pivot_high_time
+                tf_pivot_high_detected := true
+            
+            if pivot_low_detected and not tf_pivot_low_detected
+                tf_pivot_low := pivot_low
+                tf_pivot_low_time := pivot_low_time
+                tf_pivot_low_detected := true
+        
+        // Detect SFP
+        if enable_sfp
+            [sfp_bearish_level, sfp_bullish_level, sfp_bearish_time, sfp_bullish_time, sfp_bearish_detected, sfp_bullish_detected] = detectSFP(tf_pivot_high, tf_pivot_low, tf_pivot_high_time, tf_pivot_low_time, tfHigh, tfLow, tfClose, tfTime)
+            
+            if sfp_bearish_detected and not tf_sfp_bearish_detected
+                tf_sfp_bearish_level := sfp_bearish_level
+                tf_sfp_bearish_time := sfp_bearish_time
+                tf_sfp_bearish_detected := true
+            
+            if sfp_bullish_detected and not tf_sfp_bullish_detected
+                tf_sfp_bullish_level := sfp_bullish_level
+                tf_sfp_bullish_time := sfp_bullish_time
+                tf_sfp_bullish_detected := true
+    
+    if inConsolidation
+        bullishWickTouch = low < rangeLow and close > rangeLow and high < rangeHigh
+        bullishBodyTouch = open < rangeLow and close > rangeLow
+        bearishWickTouch = high > rangeHigh and close < rangeHigh and low > rangeLow
+        bearishBodyTouch = open > rangeHigh and close < rangeHigh
+        
+        bullishTouch := (use_wick_touch and bullishWickTouch) or (use_body_touch and bullishBodyTouch)
+        bearishTouch := (use_wick_touch and bearishWickTouch) or (use_body_touch and bearishBodyTouch)
+    
+    [rangeHigh, rangeLow, rangeMid, rangeStart, inConsolidation, newBar, bullishTouch, bearishTouch, tf_pivot_high, tf_pivot_low, tf_pivot_high_time, tf_pivot_low_time, tf_sfp_bearish_level, tf_sfp_bullish_level, tf_sfp_bearish_time, tf_sfp_bullish_time]
+
+// =============================================================================
+// PROCESS DATA FOR EACH TIMEFRAME
+// =============================================================================
+
+[high1, low1, mid1, start1, inRange1, newBar1, bullishTouch1, bearishTouch1, pivot_high1, pivot_low1, pivot_high_time1, pivot_low_time1, sfp_bearish1, sfp_bullish1, sfp_bearish_time1, sfp_bullish_time1] = process_tf_enhanced(tf1, "4H")
+[high2, low2, mid2, start2, inRange2, newBar2, bullishTouch2, bearishTouch2, pivot_high2, pivot_low2, pivot_high_time2, pivot_low_time2, sfp_bearish2, sfp_bullish2, sfp_bearish_time2, sfp_bullish_time2] = process_tf_enhanced(tf2, "6H")
+[high3, low3, mid3, start3, inRange3, newBar3, bullishTouch3, bearishTouch3, pivot_high3, pivot_low3, pivot_high_time3, pivot_low_time3, sfp_bearish3, sfp_bullish3, sfp_bearish_time3, sfp_bullish_time3] = process_tf_enhanced(tf3, "D")
+[high4, low4, mid4, start4, inRange4, newBar4, bullishTouch4, bearishTouch4, pivot_high4, pivot_low4, pivot_high_time4, pivot_low_time4, sfp_bearish4, sfp_bullish4, sfp_bearish_time4, sfp_bullish_time4] = process_tf_enhanced(tf4, "2D")
+[high5, low5, mid5, start5, inRange5, newBar5, bullishTouch5, bearishTouch5, pivot_high5, pivot_low5, pivot_high_time5, pivot_low_time5, sfp_bearish5, sfp_bullish5, sfp_bearish_time5, sfp_bullish_time5] = process_tf_enhanced(tf5, "3D")
+[high6, low6, mid6, start6, inRange6, newBar6, bullishTouch6, bearishTouch6, pivot_high6, pivot_low6, pivot_high_time6, pivot_low_time6, sfp_bearish6, sfp_bullish6, sfp_bearish_time6, sfp_bullish_time6] = process_tf_enhanced(tf6, "W")
+[high7, low7, mid7, start7, inRange7, newBar7, bullishTouch7, bearishTouch7, pivot_high7, pivot_low7, pivot_high_time7, pivot_low_time7, sfp_bearish7, sfp_bullish7, sfp_bearish_time7, sfp_bullish_time7] = process_tf_enhanced(tf7, "M")
+[high8, low8, mid8, start8, inRange8, newBar8, bullishTouch8, bearishTouch8, pivot_high8, pivot_low8, pivot_high_time8, pivot_low_time8, sfp_bearish8, sfp_bullish8, sfp_bearish_time8, sfp_bullish_time8] = process_tf_enhanced(tf8, "3M")
+[high9, low9, mid9, start9, inRange9, newBar9, bullishTouch9, bearishTouch9, pivot_high9, pivot_low9, pivot_high_time9, pivot_low_time9, sfp_bearish9, sfp_bullish9, sfp_bearish_time9, sfp_bullish_time9] = process_tf_enhanced(tf9, "6M")
+
+// =============================================================================
+// ENHANCED PLOT_LINES FUNCTION WITH SFP AND PIVOT DRAWING
+// =============================================================================
+
+plot_lines_enhanced(tfColor, midColor, high, low, mid, start, inRange, newBar, useMid, bullishTouch, bearishTouch, tfName, pivot_high, pivot_low, pivot_high_time, pivot_low_time, sfp_bearish, sfp_bullish, sfp_bearish_time, sfp_bullish_time) =>
+    var line highLine = na
+    var line lowLine = na
+    var line midLine = na
+    var label highLabel = na
+    var label lowLabel = na
+    
+    // SFP and pivot lines
+    var line sfp_bearish_line = na
+    var line sfp_bullish_line = na
+    var line pivot_high_line = na
+    var line pivot_low_line = na
+    var label sfp_bearish_label = na
+    var label sfp_bullish_label = na
+    var label pivot_high_label = na
+    var label pivot_low_label = na
+    
+    if newBar and inRange
+        if not na(highLine)
+            line.delete(highLine)
+            line.delete(lowLine)
+            line.delete(midLine)
+        if not na(highLabel)
+            label.delete(highLabel)
+            label.delete(lowLabel)
+        
+        validStart = math.max(start, 0)
+        highLine := line.new(validStart, high, bar_index, high, color=tfColor, width=hllinewidth)
+        lowLine := line.new(validStart, low, bar_index, low, color=tfColor, width=hllinewidth)
+        if useMid
+            midLine := line.new(validStart, mid, bar_index, mid, color=midColor, width=midlinewidth, style=line.style_dashed)
+        
+        if show_eol_labels
+            highLabel := label.new(bar_index + eol_label_offset, high, text=tfName + " CRT High", color=color.new(tfColor, 70), textcolor=tfColor, style=label.style_none, size=size.small)
+            lowLabel := label.new(bar_index + eol_label_offset, low, text=tfName + " CRT Low", color=color.new(tfColor, 70), textcolor=tfColor, style=label.style_none, size=size.small)
+    
+    if not na(highLine) and inRange
+        line.set_x2(highLine, bar_index)
+        line.set_x2(lowLine, bar_index)
+        if useMid and not na(midLine)
+            line.set_x2(midLine, bar_index)
+        
+        if show_eol_labels
+            label.set_x(highLabel, bar_index + eol_label_offset)
+            label.set_y(highLabel, high)
+            label.set_x(lowLabel, bar_index + eol_label_offset)
+            label.set_y(lowLabel, low)
+    
+    // Draw SFP lines immediately when detected
+    if not na(sfp_bearish) and na(sfp_bearish_line)
+        sfp_bearish_line := line.new(sfp_bearish_time, sfp_bearish, bar_index, sfp_bearish, color=sfp_bearish_color, width=2, style=line.style_solid)
+        sfp_bearish_label := label.new(bar_index, sfp_bearish, tfName + " SFP Bearish", color=color.new(sfp_bearish_color, 70), textcolor=sfp_bearish_color, style=label.style_label_down, size=size.small)
+    
+    if not na(sfp_bullish) and na(sfp_bullish_line)
+        sfp_bullish_line := line.new(sfp_bullish_time, sfp_bullish, bar_index, sfp_bullish, color=sfp_bullish_color, width=2, style=line.style_solid)
+        sfp_bullish_label := label.new(bar_index, sfp_bullish, tfName + " SFP Bullish", color=color.new(sfp_bullish_color, 70), textcolor=sfp_bullish_color, style=label.style_label_up, size=size.small)
+    
+    // Draw pivot lines immediately when detected
+    if not na(pivot_high) and na(pivot_high_line)
+        pivot_high_line := line.new(pivot_high_time, pivot_high, bar_index, pivot_high, color=pivot_high_color, width=1, style=line.style_dashed)
+        pivot_high_label := label.new(bar_index, pivot_high, tfName + " Pivot High", color=color.new(pivot_high_color, 70), textcolor=pivot_high_color, style=label.style_label_down, size=size.tiny)
+    
+    if not na(pivot_low) and na(pivot_low_line)
+        pivot_low_line := line.new(pivot_low_time, pivot_low, bar_index, pivot_low, color=pivot_low_color, width=1, style=line.style_dashed)
+        pivot_low_label := label.new(bar_index, pivot_low, tfName + " Pivot Low", color=color.new(pivot_low_color, 70), textcolor=pivot_low_color, style=label.style_label_up, size=size.tiny)
+    
+    // Update SFP and pivot lines
+    if not na(sfp_bearish_line)
+        line.set_x2(sfp_bearish_line, bar_index)
+        label.set_x(sfp_bearish_label, bar_index)
+    
+    if not na(sfp_bullish_line)
+        line.set_x2(sfp_bullish_line, bar_index)
+        label.set_x(sfp_bullish_label, bar_index)
+    
+    if not na(pivot_high_line)
+        line.set_x2(pivot_high_line, bar_index)
+        label.set_x(pivot_high_label, bar_index)
+    
+    if not na(pivot_low_line)
+        line.set_x2(pivot_low_line, bar_index)
+        label.set_x(pivot_low_label, bar_index)
+    
+    [bullishTouch, bearishTouch]
+
+// =============================================================================
+// PLOT LINES FOR EACH TIMEFRAME
+// =============================================================================
+
+if use_tf1
+    [bullishTouch1, bearishTouch1] = plot_lines_enhanced(tf1_color, tf1_mid_color, high1, low1, mid1, start1, inRange1, newBar1, use_tf1_mid, bullishTouch1, bearishTouch1, "4H", pivot_high1, pivot_low1, pivot_high_time1, pivot_low_time1, sfp_bearish1, sfp_bullish1, sfp_bearish_time1, sfp_bullish_time1)
+if use_tf2
+    [bullishTouch2, bearishTouch2] = plot_lines_enhanced(tf2_color, tf2_mid_color, high2, low2, mid2, start2, inRange2, newBar2, use_tf2_mid, bullishTouch2, bearishTouch2, "6H", pivot_high2, pivot_low2, pivot_high_time2, pivot_low_time2, sfp_bearish2, sfp_bullish2, sfp_bearish_time2, sfp_bullish_time2)
+if use_tf3
+    [bullishTouch3, bearishTouch3] = plot_lines_enhanced(tf3_color, tf3_mid_color, high3, low3, mid3, start3, inRange3, newBar3, use_tf3_mid, bullishTouch3, bearishTouch3, "D", pivot_high3, pivot_low3, pivot_high_time3, pivot_low_time3, sfp_bearish3, sfp_bullish3, sfp_bearish_time3, sfp_bullish_time3)
+if use_tf4
+    [bullishTouch4, bearishTouch4] = plot_lines_enhanced(tf4_color, tf4_mid_color, high4, low4, mid4, start4, inRange4, newBar4, use_tf4_mid, bullishTouch4, bearishTouch4, "2D", pivot_high4, pivot_low4, pivot_high_time4, pivot_low_time4, sfp_bearish4, sfp_bullish4, sfp_bearish_time4, sfp_bullish_time4)
+if use_tf5
+    [bullishTouch5, bearishTouch5] = plot_lines_enhanced(tf5_color, tf5_mid_color, high5, low5, mid5, start5, inRange5, newBar5, use_tf5_mid, bullishTouch5, bearishTouch5, "3D", pivot_high5, pivot_low5, pivot_high_time5, pivot_low_time5, sfp_bearish5, sfp_bullish5, sfp_bearish_time5, sfp_bullish_time5)
+if use_tf6
+    [bullishTouch6, bearishTouch6] = plot_lines_enhanced(tf6_color, tf6_mid_color, high6, low6, mid6, start6, inRange6, newBar6, use_tf6_mid, bullishTouch6, bearishTouch6, "W", pivot_high6, pivot_low6, pivot_high_time6, pivot_low_time6, sfp_bearish6, sfp_bullish6, sfp_bearish_time6, sfp_bullish_time6)
+if use_tf7
+    [bullishTouch7, bearishTouch7] = plot_lines_enhanced(tf7_color, tf7_mid_color, high7, low7, mid7, start7, inRange7, newBar7, use_tf7_mid, bullishTouch7, bearishTouch7, "M", pivot_high7, pivot_low7, pivot_high_time7, pivot_low_time7, sfp_bearish7, sfp_bullish7, sfp_bearish_time7, sfp_bullish_time7)
+if use_tf8
+    [bullishTouch8, bearishTouch8] = plot_lines_enhanced(tf8_color, tf8_mid_color, high8, low8, mid8, start8, inRange8, newBar8, use_tf8_mid, bullishTouch8, bearishTouch8, "3M", pivot_high8, pivot_low8, pivot_high_time8, pivot_low_time8, sfp_bearish8, sfp_bullish8, sfp_bearish_time8, sfp_bullish_time8)
+if use_tf9
+    [bullishTouch9, bearishTouch9] = plot_lines_enhanced(tf9_color, tf9_mid_color, high9, low9, mid9, start9, inRange9, newBar9, use_tf9_mid, bullishTouch9, bearishTouch9, "6M", pivot_high9, pivot_low9, pivot_high_time9, pivot_low_time9, sfp_bearish9, sfp_bullish9, sfp_bearish_time9, sfp_bullish_time9)
+
+// =============================================================================
+// LABEL MANAGEMENT FUNCTIONS
+// =============================================================================
+
+// Function to convert string input to label style
+getLabelStyle(styleString) =>
+    switch styleString
+        "None" => label.style_none
+        "Label Up" => label.style_label_up
+        "Label Down" => label.style_label_down
+        "Label Left" => label.style_label_left
+        "Label Right" => label.style_label_right
+        "Label Center" => label.style_label_center
+        "Triangle Up" => label.style_triangleup
+        "Triangle Down" => label.style_triangledown
+        "Flag" => label.style_flag
+        "Circle" => label.style_circle
+        "Square" => label.style_square
+        "Diamond" => label.style_diamond
+        "Cross" => label.style_cross
+        "X-Cross" => label.style_xcross
+        "Arrow Up" => label.style_arrowup
+        "Arrow Down" => label.style_arrowdown
+        => label.style_label_up  // default
+
+// Function to convert string input to size
+getLabelSize(sizeString) =>
+    switch sizeString
+        "Auto" => size.auto
+        "Tiny" => size.tiny
+        "Small" => size.small
+        "Normal" => size.normal
+        "Large" => size.large
+        "Huge" => size.huge
+        => size.auto  // default
+
+// Optimized label management
+var label[] labels = array.new_label()
+
+manageLabelCount(labelText, y, bgColor, textColor, style, size) =>
+    if array.size(labels) >= max_labels
+        label.delete(array.shift(labels))
+    newLabel = label.new(bar_index, y, labelText, color=bgColor, textcolor=textColor, style=style, size=size)
+    array.push(labels, newLabel)
+
+// Function to check and create labels for a timeframe
+checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
+    if show and bullishTouch
+        manageLabelCount("BT-" + tfText, low, bullishBgColor, bullishTextColor, getLabelStyle(bullishLabelStyle), getLabelSize(labelSize))
+    if show and bearishTouch
+        manageLabelCount("BT-" + tfText, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
+
+// =============================================================================
+// APPLY LABELS FOR EACH TIMEFRAME
+// =============================================================================
+
+checkAndCreateLabel(show_m30_labels, bullishTouch1, bearishTouch1, "4H")
+checkAndCreateLabel(show_h1_labels, bullishTouch2, bearishTouch2, "6H")
+checkAndCreateLabel(show_h2_labels, bullishTouch3, bearishTouch3, "D")
+checkAndCreateLabel(show_h4_labels, bullishTouch4, bearishTouch4, "2D")
+checkAndCreateLabel(show_daily_labels, bullishTouch5, bearishTouch5, "3D")
+checkAndCreateLabel(show_weekly_labels, bullishTouch6, bearishTouch6, "W")
+checkAndCreateLabel(show_monthly_labels, bullishTouch7, bearishTouch7, "M")
+
+// =============================================================================
+// ALERT CONDITIONS
+// =============================================================================
+
+// SFP and Pivot alerts
+if alert_on_sfp and (not na(sfp_bearish1) or not na(sfp_bearish2) or not na(sfp_bearish3) or not na(sfp_bearish4) or not na(sfp_bearish5) or not na(sfp_bearish6) or not na(sfp_bearish7) or not na(sfp_bearish8) or not na(sfp_bearish9) or not na(sfp_bullish1) or not na(sfp_bullish2) or not na(sfp_bullish3) or not na(sfp_bullish4) or not na(sfp_bullish5) or not na(sfp_bullish6) or not na(sfp_bullish7) or not na(sfp_bullish8) or not na(sfp_bullish9))
+    alert("SFP detected", alert.freq_once_per_bar_close)
+
+if alert_on_pivot and (not na(pivot_high1) or not na(pivot_high2) or not na(pivot_high3) or not na(pivot_high4) or not na(pivot_high5) or not na(pivot_high6) or not na(pivot_high7) or not na(pivot_high8) or not na(pivot_high9) or not na(pivot_low1) or not na(pivot_low2) or not na(pivot_low3) or not na(pivot_low4) or not na(pivot_low5) or not na(pivot_low6) or not na(pivot_low7) or not na(pivot_low8) or not na(pivot_low9))
+    alert("Pivot detected", alert.freq_once_per_bar_close)
+
+// Touch alerts
+if alert_on_m30 and (bullishTouch1 or bearishTouch1)
+    alert("4H touch detected", alert.freq_once_per_bar_close)
+
+if alert_on_h1 and (bullishTouch2 or bearishTouch2)
+    alert("6H touch detected", alert.freq_once_per_bar_close)
+
+if alert_on_h2 and (bullishTouch3 or bearishTouch3)
+    alert("Daily touch detected", alert.freq_once_per_bar_close)
+
+if alert_on_h4 and (bullishTouch4 or bearishTouch4)
+    alert("2D touch detected", alert.freq_once_per_bar_close)
+
+if alert_on_daily and (bullishTouch5 or bearishTouch5)
+    alert("3D touch detected", alert.freq_once_per_bar_close)
+
+if alert_on_weekly and (bullishTouch6 or bearishTouch6)
+    alert("Weekly touch detected", alert.freq_once_per_bar_close)
+
+if alert_on_monthly and (bullishTouch7 or bearishTouch7)
+    alert("Monthly touch detected", alert.freq_once_per_bar_close)
