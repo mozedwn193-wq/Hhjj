@@ -110,7 +110,17 @@ oe_allow_on_trend = input.bool(true, "Allow on Trend bar", group=g_OE)
 // By Wick Dominance
 oe_wick_ratio = input.float(1.2, "Wick dominance ratio (touched wick vs opposite)", minval=1.0, step=0.05, group=g_OE)
 // By Lower TF Sequence
-oe_seq_ltf = input.timeframe("5", "Sequence check LTF", group=g_OE)
+oe_seq_ltf = input.timeframe("5", "Sequence check LTF (fallback)", group=g_OE)
+
+// Map HTF -> LTF for sequence mode based on user's rules
+resolve_seq_ltf(tfStr) =>
+    // Weekly -> 4H, Monthly -> 1D, Daily -> 1H, 4H -> 15m, 1H -> 5m
+    tfStr == tf6 ? "240" :
+    tfStr == tf7 ? "D"   :
+    tfStr == tf5 ? "60"  :
+    tfStr == tf4 ? "15"  :
+    tfStr == tf2 ? "5"   :
+    oe_seq_ltf
 
 // ---------- Core ----------
 process_tf(tf) =>
