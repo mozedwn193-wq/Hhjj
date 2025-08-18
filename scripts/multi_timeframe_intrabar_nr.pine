@@ -1,0 +1,249 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Zidanola
+
+//@version=5
+indicator("Multi-Timeframe Intrabar NR", overlay=true, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+
+max_bars_back(time, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(close, 5000)
+max_bars_back(open, 5000)
+
+//==================== Inputs ====================//
+var g_TF = "Timeframes"
+use_tf1 = input.bool(true, "30 Minutes", inline="TF1", group=g_TF)
+tf1 = input.timeframe("30", "", inline="TF1", group=g_TF)
+tf1_color = input.color(color.new(#FF1493, 70), "", inline="TF1", group=g_TF)
+use_tf1_mid = input.bool(true, "50% Level", inline="TF1M", group=g_TF)
+tf1_mid_color = input.color(color.new(#FF1493, 50), "", inline="TF1M", group=g_TF)
+
+use_tf2 = input.bool(true, "1 Hour", inline="TF2", group=g_TF)
+tf2 = input.timeframe("60", "", inline="TF2", group=g_TF)
+tf2_color = input.color(color.new(#FF4500, 70), "", inline="TF2", group=g_TF)
+use_tf2_mid = input.bool(true, "50% Level", inline="TF2M", group=g_TF)
+tf2_mid_color = input.color(color.new(#FF4500, 50), "", inline="TF2M", group=g_TF)
+
+use_tf3 = input.bool(true, "2 Hours", inline="TF3", group=g_TF)
+tf3 = input.timeframe("120", "", inline="TF3", group=g_TF)
+tf3_color = input.color(color.new(#32CD32, 70), "", inline="TF3", group=g_TF)
+use_tf3_mid = input.bool(true, "50% Level", inline="TF3M", group=g_TF)
+tf3_mid_color = input.color(color.new(#32CD32, 50), "", inline="TF3M", group=g_TF)
+
+use_tf4 = input.bool(true, "4 Hours", inline="TF4", group=g_TF)
+tf4 = input.timeframe("240", "", inline="TF4", group=g_TF)
+tf4_color = input.color(color.new(#1E90FF, 70), "", inline="TF4", group=g_TF)
+use_tf4_mid = input.bool(true, "50% Level", inline="TF4M", group=g_TF)
+tf4_mid_color = input.color(color.new(#1E90FF, 50), "", inline="TF4M", group=g_TF)
+
+use_tf5 = input.bool(true, "Daily", inline="TF5", group=g_TF)
+tf5 = input.timeframe("D", "", inline="TF5", group=g_TF)
+tf5_color = input.color(color.new(#9932CC, 70), "", inline="TF5", group=g_TF)
+use_tf5_mid = input.bool(true, "50% Level", inline="TF5M", group=g_TF)
+tf5_mid_color = input.color(color.new(#9932CC, 50), "", inline="TF5M", group=g_TF)
+
+use_tf6 = input.bool(true, "Weekly", inline="TF6", group=g_TF)
+tf6 = input.timeframe("W", "", inline="TF6", group=g_TF)
+tf6_color = input.color(color.new(#FFD700, 70), "", inline="TF6", group=g_TF)
+use_tf6_mid = input.bool(true, "50% Level", inline="TF6M", group=g_TF)
+tf6_mid_color = input.color(color.new(#FFD700, 50), "", inline="TF6M", group=g_TF)
+
+use_tf7 = input.bool(true, "Monthly", inline="TF7", group=g_TF)
+tf7 = input.timeframe("M", "", inline="TF7", group=g_TF)
+tf7_color = input.color(color.new(#FF69B4, 70), "", inline="TF7", group=g_TF)
+use_tf7_mid = input.bool(true, "50% Level", inline="TF7M", group=g_TF)
+tf7_mid_color = input.color(color.new(#FF69B4, 50), "", inline="TF7M", group=g_TF)
+
+var g_ALERT = "Alert Options"
+alert_on_m30   = input.bool(false, "Alert on M30 touch", group=g_ALERT)
+alert_on_h1    = input.bool(false, "Alert on H1 touch", group=g_ALERT)
+alert_on_h2    = input.bool(false, "Alert on H2 touch", group=g_ALERT)
+alert_on_h4    = input.bool(false, "Alert on H4 touch", group=g_ALERT)
+alert_on_daily = input.bool(false, "Alert on Daily touch", group=g_ALERT)
+alert_on_weekly = input.bool(false, "Alert on Weekly touch", group=g_ALERT)
+alert_on_monthly = input.bool(false, "Alert on Monthly touch", group=g_ALERT)
+
+var g_OPT = "Options"
+minbars = input.int(1, "Minimum Bars", group=g_OPT)
+maxbars = input.int(250, "Maximum Bars", group=g_OPT)
+hllinewidth = input.int(2, "High/Low Line Width", group=g_OPT)
+midlinewidth = input.int(1, "Mid Line Width", group=g_OPT)
+
+var g_TOUCH = "Touch Options"
+use_wick_touch = input.bool(true, "Use Wick Touch", group=g_TOUCH)
+use_body_touch = input.bool(true, "Use Body Touch", group=g_TOUCH)
+require_close_inside = input.bool(true, "Require close back inside", group=g_TOUCH)
+touch_buffer_ticks = input.int(0, "Touch buffer (ticks)", minval=0, group=g_TOUCH)
+atr_buffer_mult = input.float(0.15, "ATR buffer (x ATR)", minval=0.0, step=0.01, group=g_TOUCH)
+displacement_ratio = input.float(0.40, "Min body/TR for reclaim", minval=0.0, maxval=1.0, step=0.01, group=g_TOUCH)
+
+//==================== Core ====================//
+process_tf(tf) =>
+    // Previous closed HTF candle values (non-repaint)
+    [tfO, tfH, tfL, tfC, tfT] = request.security(syminfo.tickerid, tf, [open, high, low, close, time], barmerge.gaps_off, barmerge.lookahead_off)
+    newHTF = ta.change(tfT)
+    prevH = tfH[1]
+    prevL = tfL[1]
+    prevMid = (prevH + prevL) / 2
+
+    // Basic validity
+    valid = not na(prevH) and not na(prevL)
+
+    // Buffer
+    atrBuf = ta.atr(14) * atr_buffer_mult
+    buf = math.max(touch_buffer_ticks * syminfo.mintick, atrBuf)
+
+    // Reclaim and displacement filters
+    trNow = ta.tr(true)
+    bullReclaim = require_close_inside ? close >= prevL - buf : true
+    bearReclaim = require_close_inside ? close <= prevH + buf : true
+    bullDisplacement = (close - open) >= trNow * displacement_ratio
+    bearDisplacement = (open - close) >= trNow * displacement_ratio
+
+    bullWick = low <= prevL + buf and high < prevH + buf
+    bearWick = high >= prevH - buf and low  > prevL - buf
+    bullBody = open <= prevL + buf and close >= prevL - buf
+    bearBody = open >= prevH - buf and close <= prevH + buf
+
+    bullTouch = valid and ((use_wick_touch and bullWick) or (use_body_touch and bullBody)) and bullReclaim and bullDisplacement
+    bearTouch = valid and ((use_wick_touch and bearWick) or (use_body_touch and bearBody)) and bearReclaim and bearDisplacement
+
+    [prevH, prevL, prevMid, newHTF, bullTouch, bearTouch, valid]
+
+// Compute all TFs
+[h1, l1, m1, nb1, bt1, be1, ok1] = process_tf(tf1)
+[h2, l2, m2, nb2, bt2, be2, ok2] = process_tf(tf2)
+[h3, l3, m3, nb3, bt3, be3, ok3] = process_tf(tf3)
+[h4, l4, m4, nb4, bt4, be4, ok4] = process_tf(tf4)
+[h5, l5, m5, nb5, bt5, be5, ok5] = process_tf(tf5)
+[h6, l6, m6, nb6, bt6, be6, ok6] = process_tf(tf6)
+[h7, l7, m7, nb7, bt7, be7, ok7] = process_tf(tf7)
+
+//==================== Drawing ====================//
+var line[] highLines = array.new_line()
+var line[] lowLines  = array.new_line()
+var line[] midLines  = array.new_line()
+var label[] highLabels = array.new_label()
+var label[] lowLabels  = array.new_label()
+
+ensure(idx) =>
+    while array.size(highLines) <= idx
+        array.push(highLines, na)
+        array.push(lowLines,  na)
+        array.push(midLines,  na)
+        array.push(highLabels, na)
+        array.push(lowLabels,  na)
+
+plot_tf(idx, tfName, hc, mc, cHigh, cLow, cMid, newHTF, useMid) =>
+    ensure(idx)
+    hi = array.get(highLines, idx)
+    lo = array.get(lowLines,  idx)
+    mi = array.get(midLines,  idx)
+    hL = array.get(highLabels, idx)
+    lL = array.get(lowLabels,  idx)
+
+    if newHTF and not na(cHigh)
+        if not na(hi)
+            line.delete(hi)
+            line.delete(lo)
+            if not na(mi)
+                line.delete(mi)
+        if not na(hL)
+            label.delete(hL)
+            label.delete(lL)
+
+        hi := line.new(bar_index, cHigh, bar_index, cHigh, color=hc, width=hllinewidth)
+        lo := line.new(bar_index, cLow,  bar_index, cLow,  color=hc, width=hllinewidth)
+        if useMid
+            mi := line.new(bar_index, cMid,  bar_index, cMid,  color=mc, width=midlinewidth, style=line.style_dashed)
+        hL := label.new(bar_index + 5, cHigh, tfName + " High", style=label.style_none, color=color.new(hc, 80), textcolor=hc, size=size.tiny)
+        lL := label.new(bar_index + 5, cLow,  tfName + " Low",  style=label.style_none, color=color.new(hc, 80), textcolor=hc, size=size.tiny)
+
+        array.set(highLines, idx, hi)
+        array.set(lowLines,  idx, lo)
+        array.set(midLines,  idx, mi)
+        array.set(highLabels, idx, hL)
+        array.set(lowLabels,  idx, lL)
+
+    if not na(hi)
+        line.set_x2(hi, bar_index)
+        line.set_x2(lo, bar_index)
+        if useMid and not na(mi)
+            line.set_x2(mi, bar_index)
+        if not na(hL)
+            label.set_x(hL, bar_index + 5)
+            label.set_y(hL, cHigh)
+            label.set_x(lL, bar_index + 5)
+            label.set_y(lL, cLow)
+
+// Plot each TF
+if use_tf1 and ok1
+    plot_tf(0, "M30", tf1_color, tf1_mid_color, h1, l1, m1, nb1, use_tf1_mid)
+if use_tf2 and ok2
+    plot_tf(1, "H1", tf2_color, tf2_mid_color, h2, l2, m2, nb2, use_tf2_mid)
+if use_tf3 and ok3
+    plot_tf(2, "H2", tf3_color, tf3_mid_color, h3, l3, m3, nb3, use_tf3_mid)
+if use_tf4 and ok4
+    plot_tf(3, "H4", tf4_color, tf4_mid_color, h4, l4, m4, nb4, use_tf4_mid)
+if use_tf5 and ok5
+    plot_tf(4, "D", tf5_color, tf5_mid_color, h5, l5, m5, nb5, use_tf5_mid)
+if use_tf6 and ok6
+    plot_tf(5, "W", tf6_color, tf6_mid_color, h6, l6, m6, nb6, use_tf6_mid)
+if use_tf7 and ok7
+    plot_tf(6, "M", tf7_color, tf7_mid_color, h7, l7, m7, nb7, use_tf7_mid)
+
+//==================== Labels & Alerts ====================//
+var label[] labels = array.new_label()
+max_labels = input.int(40, "Max labels", minval=1, maxval=300)
+
+mkLabel(txt, y, bg, fg) =>
+    if array.size(labels) >= max_labels
+        label.delete(array.shift(labels))
+    array.push(labels, label.new(bar_index, y, txt, color=bg, textcolor=fg, style=label.style_label_left, size=size.tiny))
+
+// Touch markers
+if bt1
+    mkLabel("BT-M30", low, color.new(color.green, 60), color.green)
+if be1
+    mkLabel("BT-M30", high, color.new(color.red, 60), color.red)
+if bt2
+    mkLabel("BT-H1", low, color.new(color.green, 60), color.green)
+if be2
+    mkLabel("BT-H1", high, color.new(color.red, 60), color.red)
+if bt3
+    mkLabel("BT-H2", low, color.new(color.green, 60), color.green)
+if be3
+    mkLabel("BT-H2", high, color.new(color.red, 60), color.red)
+if bt4
+    mkLabel("BT-H4", low, color.new(color.green, 60), color.green)
+if be4
+    mkLabel("BT-H4", high, color.new(color.red, 60), color.red)
+if bt5
+    mkLabel("BT-D", low, color.new(color.green, 60), color.green)
+if be5
+    mkLabel("BT-D", high, color.new(color.red, 60), color.red)
+if bt6
+    mkLabel("BT-W", low, color.new(color.green, 60), color.green)
+if be6
+    mkLabel("BT-W", high, color.new(color.red, 60), color.red)
+if bt7
+    mkLabel("BT-M", low, color.new(color.green, 60), color.green)
+if be7
+    mkLabel("BT-M", high, color.new(color.red, 60), color.red)
+
+// Alerts (bar close only)
+if alert_on_m30 and (bt1 or be1)
+    alert("M30 touch (NR)", alert.freq_once_per_bar_close)
+if alert_on_h1 and (bt2 or be2)
+    alert("H1 touch (NR)", alert.freq_once_per_bar_close)
+if alert_on_h2 and (bt3 or be3)
+    alert("H2 touch (NR)", alert.freq_once_per_bar_close)
+if alert_on_h4 and (bt4 or be4)
+    alert("H4 touch (NR)", alert.freq_once_per_bar_close)
+if alert_on_daily and (bt5 or be5)
+    alert("D touch (NR)", alert.freq_once_per_bar_close)
+if alert_on_weekly and (bt6 or be6)
+    alert("W touch (NR)", alert.freq_once_per_bar_close)
+if alert_on_monthly and (bt7 or be7)
+    alert("M touch (NR)", alert.freq_once_per_bar_close)
+
