@@ -90,8 +90,17 @@ var g_TOUCH = "Touch Options"
 use_wick_touch = input.bool(true, "Use Wick Touch", group=g_TOUCH)
 use_body_touch = input.bool(true, "Use Body Touch", group=g_TOUCH)
 require_close_inside = input.bool(true, "Require close back inside", group=g_TOUCH)
-allow_opposite_edge_hit = input.bool(true, "Allow opposite edge hit in same bar", group=g_TOUCH)
 touch_buffer_ticks = input.int(0, "Touch buffer (ticks)", minval=0, group=g_TOUCH)
+
+// Opposite-edge allowance rules
+var g_OE = "Opposite-Edge Rules"
+oe_mode = input.string("By Candle Type", "Opposite-edge mode", options=["Always On", "Always Off", "By Candle Type"], group=g_OE)
+oe_atr_len = input.int(14, "ATR Length", minval=1, group=g_OE)
+oe_atr_mult = input.float(1.5, "Wide-range ATR multiplier", minval=0.1, step=0.1, group=g_OE)
+oe_trend_body_ratio = input.float(0.6, "Trend bar min body/TR", minval=0.0, maxval=1.0, step=0.05, group=g_OE)
+oe_allow_on_wide = input.bool(true, "Allow on Wide-Range bar", group=g_OE)
+oe_allow_on_outside = input.bool(true, "Allow on Outside bar", group=g_OE)
+oe_allow_on_trend = input.bool(true, "Allow on Trend bar", group=g_OE)
 
 // ---------- Core ----------
 process_tf(tf) =>
@@ -134,12 +143,21 @@ process_tf(tf) =>
         // Close-back-inside rules
         closeBackAboveLow  = close >= rangeLow  - buf
         closeBackBelowHigh = close <= rangeHigh + buf
-        // Opposite-edge rule
+        // Opposite-edge rule based on candle type
+        tr = ta.tr(true)
+        atrVal = ta.atr(oe_atr_len)
+        isWide = tr >= oe_atr_mult * atrVal
+        body = math.abs(close - open)
+        range = math.max(high - low, syminfo.mintick)
+        bodyToTr = body / range
+        isTrend = bodyToTr >= oe_trend_body_ratio
+        isOutside = high > high[1] and low < low[1]
+        allowOpp = oe_mode == "Always On" ? true : oe_mode == "Always Off" ? false : ((oe_allow_on_wide and isWide) or (oe_allow_on_outside and isOutside) or (oe_allow_on_trend and isTrend))
         hitOppositeOnBull = highHit
         hitOppositeOnBear = lowHit
 
-        bullishWickTouch = lowHit and (require_close_inside ? closeBackAboveLow : true) and (allow_opposite_edge_hit ? true : not hitOppositeOnBull)
-        bearishWickTouch = highHit and (require_close_inside ? closeBackBelowHigh : true) and (allow_opposite_edge_hit ? true : not hitOppositeOnBear)
+        bullishWickTouch = lowHit and (require_close_inside ? closeBackAboveLow : true) and (allowOpp ? true : not hitOppositeOnBull)
+        bearishWickTouch = highHit and (require_close_inside ? closeBackBelowHigh : true) and (allowOpp ? true : not hitOppositeOnBear)
         bullishBodyTouch = (open <= rangeLow + buf and close >= rangeLow - buf)
         bearishBodyTouch = (open >= rangeHigh - buf and close <= rangeHigh + buf)
 
