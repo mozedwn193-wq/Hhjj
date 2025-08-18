@@ -154,8 +154,8 @@ process_tf(tf) =>
         atrVal = ta.atr(oe_atr_len)
         isWide = tr >= oe_atr_mult * atrVal
         body = math.abs(close - open)
-        range = math.max(high - low, syminfo.mintick)
-        bodyToRange = body / range
+        barRange = math.max(high - low, syminfo.mintick)
+        bodyToRange = body / barRange
         isTrend = bodyToRange >= oe_trend_body_ratio
         isOutside = high > high[1] and low < low[1]
         isBull = close > open
