@@ -1,0 +1,200 @@
+//@version=6
+indicator("ICT HTF Sweep Mapper (HTF↔LTF, realtime)", overlay=true, max_lines_count=1000, max_labels_count=1000)
+
+// ---------- Controls ----------
+var g_CORE = "Core"
+show_lines     = input.bool(true,  "Draw prev HTF ranges/50%", group=g_CORE)
+show_labels    = input.bool(true,  "Show sweep/confirm labels", group=g_CORE)
+do_alerts      = input.bool(false, "Alerts",                   group=g_CORE)
+
+var g_RULES = "Rules"
+confirm_window = input.int(3, "Confirm within N LTF bars", minval=1, maxval=10, group=g_RULES)
+need_dir_body  = input.bool(true, "Directional body on confirm (up for bull, down for bear)", group=g_RULES)
+min_penetr_pct = input.float(0.0, "Min sweep penetration (% of prev HTF range)", minval=0, maxval=50, step=0.1, group=g_RULES)
+use_wick_only  = input.bool(true,  "Fire on wick-only sweep",  group=g_RULES)
+use_body_back  = input.bool(true,  "Fire on close-back-into prev HTF body", group=g_RULES)
+use_eq_cross   = input.bool(true,  "Confirm on cross of prev HTF 50% (EQ)",  group=g_RULES)
+
+var g_COL = "Colors"
+col_wick_bull = input.color(color.teal,     "Wick Bull", group=g_COL)
+col_wick_bear = input.color(color.red,      "Wick Bear", group=g_COL)
+col_body_bull = input.color(#00bcd4,        "Body Bull", group=g_COL)
+col_body_bear = input.color(#e91e63,        "Body Bear", group=g_COL)
+col_eq        = input.color(color.new(color.orange, 0), "EQ 50%", group=g_COL)
+col_h         = input.color(color.new(color.fuchsia,  40), "Prev HTF High", group=g_COL)
+col_l         = input.color(color.new(color.aqua,     40), "Prev HTF Low",  group=g_COL)
+
+// ---------- Pair selector ----------
+var g_PAIRS = "Pairs"
+
+p6m_on = input.bool(true,  "6M → (W/D)", group=g_PAIRS, inline="6m")
+p6m_ltf= input.string("W", "",           options=["W","D"], group=g_PAIRS, inline="6m")
+
+p3m_on = input.bool(true,  "3M → (W/D)", group=g_PAIRS, inline="3m")
+p3m_ltf= input.string("W", "",           options=["W","D"], group=g_PAIRS, inline="3m")
+
+p1m_on = input.bool(true,  "1M → D",     group=g_PAIRS)
+pwk_on = input.bool(true,  "1W → 4H",    group=g_PAIRS)
+p1d_on = input.bool(true,  "1D → 1H",    group=g_PAIRS)
+p4h_on = input.bool(true,  "4H → 15m",   group=g_PAIRS)
+p1h_on = input.bool(true,  "1H → 5m",    group=g_PAIRS)
+p15_on = input.bool(true,  "15m → 1m",   group=g_PAIRS)
+
+// ---------- Early Entry (re-entry into prev HTF body) ----------
+var g_EE = "Early Entry"
+ee_enable = input.bool(true,  "Enable early entry (re-entry to prev HTF body)", group=g_EE)
+ee_alerts = input.bool(false, "Alerts on early entry", group=g_EE)
+
+// ---------- Core mapper ----------
+type MapState
+    int  sweepSide     //  1 bull (swept prev Low), -1 bear (swept prev High), 0 none
+    int  sweepLtfBars  //  ltf bars since sweep
+    int  sweepBarIdx
+    float sweepLevel
+    bool confirmed
+
+map_pair(string name, string htf, string ltf) =>
+    // Prev HTF candle
+    pO = request.security(syminfo.tickerid, htf, open[1],  barmerge.gaps_off, barmerge.lookahead_off)
+    pH = request.security(syminfo.tickerid, htf, high[1],  barmerge.gaps_off, barmerge.lookahead_off)
+    pL = request.security(syminfo.tickerid, htf, low[1],   barmerge.gaps_off, barmerge.lookahead_off)
+    pC = request.security(syminfo.tickerid, htf, close[1], barmerge.gaps_off, barmerge.lookahead_off)
+    bodyLo  = math.min(pO, pC)
+    bodyHi  = math.max(pO, pC)
+    rng     = math.max(pH - pL, syminfo.mintick)
+    eq50    = (pH + pL) / 2.0
+
+    // LTF series (live)
+    lO = request.security(syminfo.tickerid, ltf, open,  barmerge.gaps_off, barmerge.lookahead_on)
+    lH = request.security(syminfo.tickerid, ltf, high,  barmerge.gaps_off, barmerge.lookahead_on)
+    lL = request.security(syminfo.tickerid, ltf, low,   barmerge.gaps_off, barmerge.lookahead_on)
+    lC = request.security(syminfo.tickerid, ltf, close, barmerge.gaps_off, barmerge.lookahead_on)
+    lT = request.security(syminfo.tickerid, ltf, time,  barmerge.gaps_off, barmerge.lookahead_on)
+    newL = ta.change(lT) != 0
+
+    // Sweep candidates (live)
+    penBull = ((pL - lL) / rng) * 100.0
+    penBear = ((lH - pH) / rng) * 100.0
+    wickBull = lL < pL and (penBull >= min_penetr_pct)
+    wickBear = lH > pH and (penBear >= min_penetr_pct)
+    bodyBull = wickBull and (lC >= bodyLo and lC <= bodyHi)
+    bodyBear = wickBear and (lC >= bodyLo and lC <= bodyHi)
+
+    // Fire rules
+    bullFire = (use_body_back and bodyBull) or (use_wick_only and wickBull)
+    bearFire = (use_body_back and bodyBear) or (use_wick_only and wickBear)
+
+    // State
+    var MapState S = MapState.new(0, 0, na, na, false)
+    if newL
+        // bump timer
+        S.sweepLtfBars := S.sweepSide != 0 ? S.sweepLtfBars + 1 : 0
+        // window expiry
+        if S.sweepSide != 0 and S.sweepLtfBars > confirm_window
+            S.sweepSide := 0
+            S.confirmed := false
+            S.sweepLevel := na
+            S.sweepBarIdx := na
+
+    // On sweep
+    if bullFire
+        S.sweepSide := 1
+        S.sweepLtfBars := 0
+        S.sweepBarIdx := bar_index
+        S.sweepLevel := pL
+        S.confirmed := false
+        if show_labels
+            label.new(bar_index, pL, "SW+ " + name, color=color.new(color.white,100),
+                      textcolor= (use_body_back and bodyBull) ? col_body_bull : col_wick_bull,
+                      style=label.style_label_up, size=size.tiny)
+    if bearFire
+        S.sweepSide := -1
+        S.sweepLtfBars := 0
+        S.sweepBarIdx := bar_index
+        S.sweepLevel := pH
+        S.confirmed := false
+        if show_labels
+            label.new(bar_index, pH, "SW- " + name, color=color.new(color.white,100),
+                      textcolor= (use_body_back and bodyBear) ? col_body_bear : col_wick_bear,
+                      style=label.style_label_down, size=size.tiny)
+
+    // Confirmation (within window)
+    dirUp = lC > lO
+    dirDn = lC < lO
+    bullConfirm = S.sweepSide == 1 and use_eq_cross and (lC > eq50) and (not need_dir_body or dirUp)
+    bearConfirm = S.sweepSide == -1 and use_eq_cross and (lC < eq50) and (not need_dir_body or dirDn)
+
+    // Early Entry: re-entry into prev HTF body within window (no EQ required)
+    earlyBull = ee_enable and S.sweepSide == 1 and (lC >= bodyLo and lC <= bodyHi) and (not need_dir_body or dirUp) and S.sweepLtfBars <= confirm_window and not S.confirmed
+    earlyBear = ee_enable and S.sweepSide == -1 and (lC >= bodyLo and lC <= bodyHi) and (not need_dir_body or dirDn) and S.sweepLtfBars <= confirm_window and not S.confirmed
+
+    if earlyBull and show_labels
+        label.new(bar_index, lC, "EE+ " + name, color=color.new(color.white,100), textcolor=col_body_bull, style=label.style_label_left, size=size.tiny)
+    if earlyBear and show_labels
+        label.new(bar_index, lC, "EE- " + name, color=color.new(color.white,100), textcolor=col_body_bear, style=label.style_label_left, size=size.tiny)
+    if ee_alerts
+        if earlyBull
+            alert("Early Entry + (" + name + ")", alert.freq_once_per_bar_close)
+        if earlyBear
+            alert("Early Entry - (" + name + ")", alert.freq_once_per_bar_close)
+
+    if (bullConfirm or bearConfirm) and not S.confirmed
+        S.confirmed := true
+        if show_labels
+            label.new(bar_index, eq50,
+                      (bullConfirm ? "+CONF " : "-CONF ") + name + " (EQ)",
+                      color=color.new(color.white,100),
+                      textcolor= bullConfirm ? col_body_bull : col_body_bear,
+                      style=label.style_label_left, size=size.tiny)
+            // mark original sweep source
+            if not na(S.sweepBarIdx)
+                label.new(S.sweepBarIdx, S.sweepLevel,
+                          "➜ " + (bullConfirm ? "+CONF" : "-CONF"),
+                          color=color.new(color.white,100),
+                          textcolor= bullConfirm ? col_body_bull : col_body_bear,
+                          style= bullConfirm ? label.style_label_up : label.style_label_down,
+                          size=size.tiny)
+        if do_alerts
+            alert("ICT CONF " + (bullConfirm ? "Bull" : "Bear") + " " + name, alert.freq_once_per_bar_close)
+
+    // Visuals (persistent lines per pair)
+    var line hLine = na
+    var line lLine = na
+    var line mLine = na
+    if show_lines
+        if na(hLine)
+            hLine := line.new(bar_index-1, pH, bar_index, pH, color=col_h, width=1)
+            lLine := line.new(bar_index-1, pL, bar_index, pL, color=col_l, width=1)
+            mLine := line.new(bar_index-1, eq50, bar_index, eq50, color=col_eq, width=1, style=line.style_dotted)
+        else
+            line.set_y1(hLine, pH), line.set_y2(hLine, pH), line.set_x2(hLine, bar_index)
+            line.set_y1(lLine, pL), line.set_y2(lLine, pL), line.set_x2(lLine, bar_index)
+            line.set_y1(mLine, eq50), line.set_y2(mLine, eq50), line.set_x2(mLine, bar_index)
+
+    // Outputs
+    [S, wickBull, wickBear, bodyBull, bodyBear, bullConfirm, bearConfirm, pH, pL, bodyLo, bodyHi, eq50]
+
+// ---------- Run pairs ----------
+run_pair(enable, htf, ltf, name) =>
+    if not enable
+        [MapState.new(0,0,na,na,false), false,false,false,false,false,false, na,na,na,na,na]
+    else
+        map_pair(name, htf, ltf)
+
+// 6M → W/D
+[S6, w6b, w6s, b6b, b6s, c6b, c6s, PH6, PL6, BLo6, BHi6, EQ6] = run_pair(p6m_on, "6M", p6m_ltf, "6M→"+p6m_ltf)
+// 3M → W/D
+[S3, w3b, w3s, b3b, b3s, c3b, c3s, PH3, PL3, BLo3, BHi3, EQ3] = run_pair(p3m_on, "3M", p3m_ltf, "3M→"+p3m_ltf)
+// 1M → D
+[SM, wMb, wMs, bMb, bMs, cMb, cMs, PHM, PLM, BLoM, BHiM, EQM] = run_pair(p1m_on, "M", "D", "1M→D")
+// 1W → 4H
+[SW, wWb, wWs, bWb, bWs, cWb, cWs, PHW, PLW, BLoW, BHiW, EQW] = run_pair(pwk_on, "W", "240", "W→H4")
+// 1D → 1H
+[SD, wDb, wDs, bDb, bDs, cDb, cDs, PHD, PLD, BLoD, BHiD, EQD] = run_pair(p1d_on, "D", "60", "D→H1")
+// 4H → 15m
+[S4, w4b, w4s, b4b, b4s, c4b, c4s, PH4, PL4, BLo4, BHi4, EQ4] = run_pair(p4h_on, "240", "15", "H4→M15")
+// 1H → 5m
+[S1, w1b, w1s, b1b, b1s, c1b, c1s, PH1, PL1, BLo1, BHi1, EQ1] = run_pair(p1h_on, "60", "5", "H1→M5")
+// 15m → 1m
+[S15, w15b, w15s, b15b, b15s, c15b, c15s, PH15, PL15, BLo15, BHi15, EQ15] = run_pair(p15_on, "15", "1", "M15→M1")
+
