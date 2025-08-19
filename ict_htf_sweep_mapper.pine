@@ -40,6 +40,11 @@ p4h_on = input.bool(true,  "4H → 15m",   group=g_PAIRS)
 p1h_on = input.bool(true,  "1H → 5m",    group=g_PAIRS)
 p15_on = input.bool(true,  "15m → 1m",   group=g_PAIRS)
 
+// ---------- Early Entry (re-entry into prev HTF body) ----------
+var g_EE = "Early Entry"
+ee_enable = input.bool(true,  "Enable early entry (re-entry to prev HTF body)", group=g_EE)
+ee_alerts = input.bool(false, "Alerts on early entry", group=g_EE)
+
 // ---------- Core mapper ----------
 type MapState
     int  sweepSide     //  1 bull (swept prev Low), -1 bear (swept prev High), 0 none
@@ -118,6 +123,20 @@ map_pair(string name, string htf, string ltf) =>
     dirDn = lC < lO
     bullConfirm = S.sweepSide == 1 and use_eq_cross and (lC > eq50) and (not need_dir_body or dirUp)
     bearConfirm = S.sweepSide == -1 and use_eq_cross and (lC < eq50) and (not need_dir_body or dirDn)
+
+    // Early Entry: re-entry into prev HTF body within window (no EQ required)
+    earlyBull = ee_enable and S.sweepSide == 1 and (lC >= bodyLo and lC <= bodyHi) and (not need_dir_body or dirUp) and S.sweepLtfBars <= confirm_window and not S.confirmed
+    earlyBear = ee_enable and S.sweepSide == -1 and (lC >= bodyLo and lC <= bodyHi) and (not need_dir_body or dirDn) and S.sweepLtfBars <= confirm_window and not S.confirmed
+
+    if earlyBull and show_labels
+        label.new(bar_index, lC, "EE+ " + name, color=color.new(color.white,100), textcolor=col_body_bull, style=label.style_label_left, size=size.tiny)
+    if earlyBear and show_labels
+        label.new(bar_index, lC, "EE- " + name, color=color.new(color.white,100), textcolor=col_body_bear, style=label.style_label_left, size=size.tiny)
+    if ee_alerts
+        if earlyBull
+            alert("Early Entry + (" + name + ")", alert.freq_once_per_bar_close)
+        if earlyBear
+            alert("Early Entry - (" + name + ")", alert.freq_once_per_bar_close)
 
     if (bullConfirm or bearConfirm) and not S.confirmed
         S.confirmed := true
