@@ -202,6 +202,11 @@ var array<box> arr_htf_boxes = array.new_box()
 var array<line> arr_htf_wick_up = array.new_line()
 var array<line> arr_htf_wick_dn = array.new_line()
 var int last_htf_count = na
+// Store last N HTF candles (for Right Offset) without additional request.security calls
+var array<float> ro = array.new_float() // open
+var array<float> rh = array.new_float() // high
+var array<float> rl = array.new_float() // low
+var array<float> rc = array.new_float() // close
 if plot_htf_ok and visual_mode == "Right Offset"
     // Ensure arrays contain exactly htf_show_count items
     if na(last_htf_count) or last_htf_count != htf_show_count
@@ -218,6 +223,15 @@ if plot_htf_ok and visual_mode == "Right Offset"
         array.clear(arr_htf_boxes)
         array.clear(arr_htf_wick_up)
         array.clear(arr_htf_wick_dn)
+        // Trim right-offset OHLC arrays to the new count
+        while array.size(ro) > htf_show_count
+            array.pop(ro)
+        while array.size(rh) > htf_show_count
+            array.pop(rh)
+        while array.size(rl) > htf_show_count
+            array.pop(rl)
+        while array.size(rc) > htf_show_count
+            array.pop(rc)
         for i = 0 to htf_show_count - 1
             bnew = box.new(bar_index + 1, na, bar_index + 1, na, border_color=color.new(color.white, 0), bgcolor=color.new(color.gray, 90))
             array.push(arr_htf_boxes, bnew)
@@ -229,18 +243,44 @@ if plot_htf_ok and visual_mode == "Right Offset"
 
     // Calculate spacing
     sep = htf_box_width + 1
-    // Collect last N HTF candle values via security with history
-    htf_o_n = request.security(syminfo.tickerid, htf_tf, open, barmerge.gaps_off, barmerge.lookahead_off)
-    htf_h_n = request.security(syminfo.tickerid, htf_tf, high, barmerge.gaps_off, barmerge.lookahead_off)
-    htf_l_n = request.security(syminfo.tickerid, htf_tf, low, barmerge.gaps_off, barmerge.lookahead_off)
-    htf_c_n = request.security(syminfo.tickerid, htf_tf, close, barmerge.gaps_off, barmerge.lookahead_off)
+    // Update rolling arrays when a new HTF bar starts
+    if ta.change(htf_t)
+        array.unshift(ro, htf_o)
+        array.unshift(rh, htf_h)
+        array.unshift(rl, htf_l)
+        array.unshift(rc, htf_c)
+        // Trim to keep at most htf_show_count
+        while array.size(ro) > htf_show_count
+            array.pop(ro)
+        while array.size(rh) > htf_show_count
+            array.pop(rh)
+        while array.size(rl) > htf_show_count
+            array.pop(rl)
+        while array.size(rc) > htf_show_count
+            array.pop(rc)
+
+    // Ensure at least one element exists
+    if array.size(ro) == 0
+        array.unshift(ro, htf_o)
+        array.unshift(rh, htf_h)
+        array.unshift(rl, htf_l)
+        array.unshift(rc, htf_c)
+        while array.size(ro) > htf_show_count
+            array.pop(ro)
+        while array.size(rh) > htf_show_count
+            array.pop(rh)
+        while array.size(rl) > htf_show_count
+            array.pop(rl)
+        while array.size(rc) > htf_show_count
+            array.pop(rc)
+
     // Update positions for each displayed slot i (0 newest)
-    for i = 0 to htf_show_count - 1
-        // visible index from history
-        oi = htf_o_n[i]
-        ci = htf_c_n[i]
-        hi = htf_h_n[i]
-        li = htf_l_n[i]
+    max_i = math.min(htf_show_count, array.size(ro)) - 1
+    for i = 0 to max_i
+        oi = array.get(ro, i)
+        ci = array.get(rc, i)
+        hi = array.get(rh, i)
+        li = array.get(rl, i)
         // compute position
         left_x = bar_index + htf_offset_bars + i * sep
         right_x = left_x + htf_box_width
