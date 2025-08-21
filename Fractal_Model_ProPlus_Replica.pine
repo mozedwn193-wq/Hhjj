@@ -30,7 +30,8 @@ show_formation_liquidity = input.bool(true, "Formation Liquidity (prev H/L)", gr
 // Projections / EQ / T-Spot
 g_proj = "Projections / EQ / T-Spot"
 enable_projections = input.bool(true, "Enable Projections", group=g_proj)
-proj_levels_str = input.string("-1,-2,-2.5,-4,-4.5", "Projection Levels", group=g_proj)
+proj_mode = input.string("Classic", "Projection Set", options=["Classic","Fibonacci","Custom"], group=g_proj)
+proj_levels_str = input.string("-1,-2,-2.5,-4,-4.5", "Custom Levels", group=g_proj)
 proj_use_wicks = input.bool(true, "Use Wick Extremes for Projection Unit", group=g_proj)
 show_eq = input.bool(true, "Show HTF EQ (50%)", group=g_proj)
 show_prev_eq = input.bool(true, "Show Previous HTF EQ", group=g_proj)
@@ -337,6 +338,10 @@ f_parse_proj_levels(levels_str) =>
     arr
 
 proj_levels = f_parse_proj_levels(proj_levels_str)
+if proj_mode == "Classic"
+    proj_levels := array.from(-1.0, -2.0, -2.5, -4.0, -4.5)
+if proj_mode == "Fibonacci"
+    proj_levels := array.from(-0.618, -1.0, -1.272, -1.618, -2.0)
 
 f_push_id(_line) => array.push(arr_proj_lines, _line)
 f_push_liq(_line) => array.push(arr_liq_lines, _line)
@@ -505,4 +510,3 @@ if show_table
     if show_warnings and warning_txt != ""
         table.cell(info_tbl, 0, 5, "Notice", text_color=color.silver, text_size=f_table_size(table_size))
         table.cell(info_tbl, 1, 5, warning_txt, text_color=col_warn, text_size=f_table_size(table_size))
-
