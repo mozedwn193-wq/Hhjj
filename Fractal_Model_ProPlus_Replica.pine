@@ -51,6 +51,11 @@ htf_offset_bars = input.int(24, "Right Offset (bars)", minval=1, maxval=480, gro
 htf_show_count = input.int(3, "HTF Candles to Display", minval=1, maxval=8, group=g_po3)
 htf_box_width = input.int(2, "HTF Candle Width (bars)", minval=1, maxval=10, group=g_po3)
 
+// Sweeps / Confirmation
+g_sweep = "Sweeps / Confirmation"
+require_htf_sweep = input.bool(true, "Require HTF Sweep for Setups", group=g_sweep, tooltip="The HTF candle must sweep previous HTF high/low (C2) before LTF setup is allowed.")
+confirm_with_ltf_cisd = input.bool(true, "Require LTF CISD Confirmation", group=g_sweep)
+
 // Time Filters
 g_time = "Time Filters"
 enable_time_filters = input.bool(true, "Enable Time Filters", group=g_time)
@@ -135,8 +140,10 @@ htf_c = request.security(syminfo.tickerid, htf_tf, close, barmerge.gaps_off, bar
 htf_t = request.security(syminfo.tickerid, htf_tf, time, barmerge.gaps_off, barmerge.lookahead_off)
 
 htf_eq = (htf_h + htf_l) / 2.0
+htf_o_prev = request.security(syminfo.tickerid, htf_tf, open[1], barmerge.gaps_off, barmerge.lookahead_off)
 htf_h_prev = request.security(syminfo.tickerid, htf_tf, high[1], barmerge.gaps_off, barmerge.lookahead_off)
 htf_l_prev = request.security(syminfo.tickerid, htf_tf, low[1], barmerge.gaps_off, barmerge.lookahead_off)
+htf_c_prev = request.security(syminfo.tickerid, htf_tf, close[1], barmerge.gaps_off, barmerge.lookahead_off)
 htf_prev_eq = (htf_h_prev + htf_l_prev) / 2.0
 
 htf_ms = htf_sec * 1000
@@ -282,6 +289,35 @@ if show_htf_zones and (not hide_htf_if_chart_ge or chart_tf_sec < htf_sec)
             box.set_bottom(htf_discount_box, htf_l)
 
 //──────────────────────────────────────────────────────────────────────────────
+// HTF SWEEP (C1/C2)
+//──────────────────────────────────────────────────────────────────────────────
+
+// Sweep of previous HTF high if current HTF makes a higher high but body closes back below previous high
+htf_sweep_high = (htf_h > htf_h_prev) and (math.max(htf_o, htf_c) <= htf_h_prev)
+// Sweep of previous HTF low if current HTF makes a lower low but body closes back above previous low
+htf_sweep_low = (htf_l < htf_l_prev) and (math.min(htf_o, htf_c) >= htf_l_prev)
+
+var int sweep_dir = 0 // 1 = swept highs (bearish expectation), -1 = swept lows (bullish expectation)
+var line sweep_ray = na
+var label sweep_label_c2 = na
+if new_htf_bar or htf_sweep_high or htf_sweep_low
+    // Reset each HTF bar and update dynamically as the bar evolves
+    sweep_dir := htf_sweep_high ? 1 : htf_sweep_low ? -1 : 0
+    // Draw C1 (previous HTF level) and label C2 on the sweeping HTF candle
+    if not na(sweep_ray)
+        line.delete(sweep_ray)
+    if not na(sweep_label_c2)
+        label.delete(sweep_label_c2)
+    if sweep_dir == 1
+        // previous high as C1
+        sweep_ray := line.new(bar_index, htf_h_prev, bar_index + 1, htf_h_prev, extend=extend.right, color=color.new(color.yellow, 0), width=1, style=line.style_dotted)
+        sweep_label_c2 := label.new(bar_index, htf_h, "C2", style=label.style_label_up, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)
+    if sweep_dir == -1
+        // previous low as C1
+        sweep_ray := line.new(bar_index, htf_l_prev, bar_index + 1, htf_l_prev, extend=extend.right, color=color.new(color.yellow, 0), width=1, style=line.style_dotted)
+        sweep_label_c2 := label.new(bar_index, htf_l, "C2", style=label.style_label_down, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)
+
+//──────────────────────────────────────────────────────────────────────────────
 // SWINGS / CISD
 //──────────────────────────────────────────────────────────────────────────────
 
@@ -401,8 +437,11 @@ f_calc_unit(is_bull, origin_price, cisd_bar_high, cisd_bar_low, cisd_bar_close) 
     else
         is_bull ? math.max(0.0, cisd_bar_close - origin_price) : math.max(0.0, origin_price - cisd_bar_close)
 
-// Start setups at CISD
-if allow_bull and bull_cisd and barstate.isconfirmed
+// Start setups at CISD, gated by HTF sweep direction when required
+bull_gate = (not require_htf_sweep or sweep_dir == -1)
+bear_gate = (not require_htf_sweep or sweep_dir == 1)
+
+if allow_bull and (not confirm_with_ltf_cisd or bull_cisd) and bull_gate and barstate.isconfirmed
     if not na(last_swing_low) and not na(last_swing_high)
         setup_active := true
         setup_is_bull := true
@@ -412,8 +451,8 @@ if allow_bull and bull_cisd and barstate.isconfirmed
         setup_htf_start := htf_bar_start
         setup_htf_age := 0
         setup_unit := f_calc_unit(true, setup_origin_price, high, low, close)
-        c2_lab = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_down, textcolor=color.white, color=color.new(col_valid, 0), size=size.small)
-        f_push_label(c2_lab)
+        c3_lab = label.new(bar_index, setup_origin_price, "C3", style=label.style_label_down, textcolor=color.white, color=color.new(col_valid, 0), size=size.small)
+        f_push_label(c3_lab)
         if show_candle1_liquidity
             f_draw_liquidity(setup_origin_price)
         f_clone_context_levels()
@@ -421,7 +460,7 @@ if allow_bull and bull_cisd and barstate.isconfirmed
             f_draw_formation_liquidity(5)
         f_draw_projections(true, setup_origin_price, setup_break_price, setup_unit)
 
-if allow_bear and bear_cisd and barstate.isconfirmed
+if allow_bear and (not confirm_with_ltf_cisd or bear_cisd) and bear_gate and barstate.isconfirmed
     if not na(last_swing_high) and not na(last_swing_low)
         setup_active := true
         setup_is_bull := false
@@ -431,8 +470,8 @@ if allow_bear and bear_cisd and barstate.isconfirmed
         setup_htf_start := htf_bar_start
         setup_htf_age := 0
         setup_unit := f_calc_unit(false, setup_origin_price, high, low, close)
-        c2_lab2 = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_up, textcolor=color.white, color=color.new(col_valid, 0), size=size.small)
-        f_push_label(c2_lab2)
+        c3_lab2 = label.new(bar_index, setup_origin_price, "C3", style=label.style_label_up, textcolor=color.white, color=color.new(col_valid, 0), size=size.small)
+        f_push_label(c3_lab2)
         if show_candle1_liquidity
             f_draw_liquidity(setup_origin_price)
         f_clone_context_levels()
@@ -489,6 +528,8 @@ f_fmt_ms(ms) =>
 
 warning_txt = not ltf_view_ok ? "LTF view higher than model LTF — CISD disabled" : ""
 tf_pair_txt = ltf_tf + "-" + htf_tf
+parent_tf = f_auto_htf(htf_tf)
+pairing_context = tf_pair_txt + " within " + htf_tf + "-" + parent_tf
 bias_txt = auto_bias_enabled ? (htf_bull ? "Bullish" : htf_bear ? "Bearish" : "Neutral") : manual_bias
 timer_txt = f_fmt_ms(time_to_htf_close_ms)
 filters_txt = enable_time_filters ? (session_1 + " | " + session_2 + " | " + session_3) : "Off"
@@ -500,7 +541,7 @@ if show_table
     table.cell(info_tbl, 0, 0, "Fractal Model (Replica)", text_color=color.white, bgcolor=color.new(color.black, 0), text_size=f_table_size(table_size))
     table.cell(info_tbl, 1, 0, syminfo.ticker + "  " + timeframe.period, text_color=color.white, bgcolor=color.new(color.black, 0), text_size=f_table_size(table_size))
     table.cell(info_tbl, 0, 1, "Pairing", text_color=color.silver, text_size=f_table_size(table_size))
-    table.cell(info_tbl, 1, 1, tf_pair_txt, text_color=color.white, text_size=f_table_size(table_size))
+    table.cell(info_tbl, 1, 1, pairing_context, text_color=color.white, text_size=f_table_size(table_size))
     table.cell(info_tbl, 0, 2, "Bias", text_color=color.silver, text_size=f_table_size(table_size))
     table.cell(info_tbl, 1, 2, bias_txt, text_color=htf_bull ? col_bull : htf_bear ? col_bear : col_neutral, text_size=f_table_size(table_size))
     table.cell(info_tbl, 0, 3, "HTF close", text_color=color.silver, text_size=f_table_size(table_size))
