@@ -283,15 +283,15 @@ proj_levels = f_parse_proj_levels(proj_levels_str)
 // Candle 1 Liquidity rays helper
 f_draw_liquidity(price, is_bull) =>
     col = color.new(col_liq, 0)
-    ln = line.new(bar_index, price, bar_index + 10000, price, extend=extend.right, color=col, width=1, style=line.style_dotted)
+    ln = line.new(bar_index, price, bar_index + 1, price, extend=extend.right, color=col, width=1, style=line.style_dotted)
     f_push_liq(ln)
 
 // Formation Liquidity: previous H/L rays over last N bars
 f_draw_formation_liquidity(nbars) =>
     if show_formation_liquidity
         for i = 1 to nbars
-            lnH = line.new(bar_index - i, high[i], bar_index + 10000, high[i], extend=extend.right, color=color.new(col_liq, 60), width=1, style=line.style_dotted)
-            lnL = line.new(bar_index - i, low[i], bar_index + 10000, low[i], extend=extend.right, color=color.new(col_liq, 60), width=1, style=line.style_dotted)
+            lnH = line.new(bar_index - i, high[i], bar_index + 1, high[i], extend=extend.right, color=color.new(col_liq, 60), width=1, style=line.style_dotted)
+            lnL = line.new(bar_index - i, low[i], bar_index + 1, low[i], extend=extend.right, color=color.new(col_liq, 60), width=1, style=line.style_dotted)
             f_push_liq(lnH)
             f_push_liq(lnL)
 
@@ -301,19 +301,19 @@ f_draw_projections(is_bull, origin, break_level, unit) =>
         for i = 0 to array.size(proj_levels) - 1
             m = array.get(proj_levels, i)
             tgt = break_level + unit * m
-            ln = line.new(bar_index, tgt, bar_index + 10000, tgt, extend=extend.right, color=col_proj, width=1, style=line.style_dashed)
+            ln = line.new(bar_index, tgt, bar_index + 1, tgt, extend=extend.right, color=col_proj, width=1, style=line.style_dashed)
             f_push_id(ln)
 
 // Draw EQ and T-spot duplicated for the setup context (static copies)
 f_clone_context_levels() =>
     if show_eq
-        l1 = line.new(bar_index, htf_eq, bar_index + 10000, htf_eq, extend=extend.right, color=color.new(col_eq, 0), width=1)
+        l1 = line.new(bar_index, htf_eq, bar_index + 1, htf_eq, extend=extend.right, color=color.new(col_eq, 0), width=1)
         f_push_misc(l1)
     if show_prev_eq
-        l2 = line.new(bar_index, htf_prev_eq, bar_index + 10000, htf_prev_eq, extend=extend.right, color=color.new(col_eq, 50), width=1)
+        l2 = line.new(bar_index, htf_prev_eq, bar_index + 1, htf_prev_eq, extend=extend.right, color=color.new(col_eq, 50), width=1)
         f_push_misc(l2)
     if show_tspot
-        l3 = line.new(bar_index, tspot, bar_index + 10000, tspot, extend=extend.right, color=color.new(col_tspot, 0), width=1, style=line.style_dotted)
+        l3 = line.new(bar_index, tspot, bar_index + 1, tspot, extend=extend.right, color=color.new(col_tspot, 0), width=1, style=line.style_dotted)
         f_push_misc(l3)
 
 // Create/refresh a setup when CISD occurs
