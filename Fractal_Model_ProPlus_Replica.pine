@@ -22,7 +22,7 @@ show_warnings = input.bool(true, "Show Warnings", group=g_general)
 g_pair = "Fractal Timeframe Pairing"
 use_custom_model = input.bool(false, "Use Custom Model Timeframes", group=g_pair,
      tooltip="Enable to explicitly pick LTF/HTF model timeframes. Disable for Automatic pairing based on the chart timeframe.")
-ltf_custom = input.timeframe(timeframe.period, "Lower TF (LTF)", group=g_pair)
+ltf_custom = input.timeframe("5", "Lower TF (LTF)", group=g_pair)
 htf_custom = input.timeframe("60", "Higher TF (HTF)", group=g_pair)
 auto_bias_enabled = input.bool(true, "Automatic Bias", group=g_pair,
      tooltip="Bias determined from the active HTF candle's direction (Open→Close).")
@@ -64,7 +64,6 @@ g_time = "Time Filters"
 enable_time_filters = input.bool(true, "Enable Time Filters", group=g_time)
 filter_apply_below_tf = input.timeframe("60", "Apply filters only when chart TF <", group=g_time,
      tooltip="Filters are applied only on charts below this timeframe.")
-tf_timezone = input.timezone(syminfo.timezone, "Time Filter Timezone", group=g_time)
 session_1 = input.session("0800-1100", "Filter 1", group=g_time)
 session_2 = input.session("1330-1615", "Filter 2", group=g_time)
 session_3 = input.session("0000-0000", "Filter 3", group=g_time, tooltip="Use 0000-0000 to disable a filter.")
@@ -129,10 +128,10 @@ ltf_view_ok = chart_tf_sec <= ltf_sec
 //──────────────────────────────────────────────────────────────────────────────
 
 f_in_session(sess) =>
-    // Returns true if the current bar is inside a custom session (by timezone)
+    // Returns true if the current bar is inside a custom session (chart timezone)
     // If sess is disabled ("0000-0000"), return false so it doesn't filter
     is_disabled = str.contains(sess, "0000-0000")
-    is_disabled ? false : time(tf_timezone, sess)
+    is_disabled ? false : not na(time(timeframe.period, sess))
 
 below_threshold = chart_tf_sec < f_in_seconds(filter_apply_below_tf)
 time_filter_pass = not enable_time_filters or not below_threshold or (f_in_session(session_1) or f_in_session(session_2) or f_in_session(session_3))
@@ -173,10 +172,15 @@ tspot = f_tspot(htf_o, htf_h, htf_l, htf_c, tspot_ratio)
 
 // Plot HTF candles (optional)
 plot_htf_ok = plot_htf_candles and (not hide_htf_if_chart_ge or chart_tf_sec < htf_sec)
-if plot_htf_ok
-    // We emulate HTF candles using plotcandle with HTF OHLC series;
-    // the candle will update during the HTF bar without repainting historical values.
-    plotcandle(htf_o, htf_h, htf_l, htf_c, title="HTF", color = htf_c >= htf_o ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity), wickcolor=color.new(color.gray, 100 - htf_candle_opacity), bordercolor=color.new(color.silver, 100 - htf_candle_opacity))
+// Emulate HTF candles using plotcandle with conditional series (must be global scope)
+htf_plot_o = plot_htf_ok ? htf_o : na
+htf_plot_h = plot_htf_ok ? htf_h : na
+htf_plot_l = plot_htf_ok ? htf_l : na
+htf_plot_c = plot_htf_ok ? htf_c : na
+htf_body_color = plot_htf_ok ? (htf_c >= htf_o ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity)) : na
+htf_wick_color = plot_htf_ok ? color.new(color.gray, 100 - htf_candle_opacity) : na
+htf_border_color = plot_htf_ok ? color.new(color.silver, 100 - htf_candle_opacity) : na
+plotcandle(htf_plot_o, htf_plot_h, htf_plot_l, htf_plot_c, title="HTF", color=htf_body_color, wickcolor=htf_wick_color, bordercolor=htf_border_color)
 
 // PO3 context levels
 plot(show_eq ? htf_eq : na, title="HTF EQ", color=col_eq, linewidth=1, style=plot.style_linebr)
@@ -212,8 +216,8 @@ htf_bull = htf_c >= htf_o
 htf_bear = htf_c < htf_o
 bias_manual_bull = manual_bias == "Bullish"
 bias_manual_bear = manual_bias == "Bearish"
-bias_is_bull = auto_bias_enabled ? htf_bull : (bias_manual_bull ? true : (bias_manual_bear ? false : na))
-bias_is_bear = auto_bias_enabled ? htf_bear : (bias_manual_bear ? true : (bias_manual_bull ? false : na))
+bias_is_bull = auto_bias_enabled ? htf_bull : bias_manual_bull
+bias_is_bear = auto_bias_enabled ? htf_bear : bias_manual_bear
 // If manual bias == Neutral, allow both directions; also honor explicit setup visibility toggles
 allow_bull = show_bullish_setups and (auto_bias_enabled ? htf_bull : (manual_bias == "Neutral" or bias_manual_bull))
 allow_bear = show_bearish_setups and (auto_bias_enabled ? htf_bear : (manual_bias == "Neutral" or bias_manual_bear))
@@ -320,76 +324,68 @@ f_calc_unit(is_bull, origin_price) =>
     else
         is_bull ? math.max(0.0, close - origin_price) : math.max(0.0, origin_price - close)
 
-f_start_setup(is_bull, origin_price, break_price) =>
-    // Reset active state
-    setup_active := true
-    setup_is_bull := is_bull
-    setup_origin_price := origin_price
-    setup_break_price := break_price
-    setup_failed := false
-    setup_htf_start := htf_bar_start
-    setup_htf_age := 0
-
-    // Measure unit using wick/body per preference
-    setup_unit := f_calc_unit(is_bull, origin_price)
-
-    // C2 label (gray for valid)
-    c2_y = origin_price
-    c2_lab = label.new(bar_index, c2_y, "C2", style=label.style_label_down, textcolor=color.white,
-         color=color.new(col_valid, 0), size=size.tiny)
-    f_push_label(c2_lab)
-
-    // Candle 1 Liquidity ray at the origin
-    if show_candle1_liquidity
-        f_draw_liquidity(origin_price, is_bull)
-
-    // Context levels
-    f_clone_context_levels()
-
-    // Formation Liquidity (local prev H/Ls)
-    if show_formation_liquidity
-        f_draw_formation_liquidity(5)
-
-    // Projections
-    f_draw_projections(is_bull, origin_price, break_price, setup_unit)
-
-// Update setup age on HTF closes and recolor the C2 label
-f_update_setup_state() =>
-    if setup_active
-        // Age increases when a full HTF bar is completed since the start HTF bar
-        new_age = (timenow >= setup_htf_start + htf_ms) ? 1 : 0
-        // If at least one full HTF bar elapsed, mark consolidation (orange)
-        if new_age != setup_htf_age and new_age >= 1
-            setup_htf_age := new_age
-            // Recolor newest C2 label
-            if array.size(arr_c_labels) > 0
-                last_lab = array.get(arr_c_labels, array.size(arr_c_labels) - 1)
-                label.set_color(last_lab, col_consolidation)
-
-// Handle invalidation: recolor C2 to red and stop drawing further for this setup
-f_handle_invalidation() =>
-    if setup_active and not setup_failed and f_check_invalidation(setup_is_bull, setup_origin_price)
-        setup_failed := true
-        if array.size(arr_c_labels) > 0
-            last_lab = array.get(arr_c_labels, array.size(arr_c_labels) - 1)
-            label.set_color(last_lab, col_failed)
-
 // Rotate/prune history drawings
 f_housekeep() =>
     f_trim_history(math.max(1, hist_setups))
 
 // Trigger setup logic on CISD with bias filter
 if allow_bull and bull_cisd and barstate.isconfirmed
-    // Origin is last swing low; break is last_swing_high
     if not na(last_swing_low)
-        f_start_setup(true, last_swing_low, last_swing_high)
+        // Start new bullish setup
+        setup_active := true
+        setup_is_bull := true
+        setup_origin_price := last_swing_low
+        setup_break_price := last_swing_high
+        setup_failed := false
+        setup_htf_start := htf_bar_start
+        setup_htf_age := 0
+        setup_unit := f_calc_unit(true, setup_origin_price)
+        // Labels and drawings
+        c2_lab = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_down, textcolor=color.white, color=color.new(col_valid, 0), size=size.tiny)
+        f_push_label(c2_lab)
+        if show_candle1_liquidity
+            f_draw_liquidity(setup_origin_price, true)
+        f_clone_context_levels()
+        if show_formation_liquidity
+            f_draw_formation_liquidity(5)
+        f_draw_projections(true, setup_origin_price, setup_break_price, setup_unit)
+
 if allow_bear and bear_cisd and barstate.isconfirmed
     if not na(last_swing_high)
-        f_start_setup(false, last_swing_high, last_swing_low)
+        // Start new bearish setup
+        setup_active := true
+        setup_is_bull := false
+        setup_origin_price := last_swing_high
+        setup_break_price := last_swing_low
+        setup_failed := false
+        setup_htf_start := htf_bar_start
+        setup_htf_age := 0
+        setup_unit := f_calc_unit(false, setup_origin_price)
+        // Labels and drawings
+        c2_lab2 = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_up, textcolor=color.white, color=color.new(col_valid, 0), size=size.tiny)
+        f_push_label(c2_lab2)
+        if show_candle1_liquidity
+            f_draw_liquidity(setup_origin_price, false)
+        f_clone_context_levels()
+        if show_formation_liquidity
+            f_draw_formation_liquidity(5)
+        f_draw_projections(false, setup_origin_price, setup_break_price, setup_unit)
 
-// Per-bar maintenance
-f_update_setup_state()
-f_handle_invalidation()
+// Per-bar maintenance (age and invalidation)
+if setup_active
+    // Mark consolidation after one full HTF bar has started since trigger
+    if setup_htf_age == 0 and htf_t > setup_htf_start and not setup_failed
+        setup_htf_age := 1
+        if array.size(arr_c_labels) > 0
+            last_lab_age = array.get(arr_c_labels, array.size(arr_c_labels) - 1)
+            label.set_color(last_lab_age, col_consolidation)
+    // Invalidation
+    if not setup_failed and f_check_invalidation(setup_is_bull, setup_origin_price)
+        setup_failed := true
+        if array.size(arr_c_labels) > 0
+            last_lab_fail = array.get(arr_c_labels, array.size(arr_c_labels) - 1)
+            label.set_color(last_lab_fail, col_failed)
+
 f_housekeep()
 
 //──────────────────────────────────────────────────────────────────────────────
@@ -414,12 +410,18 @@ f_table_pos(loc) => loc == "Top Left" ? position.top_left : loc == "Top Right" ?
 f_table_size(sz) => sz == "Small" ? size.tiny : sz == "Large" ? size.large : size.small
 
 f_fmt_ms(ms) =>
-    s = math.floor(ms / 1000)
-    m = math.floor(s / 60)
-    s := s % 60
-    h = math.floor(m / 60)
-    m := m % 60
-    str.format("{0:00}:{1:00}:{2:00}", h, m, s)
+    s_total = math.floor(ms / 1000)
+    m_total = math.floor(s_total / 60)
+    s_rem = s_total % 60
+    h_total = math.floor(m_total / 60)
+    m_rem = m_total % 60
+    hh = str.tostring(h_total)
+    mm = str.tostring(m_rem, format.mintick)
+    ss = str.tostring(s_rem, format.mintick)
+    // Ensure two digits for mm and ss
+    mm2 = m_rem < 10 ? "0" + str.tostring(m_rem) : str.tostring(m_rem)
+    ss2 = s_rem < 10 ? "0" + str.tostring(s_rem) : str.tostring(s_rem)
+    hh + ":" + mm2 + ":" + ss2
 
 warning_txt = not ltf_view_ok ? "LTF view higher than model LTF — CISD disabled" : ""
 tf_pair_txt = str.format("{0}-{1}", ltf_tf, htf_tf)
@@ -431,7 +433,7 @@ if show_table
     if na(info_tbl)
         info_tbl := table.new(f_table_pos(table_location), 2, 6, border_width=table_show_border ? 1 : 0)
     // Clear and re-populate
-    table.clear(info_tbl)
+    table.clear(info_tbl, 0, 0, 2, 6)
     // Title row
     table.cell(info_tbl, 0, 0, "Fractal Model (Replica)", text_color=color.white, bgcolor=color.new(color.black, 0), text_size=f_table_size(table_size))
     table.cell(info_tbl, 1, 0, syminfo.ticker + "  " + timeframe.period, text_color=color.white, bgcolor=color.new(color.black, 0), text_size=f_table_size(table_size))
