@@ -1,0 +1,508 @@
+//@version=5
+indicator("Fractal Model Pro+ (Replica)", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=200)
+
+//──────────────────────────────────────────────────────────────────────────────
+// INPUTS
+//──────────────────────────────────────────────────────────────────────────────
+
+// General
+g_general = "General"
+hist_setups = input.int(5, "History (previous setups)", minval=0, maxval=40, group=g_general)
+show_warnings = input.bool(true, "Show Warnings", group=g_general)
+
+// Pairing
+g_pair = "Fractal Timeframe Pairing"
+use_custom_model = input.bool(false, "Use Custom Model Timeframes", group=g_pair)
+ltf_custom = input.timeframe("5", "Lower TF (LTF)", group=g_pair)
+htf_custom = input.timeframe("60", "Higher TF (HTF)", group=g_pair)
+auto_bias_enabled = input.bool(true, "Automatic Bias", group=g_pair)
+manual_bias = input.string("Neutral", "Manual Bias", options=["Neutral","Bullish","Bearish"], group=g_pair)
+
+// CISD / Labels
+g_cisd = "CISD / Labels / Liquidity"
+left_right = input.int(3, "Swing Pivot Length", minval=1, maxval=20, group=g_cisd)
+use_early_cisd = input.bool(false, "Early CISD (C2)", group=g_cisd)
+show_bullish_setups = input.bool(true, "Enable Bullish Setups", group=g_cisd)
+show_bearish_setups = input.bool(true, "Enable Bearish Setups", group=g_cisd)
+show_candle1_liquidity = input.bool(true, "Candle 1 Liquidity Rays", group=g_cisd)
+show_formation_liquidity = input.bool(true, "Formation Liquidity (prev H/L)", group=g_cisd)
+
+// Projections / EQ / T-Spot
+g_proj = "Projections / EQ / T-Spot"
+enable_projections = input.bool(true, "Enable Projections", group=g_proj)
+proj_levels_str = input.string("-1,-2,-2.5,-4,-4.5", "Projection Levels", group=g_proj)
+proj_use_wicks = input.bool(true, "Use Wick Extremes for Projection Unit", group=g_proj)
+show_eq = input.bool(true, "Show HTF EQ (50%)", group=g_proj)
+show_prev_eq = input.bool(true, "Show Previous HTF EQ", group=g_proj)
+show_tspot = input.bool(true, "Show T-Spot", group=g_proj)
+tspot_ratio = input.float(0.25, "T-Spot Ratio (0-1)", minval=0.0, maxval=1.0, step=0.05, group=g_proj)
+
+// HTF Visuals
+g_po3 = "HTF Candles (PO3)"
+visual_mode = input.string("Right Offset", "HTF Visual Mode", options=["Overlay","Right Offset"], group=g_po3)
+plot_htf_candles = input.bool(true, "Plot HTF Candles", group=g_po3)
+hide_htf_if_chart_ge = input.bool(true, "Hide HTF Candles when chart TF ≥ HTF", group=g_po3)
+htf_candle_opacity = input.int(70, "HTF Candle Opacity (0-100)", minval=0, maxval=100, group=g_po3)
+show_htf_zones = input.bool(false, "Shade HTF Premium/Discount Zones", group=g_po3)
+zone_premium_color = input.color(color.new(color.green, 85), "Premium Zone Color", group=g_po3)
+zone_discount_color = input.color(color.new(color.red, 85), "Discount Zone Color", group=g_po3)
+htf_offset_bars = input.int(24, "Right Offset (bars)", minval=1, maxval=480, group=g_po3)
+htf_show_count = input.int(3, "HTF Candles to Display", minval=1, maxval=8, group=g_po3)
+htf_box_width = input.int(2, "HTF Candle Width (bars)", minval=1, maxval=10, group=g_po3)
+
+// Time Filters
+g_time = "Time Filters"
+enable_time_filters = input.bool(true, "Enable Time Filters", group=g_time)
+filter_apply_below_tf = input.timeframe("60", "Apply filters only when chart TF <", group=g_time)
+session_1 = input.session("0800-1100", "Filter 1", group=g_time)
+session_2 = input.session("1330-1615", "Filter 2", group=g_time)
+session_3 = input.session("0000-0000", "Filter 3", group=g_time)
+shade_sessions = input.bool(true, "Shade Active Time Filters", group=g_time)
+session_color = input.color(color.new(color.blue, 92), "Session Shade Color", group=g_time)
+
+// Table
+g_table = "Info Table"
+show_table = input.bool(true, "Show Info Table", group=g_table)
+table_location = input.string("Top Right", "Location", options=["Top Left","Top Right","Bottom Left","Bottom Right"], group=g_table)
+table_size = input.string("Medium", "Size", options=["Small","Medium","Large"], group=g_table)
+table_show_border = input.bool(true, "Border", group=g_table)
+
+// Colors
+col_bull = color.new(color.lime, 0)
+col_bear = color.new(color.red, 0)
+col_neutral = color.new(color.silver, 0)
+col_warn = color.new(color.orange, 0)
+col_proj = color.new(color.gray, 0)
+col_eq = color.new(color.teal, 0)
+col_tspot = color.new(color.purple, 0)
+col_liq = color.new(color.yellow, 0)
+col_valid = color.new(color.silver, 0)
+col_consolidation = color.new(color.orange, 0)
+col_failed = color.new(color.red, 0)
+
+//──────────────────────────────────────────────────────────────────────────────
+// TIMEFRAME PAIRING
+//──────────────────────────────────────────────────────────────────────────────
+
+f_in_seconds(tf) => timeframe.in_seconds(tf)
+
+f_auto_htf(tf) =>
+    tf_sec = f_in_seconds(tf)
+    res = "60"
+    res := tf_sec <= f_in_seconds("1") ? "15" : res
+    res := tf_sec <= f_in_seconds("2") ? "30" : res
+    res := tf_sec <= f_in_seconds("3") ? "30" : res
+    res := tf_sec <= f_in_seconds("5") ? "60" : res
+    res := tf_sec <= f_in_seconds("10") ? "120" : res
+    res := tf_sec <= f_in_seconds("15") ? "240" : res
+    res := tf_sec <= f_in_seconds("30") ? "240" : res
+    res := tf_sec <= f_in_seconds("60") ? "D" : res
+    res := tf_sec <= f_in_seconds("240") ? "W" : res
+    res := tf_sec <= f_in_seconds("D") ? "W" : res
+    res := tf_sec > f_in_seconds("D") ? "M" : res
+    res
+
+ltf_tf = use_custom_model ? ltf_custom : timeframe.period
+htf_tf = use_custom_model ? htf_custom : f_auto_htf(timeframe.period)
+
+chart_tf_sec = f_in_seconds(timeframe.period)
+ltf_sec = f_in_seconds(ltf_tf)
+htf_sec = f_in_seconds(htf_tf)
+ltf_view_ok = chart_tf_sec <= ltf_sec
+
+//──────────────────────────────────────────────────────────────────────────────
+// SESSION FILTERS
+//──────────────────────────────────────────────────────────────────────────────
+
+f_in_session(sess) =>
+    is_disabled = str.contains(sess, "0000-0000")
+    is_disabled ? false : not na(time(timeframe.period, sess))
+
+below_threshold = chart_tf_sec < f_in_seconds(filter_apply_below_tf)
+time_filter_pass = not enable_time_filters or not below_threshold or (f_in_session(session_1) or f_in_session(session_2) or f_in_session(session_3))
+in_any_session = (f_in_session(session_1) or f_in_session(session_2) or f_in_session(session_3))
+bgcolor(shade_sessions and enable_time_filters and below_threshold and in_any_session ? session_color : na)
+
+//──────────────────────────────────────────────────────────────────────────────
+// HTF DATA (PO3, EQs, T-Spot)
+//──────────────────────────────────────────────────────────────────────────────
+
+htf_o = request.security(syminfo.tickerid, htf_tf, open, barmerge.gaps_off, barmerge.lookahead_off)
+htf_h = request.security(syminfo.tickerid, htf_tf, high, barmerge.gaps_off, barmerge.lookahead_off)
+htf_l = request.security(syminfo.tickerid, htf_tf, low, barmerge.gaps_off, barmerge.lookahead_off)
+htf_c = request.security(syminfo.tickerid, htf_tf, close, barmerge.gaps_off, barmerge.lookahead_off)
+htf_t = request.security(syminfo.tickerid, htf_tf, time, barmerge.gaps_off, barmerge.lookahead_off)
+
+htf_eq = (htf_h + htf_l) / 2.0
+htf_h_prev = request.security(syminfo.tickerid, htf_tf, high[1], barmerge.gaps_off, barmerge.lookahead_off)
+htf_l_prev = request.security(syminfo.tickerid, htf_tf, low[1], barmerge.gaps_off, barmerge.lookahead_off)
+htf_prev_eq = (htf_h_prev + htf_l_prev) / 2.0
+
+htf_ms = htf_sec * 1000
+htf_bar_start = htf_t
+htf_close_time = htf_bar_start + htf_ms
+time_to_htf_close_ms = math.max(0, htf_close_time - timenow)
+
+f_tspot(o, h, l, c, ratio) =>
+    bull = c >= o
+    target = bull ? l : h
+    o + (target - o) * ratio
+
+tspot = f_tspot(htf_o, htf_h, htf_l, htf_c, tspot_ratio)
+
+// Overlay mode candles (keep at global scope)
+plot_htf_ok = plot_htf_candles and (not hide_htf_if_chart_ge or chart_tf_sec < htf_sec)
+overlay_mode = plot_htf_ok and visual_mode == "Overlay"
+htf_plot_o = overlay_mode ? htf_o : na
+htf_plot_h = overlay_mode ? htf_h : na
+htf_plot_l = overlay_mode ? htf_l : na
+htf_plot_c = overlay_mode ? htf_c : na
+htf_body_color = overlay_mode ? (htf_c >= htf_o ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity)) : na
+htf_wick_color = overlay_mode ? color.new(color.gray, 100 - htf_candle_opacity) : na
+htf_border_color = overlay_mode ? color.new(color.silver, 100 - htf_candle_opacity) : na
+plotcandle(htf_plot_o, htf_plot_h, htf_plot_l, htf_plot_c, title="HTF", color=htf_body_color, wickcolor=htf_wick_color, bordercolor=htf_border_color)
+
+plot(show_eq and visual_mode == "Overlay" ? htf_eq : na, title="HTF EQ", color=col_eq, linewidth=1, style=plot.style_linebr)
+plot(show_prev_eq and visual_mode == "Overlay" ? htf_prev_eq : na, title="Prev HTF EQ", color=color.new(col_eq, 30), linewidth=1, style=plot.style_linebr)
+plot(show_tspot and visual_mode == "Overlay" ? tspot : na, title="T-Spot", color=col_tspot, linewidth=1, style=plot.style_linebr)
+
+// Right-offset HTF rendering
+var array<box> arr_htf_boxes = array.new_box()
+var array<line> arr_htf_wick_up = array.new_line()
+var array<line> arr_htf_wick_dn = array.new_line()
+var int last_htf_count = na
+var array<float> ro = array.new_float()
+var array<float> rh = array.new_float()
+var array<float> rl = array.new_float()
+var array<float> rc = array.new_float()
+
+if plot_htf_ok and visual_mode == "Right Offset"
+    if na(last_htf_count) or last_htf_count != htf_show_count
+        // Delete existing safely
+        while array.size(arr_htf_boxes) > 0
+            _b = array.pop(arr_htf_boxes)
+            box.delete(_b)
+        while array.size(arr_htf_wick_up) > 0
+            _wu = array.pop(arr_htf_wick_up)
+            line.delete(_wu)
+        while array.size(arr_htf_wick_dn) > 0
+            _wd = array.pop(arr_htf_wick_dn)
+            line.delete(_wd)
+        array.clear(arr_htf_boxes)
+        array.clear(arr_htf_wick_up)
+        array.clear(arr_htf_wick_dn)
+        // Trim OHLC arrays
+        while array.size(ro) > htf_show_count
+            array.pop(ro)
+        while array.size(rh) > htf_show_count
+            array.pop(rh)
+        while array.size(rl) > htf_show_count
+            array.pop(rl)
+        while array.size(rc) > htf_show_count
+            array.pop(rc)
+        // Create placeholders
+        for i = 0 to htf_show_count - 1
+            bnew = box.new(bar_index + 1, na, bar_index + 1, na, border_color=color.new(color.white, 0), bgcolor=color.new(color.gray, 90))
+            array.push(arr_htf_boxes, bnew)
+            wun = line.new(bar_index + 1, na, bar_index + 1, na, color=color.new(color.gray, 80))
+            array.push(arr_htf_wick_up, wun)
+            wdn = line.new(bar_index + 1, na, bar_index + 1, na, color=color.new(color.gray, 80))
+            array.push(arr_htf_wick_dn, wdn)
+        last_htf_count := htf_show_count
+
+    // Update rolling arrays on new HTF bar
+    if ta.change(htf_t)
+        array.unshift(ro, htf_o)
+        array.unshift(rh, htf_h)
+        array.unshift(rl, htf_l)
+        array.unshift(rc, htf_c)
+        while array.size(ro) > htf_show_count
+            array.pop(ro)
+        while array.size(rh) > htf_show_count
+            array.pop(rh)
+        while array.size(rl) > htf_show_count
+            array.pop(rl)
+        while array.size(rc) > htf_show_count
+            array.pop(rc)
+
+    if array.size(ro) == 0
+        array.unshift(ro, htf_o)
+        array.unshift(rh, htf_h)
+        array.unshift(rl, htf_l)
+        array.unshift(rc, htf_c)
+
+    sep = htf_box_width + 1
+    max_i = math.min(htf_show_count, array.size(ro)) - 1
+    if max_i >= 0 and array.size(arr_htf_boxes) > max_i
+        for i = 0 to max_i
+            oi = array.get(ro, i)
+            ci = array.get(rc, i)
+            hi = array.get(rh, i)
+            li = array.get(rl, i)
+            left_x = bar_index + htf_offset_bars + i * sep
+            right_x = left_x + htf_box_width
+            top_y = math.max(oi, ci)
+            bot_y = math.min(oi, ci)
+            b = array.get(arr_htf_boxes, i)
+            wick_up = array.get(arr_htf_wick_up, i)
+            wick_dn = array.get(arr_htf_wick_dn, i)
+            body_col = ci >= oi ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity)
+            border_col = color.new(color.silver, 100 - htf_candle_opacity)
+            box.set_lefttop(b, left_x, top_y)
+            box.set_rightbottom(b, right_x, bot_y)
+            box.set_bgcolor(b, body_col)
+            box.set_border_color(b, border_col)
+            mid_x = left_x + math.floor(htf_box_width / 2)
+            line.set_xy1(wick_up, mid_x, hi)
+            line.set_xy2(wick_up, mid_x, top_y)
+            line.set_xy1(wick_dn, mid_x, bot_y)
+            line.set_xy2(wick_dn, mid_x, li)
+
+// Optional HTF zones (overlay only)
+var box htf_premium_box = na
+var box htf_discount_box = na
+new_htf_bar = ta.change(htf_t)
+if show_htf_zones and (not hide_htf_if_chart_ge or chart_tf_sec < htf_sec)
+    if new_htf_bar
+        if not na(htf_premium_box)
+            box.delete(htf_premium_box)
+        if not na(htf_discount_box)
+            box.delete(htf_discount_box)
+        htf_premium_box := box.new(bar_index, htf_eq, bar_index, htf_h, border_color=color.new(color.white, 100), bgcolor=zone_premium_color)
+        htf_discount_box := box.new(bar_index, htf_l, bar_index, htf_eq, border_color=color.new(color.white, 100), bgcolor=zone_discount_color)
+    else
+        if not na(htf_premium_box)
+            box.set_right(htf_premium_box, bar_index)
+            box.set_top(htf_premium_box, htf_h)
+            box.set_bottom(htf_premium_box, htf_eq)
+        if not na(htf_discount_box)
+            box.set_right(htf_discount_box, bar_index)
+            box.set_top(htf_discount_box, htf_eq)
+            box.set_bottom(htf_discount_box, htf_l)
+
+//──────────────────────────────────────────────────────────────────────────────
+// SWINGS / CISD
+//──────────────────────────────────────────────────────────────────────────────
+
+ph = ta.pivothigh(high, left_right, left_right)
+pl = ta.pivotlow(low, left_right, left_right)
+
+var float last_swing_high = na
+var float last_swing_low = na
+if not na(ph)
+    last_swing_high := ph
+if not na(pl)
+    last_swing_low := pl
+
+bull_cisd_close = ltf_view_ok and time_filter_pass and not na(last_swing_high) and close > last_swing_high
+bull_cisd_early = ltf_view_ok and time_filter_pass and not na(last_swing_high) and high > last_swing_high
+bear_cisd_close = ltf_view_ok and time_filter_pass and not na(last_swing_low) and close < last_swing_low
+bear_cisd_early = ltf_view_ok and time_filter_pass and not na(last_swing_low) and low < last_swing_low
+
+bull_cisd = use_early_cisd ? bull_cisd_early : bull_cisd_close
+bear_cisd = use_early_cisd ? bear_cisd_early : bear_cisd_close
+
+htf_bull = htf_c >= htf_o
+htf_bear = htf_c < htf_o
+allow_bull = show_bullish_setups and (auto_bias_enabled ? htf_bull : (manual_bias == "Neutral" or manual_bias == "Bullish"))
+allow_bear = show_bearish_setups and (auto_bias_enabled ? htf_bear : (manual_bias == "Neutral" or manual_bias == "Bearish"))
+
+//──────────────────────────────────────────────────────────────────────────────
+// FORMATION STATE / PROJECTIONS
+//──────────────────────────────────────────────────────────────────────────────
+
+var array<label> arr_c_labels = array.new<label>()
+var array<line> arr_proj_lines = array.new<line>()
+var array<line> arr_liq_lines = array.new<line>()
+var array<line> arr_misc_lines = array.new<line>()
+var array<label> arr_proj_labels = array.new<label>()
+
+var bool setup_active = false
+var bool setup_is_bull = true
+var float setup_origin_price = na
+var float setup_break_price = na
+var float setup_unit = na
+var int setup_htf_start = na
+var int setup_htf_age = 0
+var bool setup_failed = false
+
+f_parse_proj_levels(levels_str) =>
+    parts = str.split(levels_str, ",")
+    arr = array.new_float()
+    for i = 0 to array.size(parts) - 1
+        s = str.trim(array.get(parts, i))
+        v = str.tonumber(s)
+        if not na(v)
+            array.push(arr, v)
+    arr
+
+proj_levels = f_parse_proj_levels(proj_levels_str)
+
+f_push_id(_line) => array.push(arr_proj_lines, _line)
+f_push_liq(_line) => array.push(arr_liq_lines, _line)
+f_push_misc(_line) => array.push(arr_misc_lines, _line)
+f_push_label(_lab) => array.push(arr_c_labels, _lab)
+
+f_trim_history(max_keep) =>
+    while array.size(arr_proj_lines) > max_keep * 20
+        line.delete(array.shift(arr_proj_lines))
+    while array.size(arr_liq_lines) > max_keep * 20
+        line.delete(array.shift(arr_liq_lines))
+    while array.size(arr_misc_lines) > max_keep * 20
+        line.delete(array.shift(arr_misc_lines))
+    while array.size(arr_c_labels) > max_keep * 5
+        label.delete(array.shift(arr_c_labels))
+    while array.size(arr_proj_labels) > max_keep * 20
+        label.delete(array.shift(arr_proj_labels))
+
+f_check_invalidation(is_bull, origin) => is_bull ? low <= origin : high >= origin
+
+f_draw_liquidity(price) =>
+    ln = line.new(bar_index, price, bar_index + 1, price, extend=extend.right, color=col_liq, width=1, style=line.style_dotted)
+    f_push_liq(ln)
+
+f_draw_formation_liquidity(nbars) =>
+    if show_formation_liquidity
+        for i = 1 to nbars
+            lnH = line.new(bar_index - i, high[i], bar_index + 1, high[i], extend=extend.right, color=color.new(col_liq, 60), width=1, style=line.style_dotted)
+            lnL = line.new(bar_index - i, low[i], bar_index + 1, low[i], extend=extend.right, color=color.new(col_liq, 60), width=1, style=line.style_dotted)
+            f_push_liq(lnH)
+            f_push_liq(lnL)
+
+f_draw_projections(is_bull, origin, break_level, unit) =>
+    if enable_projections and array.size(proj_levels) > 0 and unit > 0
+        for i = 0 to array.size(proj_levels) - 1
+            m = array.get(proj_levels, i)
+            tgt = break_level + unit * m
+            ln = line.new(bar_index, tgt, bar_index + 1, tgt, extend=extend.right, color=col_proj, width=1, style=line.style_dashed)
+            f_push_id(ln)
+            lbl = label.new(bar_index + 1, tgt, str.tostring(m), textcolor=color.white, color=color.new(color.black, 0), style=label.style_label_right, size=size.tiny)
+            array.push(arr_proj_labels, lbl)
+
+f_clone_context_levels() =>
+    if show_eq
+        l1 = line.new(bar_index, htf_eq, bar_index + 1, htf_eq, extend=extend.right, color=color.new(col_eq, 0), width=1)
+        f_push_misc(l1)
+    if show_prev_eq
+        l2 = line.new(bar_index, htf_prev_eq, bar_index + 1, htf_prev_eq, extend=extend.right, color=color.new(col_eq, 50), width=1)
+        f_push_misc(l2)
+    if show_tspot
+        l3 = line.new(bar_index, tspot, bar_index + 1, tspot, extend=extend.right, color=color.new(col_tspot, 0), width=1, style=line.style_dotted)
+        f_push_misc(l3)
+
+f_calc_unit(is_bull, origin_price, cisd_bar_high, cisd_bar_low, cisd_bar_close) =>
+    if proj_use_wicks
+        is_bull ? math.max(0.0, cisd_bar_high - origin_price) : math.max(0.0, origin_price - cisd_bar_low)
+    else
+        is_bull ? math.max(0.0, cisd_bar_close - origin_price) : math.max(0.0, origin_price - cisd_bar_close)
+
+// Start setups at CISD
+if allow_bull and bull_cisd and barstate.isconfirmed
+    if not na(last_swing_low) and not na(last_swing_high)
+        setup_active := true
+        setup_is_bull := true
+        setup_origin_price := last_swing_low
+        setup_break_price := last_swing_high
+        setup_failed := false
+        setup_htf_start := htf_bar_start
+        setup_htf_age := 0
+        setup_unit := f_calc_unit(true, setup_origin_price, high, low, close)
+        c2_lab = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_down, textcolor=color.white, color=color.new(col_valid, 0), size=size.small)
+        f_push_label(c2_lab)
+        if show_candle1_liquidity
+            f_draw_liquidity(setup_origin_price)
+        f_clone_context_levels()
+        if show_formation_liquidity
+            f_draw_formation_liquidity(5)
+        f_draw_projections(true, setup_origin_price, setup_break_price, setup_unit)
+
+if allow_bear and bear_cisd and barstate.isconfirmed
+    if not na(last_swing_high) and not na(last_swing_low)
+        setup_active := true
+        setup_is_bull := false
+        setup_origin_price := last_swing_high
+        setup_break_price := last_swing_low
+        setup_failed := false
+        setup_htf_start := htf_bar_start
+        setup_htf_age := 0
+        setup_unit := f_calc_unit(false, setup_origin_price, high, low, close)
+        c2_lab2 = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_up, textcolor=color.white, color=color.new(col_valid, 0), size=size.small)
+        f_push_label(c2_lab2)
+        if show_candle1_liquidity
+            f_draw_liquidity(setup_origin_price)
+        f_clone_context_levels()
+        if show_formation_liquidity
+            f_draw_formation_liquidity(5)
+        f_draw_projections(false, setup_origin_price, setup_break_price, setup_unit)
+
+// Maintenance
+if setup_active
+    if setup_htf_age == 0 and htf_t > setup_htf_start and not setup_failed
+        setup_htf_age := 1
+        if array.size(arr_c_labels) > 0
+            lab = array.get(arr_c_labels, array.size(arr_c_labels) - 1)
+            label.set_color(lab, col_consolidation)
+    if not setup_failed and f_check_invalidation(setup_is_bull, setup_origin_price)
+        setup_failed := true
+        if array.size(arr_c_labels) > 0
+            lab2 = array.get(arr_c_labels, array.size(arr_c_labels) - 1)
+            label.set_color(lab2, col_failed)
+
+f_trim_history(math.max(1, hist_setups))
+
+//──────────────────────────────────────────────────────────────────────────────
+// ALERTS
+//──────────────────────────────────────────────────────────────────────────────
+
+alertcondition(bull_cisd, title="Bullish CISD (C2)", message="Bullish CISD detected (C2).")
+alertcondition(bear_cisd, title="Bearish CISD (C2)", message="Bearish CISD detected (C2).")
+alertcondition(setup_active and setup_failed, title="Setup Failed", message="Current formation invalidated.")
+proj_first = array.size(proj_levels) > 0 ? array.get(proj_levels, 0) : na
+proj_hit = enable_projections and setup_active and not na(setup_unit) and not na(proj_first) and (
+     (setup_is_bull and high >= setup_break_price + setup_unit * proj_first) or
+     (not setup_is_bull and low <= setup_break_price + setup_unit * proj_first))
+alertcondition(proj_hit, title="Projection Reached", message="First projection target reached.")
+
+//──────────────────────────────────────────────────────────────────────────────
+// INFO TABLE
+//──────────────────────────────────────────────────────────────────────────────
+
+var table info_tbl = na
+f_table_pos(loc) => loc == "Top Left" ? position.top_left : loc == "Top Right" ? position.top_right : loc == "Bottom Left" ? position.bottom_left : position.bottom_right
+f_table_size(sz) => sz == "Small" ? size.tiny : sz == "Large" ? size.large : size.small
+
+f_fmt_ms(ms) =>
+    s_total = math.floor(ms / 1000)
+    m_total = math.floor(s_total / 60)
+    s_rem = s_total % 60
+    h_total = math.floor(m_total / 60)
+    m_rem = m_total % 60
+    hh = str.tostring(h_total)
+    mm2 = m_rem < 10 ? "0" + str.tostring(m_rem) : str.tostring(m_rem)
+    ss2 = s_rem < 10 ? "0" + str.tostring(s_rem) : str.tostring(s_rem)
+    hh + ":" + mm2 + ":" + ss2
+
+warning_txt = not ltf_view_ok ? "LTF view higher than model LTF — CISD disabled" : ""
+tf_pair_txt = ltf_tf + "-" + htf_tf
+bias_txt = auto_bias_enabled ? (htf_bull ? "Bullish" : htf_bear ? "Bearish" : "Neutral") : manual_bias
+timer_txt = f_fmt_ms(time_to_htf_close_ms)
+filters_txt = enable_time_filters ? (session_1 + " | " + session_2 + " | " + session_3) : "Off"
+
+if show_table
+    if na(info_tbl)
+        info_tbl := table.new(f_table_pos(table_location), 2, 6, border_width=table_show_border ? 1 : 0)
+    table.clear(info_tbl, 0, 0, 1, 5)
+    table.cell(info_tbl, 0, 0, "Fractal Model (Replica)", text_color=color.white, bgcolor=color.new(color.black, 0), text_size=f_table_size(table_size))
+    table.cell(info_tbl, 1, 0, syminfo.ticker + "  " + timeframe.period, text_color=color.white, bgcolor=color.new(color.black, 0), text_size=f_table_size(table_size))
+    table.cell(info_tbl, 0, 1, "Pairing", text_color=color.silver, text_size=f_table_size(table_size))
+    table.cell(info_tbl, 1, 1, tf_pair_txt, text_color=color.white, text_size=f_table_size(table_size))
+    table.cell(info_tbl, 0, 2, "Bias", text_color=color.silver, text_size=f_table_size(table_size))
+    table.cell(info_tbl, 1, 2, bias_txt, text_color=htf_bull ? col_bull : htf_bear ? col_bear : col_neutral, text_size=f_table_size(table_size))
+    table.cell(info_tbl, 0, 3, "HTF close", text_color=color.silver, text_size=f_table_size(table_size))
+    table.cell(info_tbl, 1, 3, timer_txt, text_color=color.white, text_size=f_table_size(table_size))
+    table.cell(info_tbl, 0, 4, "Time Filters", text_color=color.silver, text_size=f_table_size(table_size))
+    table.cell(info_tbl, 1, 4, filters_txt, text_color=color.white, text_size=f_table_size(table_size))
+    if show_warnings and warning_txt != ""
+        table.cell(info_tbl, 0, 5, "Notice", text_color=color.silver, text_size=f_table_size(table_size))
+        table.cell(info_tbl, 1, 5, warning_txt, text_color=col_warn, text_size=f_table_size(table_size))
+
