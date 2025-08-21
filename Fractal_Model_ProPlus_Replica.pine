@@ -186,16 +186,16 @@ tspot = f_tspot(htf_o, htf_h, htf_l, htf_c, tspot_ratio)
 
 // Plot HTF candles (optional)
 plot_htf_ok = plot_htf_candles and (not hide_htf_if_chart_ge or chart_tf_sec < htf_sec)
-// Overlay mode uses plotcandle; Offset mode uses boxes to the right
-if plot_htf_ok and visual_mode == "Overlay"
-    htf_plot_o = htf_o
-    htf_plot_h = htf_h
-    htf_plot_l = htf_l
-    htf_plot_c = htf_c
-    htf_body_color = htf_c >= htf_o ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity)
-    htf_wick_color = color.new(color.gray, 100 - htf_candle_opacity)
-    htf_border_color = color.new(color.silver, 100 - htf_candle_opacity)
-    plotcandle(htf_plot_o, htf_plot_h, htf_plot_l, htf_plot_c, title="HTF", color=htf_body_color, wickcolor=htf_wick_color, bordercolor=htf_border_color)
+// Overlay mode uses plotcandle; ensure call stays at global scope by gating with series
+overlay_mode = plot_htf_ok and visual_mode == "Overlay"
+htf_plot_o = overlay_mode ? htf_o : na
+htf_plot_h = overlay_mode ? htf_h : na
+htf_plot_l = overlay_mode ? htf_l : na
+htf_plot_c = overlay_mode ? htf_c : na
+htf_body_color = overlay_mode ? (htf_c >= htf_o ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity)) : na
+htf_wick_color = overlay_mode ? color.new(color.gray, 100 - htf_candle_opacity) : na
+htf_border_color = overlay_mode ? color.new(color.silver, 100 - htf_candle_opacity) : na
+plotcandle(htf_plot_o, htf_plot_h, htf_plot_l, htf_plot_c, title="HTF", color=htf_body_color, wickcolor=htf_wick_color, bordercolor=htf_border_color)
 
 // Right-offset HTF rendering
 var array<box> arr_htf_boxes = array.new_box()
