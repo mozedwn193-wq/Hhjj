@@ -424,16 +424,16 @@ f_fmt_ms(ms) =>
     hh + ":" + mm2 + ":" + ss2
 
 warning_txt = not ltf_view_ok ? "LTF view higher than model LTF — CISD disabled" : ""
-tf_pair_txt = str.format("{0}-{1}", ltf_tf, htf_tf)
+tf_pair_txt = ltf_tf + "-" + htf_tf
 bias_txt = auto_bias_enabled ? (htf_bull ? "Bullish" : htf_bear ? "Bearish" : "Neutral") : manual_bias
 timer_txt = f_fmt_ms(time_to_htf_close_ms)
-filters_txt = enable_time_filters ? (str.format("{0} | {1} | {2}", session_1, session_2, session_3)) : "Off"
+filters_txt = enable_time_filters ? (session_1 + " | " + session_2 + " | " + session_3) : "Off"
 
 if show_table
     if na(info_tbl)
         info_tbl := table.new(f_table_pos(table_location), 2, 6, border_width=table_show_border ? 1 : 0)
     // Clear and re-populate
-    table.clear(info_tbl, 0, 0, 2, 6)
+    table.clear(info_tbl, 0, 0, 1, 5)
     // Title row
     table.cell(info_tbl, 0, 0, "Fractal Model (Replica)", text_color=color.white, bgcolor=color.new(color.black, 0), text_size=f_table_size(table_size))
     table.cell(info_tbl, 1, 0, syminfo.ticker + "  " + timeframe.period, text_color=color.white, bgcolor=color.new(color.black, 0), text_size=f_table_size(table_size))
