@@ -55,12 +55,17 @@ tspot_ratio = input.float(0.25, "T-Spot Ratio (0-1)", minval=0.0, maxval=1.0, st
 
 // HTF Candles (PO3) visuals
 g_po3 = "HTF Candles (PO3)"
+visual_mode = input.string("Right Offset", "HTF Visual Mode", options=["Overlay","Right Offset"], group=g_po3)
 plot_htf_candles = input.bool(true, "Plot HTF Candles", group=g_po3)
 hide_htf_if_chart_ge = input.bool(true, "Hide HTF Candles when chart TF ≥ HTF", group=g_po3)
-htf_candle_opacity = input.int(80, "HTF Candle Opacity (0-100)", minval=0, maxval=100, group=g_po3)
-show_htf_zones = input.bool(true, "Shade HTF Premium/Discount Zones", group=g_po3, tooltip="Draw live boxes between HTF EQ↔High (premium) and EQ↔Low (discount).")
+htf_candle_opacity = input.int(70, "HTF Candle Opacity (0-100)", minval=0, maxval=100, group=g_po3)
+show_htf_zones = input.bool(false, "Shade HTF Premium/Discount Zones", group=g_po3, tooltip="Draw live boxes between HTF EQ↔High (premium) and EQ↔Low (discount).")
 zone_premium_color = input.color(color.new(color.green, 85), "Premium Zone Color", group=g_po3)
 zone_discount_color = input.color(color.new(color.red, 85), "Discount Zone Color", group=g_po3)
+// Right-offset rendering
+htf_offset_bars = input.int(24, "Right Offset (bars)", minval=1, maxval=480, group=g_po3)
+htf_show_count = input.int(3, "HTF Candles to Display", minval=1, maxval=8, group=g_po3)
+htf_box_width = input.int(2, "HTF Candle Width (bars)", minval=1, maxval=10, group=g_po3)
 
 // Time Filters
 g_time = "Time Filters"
@@ -181,20 +186,86 @@ tspot = f_tspot(htf_o, htf_h, htf_l, htf_c, tspot_ratio)
 
 // Plot HTF candles (optional)
 plot_htf_ok = plot_htf_candles and (not hide_htf_if_chart_ge or chart_tf_sec < htf_sec)
-// Emulate HTF candles using plotcandle with conditional series (must be global scope)
-htf_plot_o = plot_htf_ok ? htf_o : na
-htf_plot_h = plot_htf_ok ? htf_h : na
-htf_plot_l = plot_htf_ok ? htf_l : na
-htf_plot_c = plot_htf_ok ? htf_c : na
-htf_body_color = plot_htf_ok ? (htf_c >= htf_o ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity)) : na
-htf_wick_color = plot_htf_ok ? color.new(color.gray, 100 - htf_candle_opacity) : na
-htf_border_color = plot_htf_ok ? color.new(color.silver, 100 - htf_candle_opacity) : na
-plotcandle(htf_plot_o, htf_plot_h, htf_plot_l, htf_plot_c, title="HTF", color=htf_body_color, wickcolor=htf_wick_color, bordercolor=htf_border_color)
+// Overlay mode uses plotcandle; Offset mode uses boxes to the right
+if plot_htf_ok and visual_mode == "Overlay"
+    htf_plot_o = htf_o
+    htf_plot_h = htf_h
+    htf_plot_l = htf_l
+    htf_plot_c = htf_c
+    htf_body_color = htf_c >= htf_o ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity)
+    htf_wick_color = color.new(color.gray, 100 - htf_candle_opacity)
+    htf_border_color = color.new(color.silver, 100 - htf_candle_opacity)
+    plotcandle(htf_plot_o, htf_plot_h, htf_plot_l, htf_plot_c, title="HTF", color=htf_body_color, wickcolor=htf_wick_color, bordercolor=htf_border_color)
+
+// Right-offset HTF rendering
+var array<box> arr_htf_boxes = array.new_box()
+var array<line> arr_htf_wick_up = array.new_line()
+var array<line> arr_htf_wick_dn = array.new_line()
+var int last_htf_count = na
+if plot_htf_ok and visual_mode == "Right Offset"
+    // Ensure arrays contain exactly htf_show_count items
+    if na(last_htf_count) or last_htf_count != htf_show_count
+        // delete all and recreate to prevent leaks
+        for i = 0 to array.size(arr_htf_boxes) - 1
+            b = array.get(arr_htf_boxes, i)
+            box.delete(b)
+        for i = 0 to array.size(arr_htf_wick_up) - 1
+            w = array.get(arr_htf_wick_up, i)
+            line.delete(w)
+        for i = 0 to array.size(arr_htf_wick_dn) - 1
+            w2 = array.get(arr_htf_wick_dn, i)
+            line.delete(w2)
+        array.clear(arr_htf_boxes)
+        array.clear(arr_htf_wick_up)
+        array.clear(arr_htf_wick_dn)
+        for i = 0 to htf_show_count - 1
+            bnew = box.new(bar_index + 1, na, bar_index + 1, na, border_color=color.new(color.white, 0), bgcolor=color.new(color.gray, 90))
+            array.push(arr_htf_boxes, bnew)
+            wun = line.new(bar_index + 1, na, bar_index + 1, na, color=color.new(color.gray, 80))
+            array.push(arr_htf_wick_up, wun)
+            wdn = line.new(bar_index + 1, na, bar_index + 1, na, color=color.new(color.gray, 80))
+            array.push(arr_htf_wick_dn, wdn)
+        last_htf_count := htf_show_count
+
+    // Calculate spacing
+    sep = htf_box_width + 1
+    // Collect last N HTF candle values via security with history
+    htf_o_n = request.security(syminfo.tickerid, htf_tf, open, barmerge.gaps_off, barmerge.lookahead_off)
+    htf_h_n = request.security(syminfo.tickerid, htf_tf, high, barmerge.gaps_off, barmerge.lookahead_off)
+    htf_l_n = request.security(syminfo.tickerid, htf_tf, low, barmerge.gaps_off, barmerge.lookahead_off)
+    htf_c_n = request.security(syminfo.tickerid, htf_tf, close, barmerge.gaps_off, barmerge.lookahead_off)
+    // Update positions for each displayed slot i (0 newest)
+    for i = 0 to htf_show_count - 1
+        // visible index from history
+        oi = htf_o_n[i]
+        ci = htf_c_n[i]
+        hi = htf_h_n[i]
+        li = htf_l_n[i]
+        // compute position
+        left_x = bar_index + htf_offset_bars + i * sep
+        right_x = left_x + htf_box_width
+        top_y = math.max(oi, ci)
+        bot_y = math.min(oi, ci)
+        b = array.get(arr_htf_boxes, i)
+        wick_up = array.get(arr_htf_wick_up, i)
+        wick_dn = array.get(arr_htf_wick_dn, i)
+        body_col = ci >= oi ? color.new(color.green, 100 - htf_candle_opacity) : color.new(color.red, 100 - htf_candle_opacity)
+        border_col = color.new(color.silver, 100 - htf_candle_opacity)
+        box.set_lefttop(b, left_x, top_y)
+        box.set_rightbottom(b, right_x, bot_y)
+        box.set_bgcolor(b, body_col)
+        box.set_border_color(b, border_col)
+        // Wick lines
+        mid_x = left_x + math.floor(htf_box_width / 2)
+        line.set_xy1(wick_up, mid_x, hi)
+        line.set_xy2(wick_up, mid_x, top_y)
+        line.set_xy1(wick_dn, mid_x, bot_y)
+        line.set_xy2(wick_dn, mid_x, li)
 
 // PO3 context levels
-plot(show_eq ? htf_eq : na, title="HTF EQ", color=col_eq, linewidth=1, style=plot.style_linebr)
-plot(show_prev_eq ? htf_prev_eq : na, title="Prev HTF EQ", color=color.new(col_eq, 30), linewidth=1, style=plot.style_linebr)
-plot(show_tspot ? tspot : na, title="T-Spot", color=col_tspot, linewidth=1, style=plot.style_linebr)
+plot(show_eq and visual_mode == "Overlay" ? htf_eq : na, title="HTF EQ", color=col_eq, linewidth=1, style=plot.style_linebr)
+plot(show_prev_eq and visual_mode == "Overlay" ? htf_prev_eq : na, title="Prev HTF EQ", color=color.new(col_eq, 30), linewidth=1, style=plot.style_linebr)
+plot(show_tspot and visual_mode == "Overlay" ? tspot : na, title="T-Spot", color=col_tspot, linewidth=1, style=plot.style_linebr)
 
 // HTF PO3 premium/discount shading using dynamic boxes
 var box htf_premium_box = na
