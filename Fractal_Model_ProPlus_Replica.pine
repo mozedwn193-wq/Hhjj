@@ -58,6 +58,9 @@ g_po3 = "HTF Candles (PO3)"
 plot_htf_candles = input.bool(true, "Plot HTF Candles", group=g_po3)
 hide_htf_if_chart_ge = input.bool(true, "Hide HTF Candles when chart TF ≥ HTF", group=g_po3)
 htf_candle_opacity = input.int(80, "HTF Candle Opacity (0-100)", minval=0, maxval=100, group=g_po3)
+show_htf_zones = input.bool(true, "Shade HTF Premium/Discount Zones", group=g_po3, tooltip="Draw live boxes between HTF EQ↔High (premium) and EQ↔Low (discount).")
+zone_premium_color = input.color(color.new(color.green, 85), "Premium Zone Color", group=g_po3)
+zone_discount_color = input.color(color.new(color.red, 85), "Discount Zone Color", group=g_po3)
 
 // Time Filters
 g_time = "Time Filters"
@@ -67,6 +70,8 @@ filter_apply_below_tf = input.timeframe("60", "Apply filters only when chart TF 
 session_1 = input.session("0800-1100", "Filter 1", group=g_time)
 session_2 = input.session("1330-1615", "Filter 2", group=g_time)
 session_3 = input.session("0000-0000", "Filter 3", group=g_time, tooltip="Use 0000-0000 to disable a filter.")
+shade_sessions = input.bool(true, "Shade Active Time Filters", group=g_time)
+session_color = input.color(color.new(color.blue, 92), "Session Shade Color", group=g_time)
 
 // Info Table
 g_table = "Info Table"
@@ -136,6 +141,10 @@ f_in_session(sess) =>
 below_threshold = chart_tf_sec < f_in_seconds(filter_apply_below_tf)
 time_filter_pass = not enable_time_filters or not below_threshold or (f_in_session(session_1) or f_in_session(session_2) or f_in_session(session_3))
 
+// Optional session shading
+in_any_session = (f_in_session(session_1) or f_in_session(session_2) or f_in_session(session_3))
+bgcolor(shade_sessions and enable_time_filters and below_threshold and in_any_session ? session_color : na)
+
 //──────────────────────────────────────────────────────────────────────────────
 // HTF DATA (PO3, EQs, T-Spot)
 //──────────────────────────────────────────────────────────────────────────────
@@ -187,6 +196,33 @@ plot(show_eq ? htf_eq : na, title="HTF EQ", color=col_eq, linewidth=1, style=plo
 plot(show_prev_eq ? htf_prev_eq : na, title="Prev HTF EQ", color=color.new(col_eq, 30), linewidth=1, style=plot.style_linebr)
 plot(show_tspot ? tspot : na, title="T-Spot", color=col_tspot, linewidth=1, style=plot.style_linebr)
 
+// HTF PO3 premium/discount shading using dynamic boxes
+var box htf_premium_box = na
+var box htf_discount_box = na
+var int htf_bar_start_bi = na
+
+new_htf_bar = ta.change(htf_t)
+if show_htf_zones and (not hide_htf_if_chart_ge or chart_tf_sec < htf_sec)
+    if new_htf_bar
+        // start new HTF boxes
+        htf_bar_start_bi := bar_index
+        if not na(htf_premium_box)
+            box.delete(htf_premium_box)
+        if not na(htf_discount_box)
+            box.delete(htf_discount_box)
+        htf_premium_box := box.new(htf_bar_start_bi, htf_eq, bar_index, htf_h, border_color=color.new(color.white, 100), bgcolor=zone_premium_color)
+        htf_discount_box := box.new(htf_bar_start_bi, htf_l, bar_index, htf_eq, border_color=color.new(color.white, 100), bgcolor=zone_discount_color)
+    else
+        // update right side to current bar; also update prices
+        if not na(htf_premium_box)
+            box.set_right(htf_premium_box, bar_index)
+            box.set_top(htf_premium_box, htf_h)
+            box.set_bottom(htf_premium_box, htf_eq)
+        if not na(htf_discount_box)
+            box.set_right(htf_discount_box, bar_index)
+            box.set_top(htf_discount_box, htf_eq)
+            box.set_bottom(htf_discount_box, htf_l)
+
 //──────────────────────────────────────────────────────────────────────────────
 // SWINGS AND CISD (Change in State of Delivery)
 //──────────────────────────────────────────────────────────────────────────────
@@ -231,6 +267,7 @@ var array<label> arr_c_labels = array.new<label>()
 var array<line> arr_proj_lines = array.new<line>()
 var array<line> arr_liq_lines = array.new<line>()
 var array<line> arr_misc_lines = array.new<line>() // EQ, T-spot duplicates for setups
+var array<label> arr_proj_labels = array.new<label>()
 
 // Active setup variables
 var bool setup_active = false
@@ -241,6 +278,8 @@ var float setup_unit = na // measurement unit for projections
 var int setup_htf_start = na // HTF bar start when setup triggered
 var int setup_htf_age = 0 // completed HTF bars since trigger
 var bool setup_failed = false
+var int setup_phase = 0 // 0 none, 2=C2 placed, 3=C3 placed, 4=C4 placed
+var int setup_bar_index = na
 
 // Utility to collect created drawings for rotation/control
 f_push_id(_line) => array.push(arr_proj_lines, _line)
@@ -262,6 +301,9 @@ f_trim_history(max_keep) =>
     while array.size(arr_c_labels) > max_keep * 5
         lb = array.shift(arr_c_labels)
         label.delete(lb)
+    while array.size(arr_proj_labels) > max_keep * 20
+        lbp = array.shift(arr_proj_labels)
+        label.delete(lbp)
 
 // Formation invalidation rule (approximation per description):
 // Bullish: price trades back through the origin low; Bearish: price trades back through the origin high
@@ -303,6 +345,9 @@ f_draw_projections(is_bull, origin, break_level, unit) =>
             tgt = break_level + unit * m
             ln = line.new(bar_index, tgt, bar_index + 1, tgt, extend=extend.right, color=col_proj, width=1, style=line.style_dashed)
             f_push_id(ln)
+            // level label at right
+            lbl = label.new(bar_index + 1, tgt, str.tostring(m), textcolor=color.white, color=color.new(color.black, 0), style=label.style_label_right, size=size.tiny)
+            array.push(arr_proj_labels, lbl)
 
 // Draw EQ and T-spot duplicated for the setup context (static copies)
 f_clone_context_levels() =>
@@ -339,9 +384,11 @@ if allow_bull and bull_cisd and barstate.isconfirmed
         setup_failed := false
         setup_htf_start := htf_bar_start
         setup_htf_age := 0
+        setup_phase := 2
+        setup_bar_index := bar_index
         setup_unit := f_calc_unit(true, setup_origin_price)
         // Labels and drawings
-        c2_lab = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_down, textcolor=color.white, color=color.new(col_valid, 0), size=size.tiny)
+        c2_lab = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_down, textcolor=color.white, color=color.new(col_valid, 0), size=size.small)
         f_push_label(c2_lab)
         if show_candle1_liquidity
             f_draw_liquidity(setup_origin_price, true)
@@ -360,9 +407,11 @@ if allow_bear and bear_cisd and barstate.isconfirmed
         setup_failed := false
         setup_htf_start := htf_bar_start
         setup_htf_age := 0
+        setup_phase := 2
+        setup_bar_index := bar_index
         setup_unit := f_calc_unit(false, setup_origin_price)
         // Labels and drawings
-        c2_lab2 = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_up, textcolor=color.white, color=color.new(col_valid, 0), size=size.tiny)
+        c2_lab2 = label.new(bar_index, setup_origin_price, "C2", style=label.style_label_up, textcolor=color.white, color=color.new(col_valid, 0), size=size.small)
         f_push_label(c2_lab2)
         if show_candle1_liquidity
             f_draw_liquidity(setup_origin_price, false)
@@ -385,6 +434,27 @@ if setup_active
         if array.size(arr_c_labels) > 0
             last_lab_fail = array.get(arr_c_labels, array.size(arr_c_labels) - 1)
             label.set_color(last_lab_fail, col_failed)
+    // Phase progression to C3 and C4 using pivots after trigger for richer visuals
+    if setup_phase == 2
+        // Opposite-side pivot after C2
+        if setup_is_bull and not na(pl) and bar_index > setup_bar_index
+            c3 = label.new(bar_index - left_right, pl, "C3", style=label.style_label_down, textcolor=color.white, color=color.new(col_valid, 0), size=size.tiny)
+            f_push_label(c3)
+            setup_phase := 3
+        if not setup_is_bull and not na(ph) and bar_index > setup_bar_index
+            c3b = label.new(bar_index - left_right, ph, "C3", style=label.style_label_up, textcolor=color.white, color=color.new(col_valid, 0), size=size.tiny)
+            f_push_label(c3b)
+            setup_phase := 3
+    else if setup_phase == 3
+        // Trend-side pivot after C3
+        if setup_is_bull and not na(ph) and bar_index > setup_bar_index
+            c4 = label.new(bar_index - left_right, ph, "C4", style=label.style_label_up, textcolor=color.white, color=color.new(col_valid, 0), size=size.tiny)
+            f_push_label(c4)
+            setup_phase := 4
+        if not setup_is_bull and not na(pl) and bar_index > setup_bar_index
+            c4b = label.new(bar_index - left_right, pl, "C4", style=label.style_label_down, textcolor=color.white, color=color.new(col_valid, 0), size=size.tiny)
+            f_push_label(c4b)
+            setup_phase := 4
 
 f_housekeep()
 
