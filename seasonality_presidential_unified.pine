@@ -85,6 +85,29 @@ color transparent = #00000000
 lineStyle(string style) =>
     style == '----' ? line.style_dashed : style == '····' ? line.style_dotted : line.style_solid
 
+// Add global SEED vendor helper functions to avoid defining inside blocks
+v_months_val() =>
+    r = false
+    if seed_show_monts == 'General'
+        r := dayofmonth < 15
+    if seed_show_monts == 'Presidential'
+        r := dayofmonth > 15
+    ret = str.startswith(str.tostring(volume),'2') ? -1*high : high
+    ta.valuewhen(r, ret, 0)
+
+v_patterns_has(s) =>
+    if not na(s)
+        patternsArray = array.new_float(0)
+        array.push(patternsArray, time)
+        for i = 1 to str.length(str.tostring(s)) - 1
+            array.push(patternsArray, str.tonumber(str.substring(str.tostring(s), i, i+1)))
+        patternsArray
+    else
+        na
+
+v_weeks_val() =>
+    low > 0 ? na : -1*low
+
 // ========================= Source selection =========================
 localClose = request.security(syminfo.tickerid, "D", close, lookahead = barmerge.lookahead_on)
 ext1 = request.security(src1, "D", close, ignore_invalid_symbol=true)
@@ -106,7 +129,7 @@ preferLocal        = modeAuto and (localBars >= preferLocalYears * 252)
 
 baseLocal    = localClose
 baseExternal = ext
-base_selected = na
+float base_selected = na
 
 if modeLocalOnly
     base_selected := baseLocal
@@ -118,11 +141,11 @@ else if modeExternalFirst
     base_selected := not na(baseExternal) ? baseExternal : baseLocal
 else
     // Auto (Local→External): prefer Local when history is sufficient
-    preferred = preferLocal ? baseLocal : baseExternal
-    fallback  = preferLocal ? baseExternal : baseLocal
+    float preferred = preferLocal ? baseLocal : baseExternal
+    float fallback  = preferLocal ? baseExternal : baseLocal
     base_selected := not na(preferred) ? preferred : fallback
 
-base = base_selected
+float base = base_selected
 
 // ========================= Types and structures =========================
 type Settings
@@ -255,12 +278,12 @@ method plotgrid(YearlySet this) =>
     float[] totals2 = this.yearly2.total()
     float[] totals3 = this.yearly3.total()
     float[] totals4 = this.yearly4.total()
-    int totals = na(totals1) ? 0 : totals1.size()
-    if not na(totals2) and totals2.size() > totals
+    int totals = totals1.size()
+    if totals2.size() > totals
         totals := totals2.size()
-    if not na(totals3) and totals3.size() > totals
+    if totals3.size() > totals
         totals := totals3.size()
-    if not na(totals4) and totals4.size() > totals
+    if totals4.size() > totals
         totals := totals4.size()
     int start = bar_index - active.size()+1
     int end   = start + math.max(totals-1, 0)
@@ -368,14 +391,14 @@ if ta.change(year(time("D")))
         active.clear()
 
 if start and ta.change(time("D"))
-    ret = (not na(base) and not na(base[1])) ? (base/base[1]-1.0)*100.0 : na
+    float ret = (not na(base) and not na(base[1])) ? (base/base[1]-1.0)*100.0 : na
     if not na(ret)
         active.push(ret)
     if na(monthStart) and not na(base)
         monthStart := base
     if ta.change(month(time("D")))
         prevMonth = month(time("D"))[1] - 1
-        mret = (not na(base[1]) and not na(monthStart) and monthStart != 0) ? base[1]/monthStart - 1.0 : na
+        float mret = (not na(base[1]) and not na(monthStart) and monthStart != 0) ? base[1]/monthStart - 1.0 : na
         if not na(mret)
             array.set(mSumGen, prevMonth, array.get(mSumGen, prevMonth) + mret)
             array.set(mCntGen, prevMonth, array.get(mCntGen, prevMonth) + 1)
@@ -498,28 +521,7 @@ if seed_enabled
     if not na(v_season)
         v_season_found := true
 
-    // Months and patterns via vendor
-    v_months_val() =>
-        r = false
-        if seed_show_monts == 'General'
-            r := dayofmonth < 15
-        if seed_show_monts == 'Presidential'
-            r := dayofmonth > 15
-        ret = str.startswith(str.tostring(volume),'2') ? -1*high : high
-        ta.valuewhen(r, ret, 0)
-
-    v_patterns_has(s) =>
-        if not na(s)
-            patternsArray = array.new_float(0)
-            array.push(patternsArray, time)
-            for i = 1 to str.length(str.tostring(s)) - 1
-                array.push(patternsArray, str.tonumber(str.substring(str.tostring(s), i, i+1)))
-            patternsArray
-        else
-            na
-
-    v_weeks_val() =>
-        low > 0 ? na : -1*low
+    // Months and patterns via vendor (using global helpers)
 
     [v_months, v_patterns] = request.security(v_repo + '_PATTERN_' + v_ticker, '1D', [v_months_val(), v_patterns_has(volume)], barmerge.gaps_on, ignore_invalid_symbol=true)
     v_weeks = request.security(v_repo + '_PATTERN_' + v_ticker, '1W', v_weeks_val(), barmerge.gaps_on, ignore_invalid_symbol=true)
