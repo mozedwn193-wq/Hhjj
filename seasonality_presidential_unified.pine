@@ -237,8 +237,8 @@ var polyline[] lines = array.new<polyline>()
 
 method removeOutliers(Yearly[] this) =>
     float[] temp = array.new<float>()
-    for y in this
-        temp.concat(y.data)
+    for yearlyEntry in this
+        temp.concat(yearlyEntry.data)
         if temp.size() > 1
             temp.sort(order.ascending)
             float q1 = temp.slice(0, temp.size()/2).median()
@@ -246,19 +246,19 @@ method removeOutliers(Yearly[] this) =>
             iqr = q3 - q1
             lowerBound = q1 - settings.factor * iqr
             upperBound = q3 + settings.factor * iqr
-            for y in this
-                for i=0 to y.data.size()-1
-                    if y.data.get(i) < lowerBound
-                        y.data.set(i, lowerBound)
-                    if y.data.get(i) > upperBound
-                        y.data.set(i, upperBound)
+            for yearlyEntry2 in this
+                for i = 0 to yearlyEntry2.data.size() - 1
+                    if yearlyEntry2.data.get(i) < lowerBound
+                        yearlyEntry2.data.set(i, lowerBound)
+                    if yearlyEntry2.data.get(i) > upperBound
+                        yearlyEntry2.data.set(i, upperBound)
     this
 
 method getMax(Yearly[] this) =>
     int max = 0
-    for y in this
-        if y.data.size() > max
-            max := y.data.size()
+    for yearlyEntry in this
+        if yearlyEntry.data.size() > max
+            max := yearlyEntry.data.size()
     max
 
 method total(Yearly[] this) =>
@@ -266,9 +266,9 @@ method total(Yearly[] this) =>
     float[] totals = array.new<float>()
     for i = 0 to max-1
         float average = 0
-        for y in this
-            if y.data.size() > i
-                average += y.data.get(i)
+        for yearlyEntry in this
+            if yearlyEntry.data.size() > i
+                average += yearlyEntry.data.get(i)
         average := this.size() > 0 ? average / this.size() : na
         totals.push(average)
     totals
@@ -309,7 +309,7 @@ method plot(Yearly[] this, float start_price, color c, int size, string style, b
     array.clear(opoints)
     float[] temp = array.new<float>()
     temp.push(price)
-    for i = 1 to (na(totals) ? 0 : totals.size()-1)
+    for i = 1 to ((totals.size() > 0) ? totals.size()-1 : 0)
         value = totals.get(i)
         price := price + (price * (value/100))
         temp.push(price)
@@ -327,8 +327,8 @@ method plot(Yearly[] this, float start_price, color c, int size, string style, b
     this
 
 // ========================= Presidential grouping =========================
-pres_cycle_of_year(int y, int anchor) =>
-    r = (y - anchor) % 4
+pres_cycle_of_year(int yr, int anchor) =>
+    r = (yr - anchor) % 4
     r < 0 ? r + 4 : r
 
 cycle_focus() =>
@@ -338,7 +338,7 @@ cycle_focus() =>
     which_cycle == "Pre (3)"       ? 3 :
     pres_cycle_of_year(year(timenow), anchor_year)
 
-var Yearly[] presYears = array.new<Yearly>()
+var Yearly[] presYears = array.new<Yearly>() // collects Yearly structs matching the selected presidential cycle
 
 // ========================= Monthly aggregators =========================
 var mSumGen = array.new_float(12, 0.0)
@@ -493,7 +493,7 @@ if barstate.islast and show_months != "None"
             arr_months_point.push(chart.point.from_index(x0, y1))
             polyline.new(arr_months_point,false,true,xloc.bar_index,line_width = 1,line_color = color.rgb(255, 255, 255,50),fill_color = polylineclr)
             ly = v>0 ? 1.01*(y1) : 0.98*(y1)
-            label.new(x0 + (x1-x0)/2, ly, str.tostring(math.round(value*100)/100)+'%', xloc.bar_index, yloc.price, style= label.style_none, text_color=color.new(color.white,0))
+            label.new(x0 + (x1-x0)/2, ly, str.tostring(math.round(value*100)/100)+'%', xloc.bar_index, yloc.price, color.new(color.black, 0), label.style_none, color.new(color.white, 0), size.small, text.align_center)
 
 // ========================= SEED vendor mode implementation =========================
 if seed_enabled
@@ -577,21 +577,23 @@ if seed_enabled
         if seed_show_monts != 'none' and v_ofst != 0 and v_season_found
             if v_arr_months.size() > 12
                 v_arr_months.remove(0)
-            for [idx, val] in v_arr_months
-                polylineclr = val > 0 ? color.rgb(76, 190, 80,60) : color.rgb(255, 82, 82,60)
-                v_pts = array.new<chart.point>()
-                v_val = 0.0
-                if val < 0
-                    v_val := math.sqrt(-val) * -5
-                else
-                    v_val := math.sqrt(val) * 5
-                array.push(v_pts, chart.point.from_index(v_firstDayOfYear + idx * v_barsinyear/12, 100))
-                array.push(v_pts, chart.point.from_index(v_firstDayOfYear + idx * v_barsinyear/12 + v_barsinyear/12, 100))
-                array.push(v_pts, chart.point.from_index(v_firstDayOfYear + idx * v_barsinyear/12 + v_barsinyear/12, (v_val)+100))
-                array.push(v_pts, chart.point.from_index(v_firstDayOfYear + idx * v_barsinyear/12, (v_val)+100))
-                polyline.new(v_pts, false, true, xloc.bar_index, line_width = 1, line_color = color.rgb(255, 255, 255,50), fill_color = polylineclr)
-                ly = v_val > 0 ? 1.01*(v_val+100) : 0.98*(v_val+100)
-                label.new(v_firstDayOfYear + v_barsinyear/12*idx + v_barsinyear/12 - v_barsinyear/12/2, ly, str.tostring(val)+'%', xloc.bar_index, yloc.price, style=label.style_none)
+            for i = 0 to v_arr_months.size() - 1
+                val = v_arr_months.get(i)
+                if not na(val)
+                    polylineclr = val > 0 ? color.rgb(76, 190, 80,60) : color.rgb(255, 82, 82,60)
+                    v_pts = array.new<chart.point>()
+                    v_val = 0.0
+                    if val < 0
+                        v_val := math.sqrt(-val) * -5
+                    else
+                        v_val := math.sqrt(val) * 5
+                    array.push(v_pts, chart.point.from_index(v_firstDayOfYear + i * v_barsinyear/12, 100))
+                    array.push(v_pts, chart.point.from_index(v_firstDayOfYear + i * v_barsinyear/12 + v_barsinyear/12, 100))
+                    array.push(v_pts, chart.point.from_index(v_firstDayOfYear + i * v_barsinyear/12 + v_barsinyear/12, (v_val)+100))
+                    array.push(v_pts, chart.point.from_index(v_firstDayOfYear + i * v_barsinyear/12, (v_val)+100))
+                    polyline.new(v_pts, false, true, xloc.bar_index, line_width = 1, line_color = color.rgb(255, 255, 255,50), fill_color = polylineclr)
+                    ly = v_val > 0 ? 1.01*(v_val+100) : 0.98*(v_val+100)
+                    label.new(v_firstDayOfYear + v_barsinyear/12*i + v_barsinyear/12 - v_barsinyear/12/2, ly, str.tostring(val)+'%', xloc.bar_index, yloc.price, style=label.style_none)
 
         // Draw vendor patterns with win-rate filter
         if seed_show_patterns and matrix.rows(v_m) != 0 and v_ofst != 0 and v_patterns_value.size() > 0 and v_win_rate.size() > 0
@@ -600,8 +602,8 @@ if seed_enabled
                 for r = 0 to matrix.rows(v_m) - 1
                     if matrix.get(v_m, r, c) == 1
                         x = math.round(matrix.get(v_m, r, 0)) + 86400000 * 364
-                        y = v_patterns_value.get(c - 1) + 100
-                        array.push(v_char_points, chart.point.from_time(x, y))
+                        yval = v_patterns_value.get(c - 1) + 100
+                        array.push(v_char_points, chart.point.from_time(x, yval))
                 if v_win_rate.get(c - 1) * 100 >= seed_winning_rate
-                    label.new(array.get(v_char_points, math.round(array.size(v_char_points)/2 - 1)), 'R: ' + str.tostring(v_patterns_value.get(c-1)) + '% W: ' + str.tostring(math.round(v_win_rate.get(c-1)*100)) + '%', xloc = xloc.bar_time, yloc = yloc.price, color = color.rgb(172, 245, 174, (100 - (v_win_rate.get(c-1)*v_win_rate.get(c-1)*100))), style = label.style_none, text_font_family = font.family_monospace, size = size.normal)
+                    label.new(array.get(v_char_points, math.round(array.size(v_char_points)/2 - 1)), 'R: ' + str.tostring(v_patterns_value.get(c-1)) + '% W: ' + str.tostring(math.round(v_win_rate.get(c-1)*100)) + '%', xloc = xloc.bar_time, yloc = yloc.price, color = color.rgb(172, 245, 174, (100 - (v_win_rate.get(c-1)*v_win_rate.get(c-1)*100))), style = label.style_none, textcolor = color.white, size = size.small)
                     polyline.new(v_char_points, curved = false, closed = true, xloc = xloc.bar_time, line_style = line.style_solid, line_width = 2, line_color = color.rgb(14, 72, 233))
