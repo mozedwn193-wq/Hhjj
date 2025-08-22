@@ -1,0 +1,433 @@
+//@version=5
+indicator("Seasonality + Presidential (Unified)", shorttitle="Seasonality+Pres v1.0", overlay=false, format=format.percent, precision=2)
+
+// ========================= Inputs =========================
+string group_source = "Data Source"
+string group_season = "Seasonality Lines"
+string group_pres   = "Presidential Cycle"
+string group_grid   = "Grid"
+string group_other  = "Other"
+string group_months = "Monthly Bars"
+
+srcMode           = input.string("Auto", "Source mode", options = ["Auto","Local","External"], group = group_source, tooltip = "Auto: prefer Local if enough history; otherwise use External list (priority order).")
+preferLocalYears  = input.int(12, "Prefer Local if ≥ (years)", minval=0, maxval=100, group=group_source)
+src1              = input.symbol("SPY", "External 1 (priority)", group=group_source)
+src2              = input.symbol("SPX", "External 2", group=group_source)
+src3              = input.symbol("ES1!", "External 3", group=group_source)
+src4              = input.symbol("QQQ", "External 4", group=group_source)
+src5              = input.symbol("NDX", "External 5", group=group_source)
+
+detrend_factor    = input.float(2.75, "Outlier Factor", minval=0, step=0.25, group=group_other, tooltip="Winsorizes anomalies using IQR * factor.")
+
+show1             = input.bool(true, "", group=group_season, inline="s1")
+len1              = input.int(5, "", group=group_season, inline="s1")
+col1              = input.color(color.purple, "", group=group_season, inline="s1")
+sz1               = input.int(1, "", options=[1,2,3,4], group=group_season, inline="s1")
+st1               = input.string('⎯⎯⎯', '', options = ['⎯⎯⎯', '----', '····'], group=group_season, inline='s1')
+
+show2             = input.bool(true, "", group=group_season, inline="s2")
+len2              = input.int(10, "", group=group_season, inline="s2")
+col2              = input.color(color.blue, "", group=group_season, inline="s2")
+sz2               = input.int(1, "", options=[1,2,3,4], group=group_season, inline="s2")
+st2               = input.string('⎯⎯⎯', '', options = ['⎯⎯⎯', '----', '····'], group=group_season, inline='s2')
+
+show3             = input.bool(false, "", group=group_season, inline="s3")
+len3              = input.int(15, "", group=group_season, inline="s3")
+col3              = input.color(color.green, "", group=group_season, inline="s3")
+sz3               = input.int(1, "", options=[1,2,3,4], group=group_season, inline="s3")
+st3               = input.string('⎯⎯⎯', '', options = ['⎯⎯⎯', '----', '····'], group=group_season, inline='s3')
+
+show4             = input.bool(false, "", group=group_season, inline="s4")
+len4              = input.int(30, "", group=group_season, inline="s4")
+col4              = input.color(color.orange, "", group=group_season, inline="s4")
+sz4               = input.int(1, "", options=[1,2,3,4], group=group_season, inline="s4")
+st4               = input.string('⎯⎯⎯', '', options = ['⎯⎯⎯', '----', '····'], group=group_season, inline='s4')
+
+overlay_lines     = input.bool(false, "Also draw raw-price seasonality on chart", group=group_season, tooltip="Adds de-normalized line over the price chart.")
+
+pres_show         = input.bool(true, "Show presidential-cycle line", group=group_pres)
+pres_len          = input.int(10, "Cycles to average", group=group_pres)
+pres_color        = input.color(color.rgb(2,110,6), "Color", group=group_pres)
+pres_size         = input.int(2, "Width", options=[1,2,3,4], group=group_pres)
+pres_style        = input.string('⎯⎯⎯', 'Style', options = ['⎯⎯⎯', '----', '····'], group=group_pres)
+anchor_year       = input.int(2024, "Election anchor year", group=group_pres, tooltip="Cycle: remainder of (year - anchor) mod 4.\n0=Election, 1=Post, 2=Midterm, 3=Pre.")
+which_cycle       = input.string("Current cycle year", "Cycle to show", options=["Current cycle year","Election (0)","Post (1)","Midterm (2)","Pre (3)"], group=group_pres)
+
+grid_border_show  = input.bool(true, "Border", group=group_grid, inline="g1")
+grid_border_color = input.color(color.new(color.black, 0), "", group=group_grid, inline="g1")
+grid_show         = input.bool(true, "Grid", group=group_grid, inline="g2")
+grid_color        = input.color(color.new(color.black, 80), "", group=group_grid, inline="g2")
+
+show_months       = input.string("General", "Monthly bars", options=["None","General","Presidential"], group=group_months, tooltip="Average monthly return from selected data source.")
+bar_up            = input.color(color.rgb(76,190,80,60), "Up fill", group=group_months, inline="mb")
+bar_dn            = input.color(color.rgb(255,82,82,60), "Down fill", group=group_months, inline="mb")
+
+// ========================= Utilities =========================
+color transparent = #00000000
+
+lineStyle(string style) =>
+    style == '----' ? line.style_dashed : style == '····' ? line.style_dotted : line.style_solid
+
+// ========================= Source selection =========================
+localClose = request.security(syminfo.tickerid, "D", close, lookahead = barmerge.lookahead_on)
+ext1 = request.security(src1, "D", close, ignore_invalid_symbol=true)
+ext2 = request.security(src2, "D", close, ignore_invalid_symbol=true)
+ext3 = request.security(src3, "D", close, ignore_invalid_symbol=true)
+ext4 = request.security(src4, "D", close, ignore_invalid_symbol=true)
+ext5 = request.security(src5, "D", close, ignore_invalid_symbol=true)
+
+// Priority coalesce: first non-na among ext1..ext5
+ext = na(ext1) ? (na(ext2) ? (na(ext3) ? (na(ext4) ? ext5 : ext4) : ext3) : ext2) : ext1
+
+localBars = ta.cum(not na(localClose) ? 1 : 0)
+preferLocal = srcMode == "Local" or (srcMode == "Auto" and localBars >= preferLocalYears * 252)
+useExternal = srcMode == "External" or (srcMode == "Auto" and not preferLocal)
+
+base = preferLocal ? localClose : ext
+
+// ========================= Types and structures =========================
+type Settings
+    float  factor      = 2.75
+    bool   border_show = true
+    color  border_color
+    bool   grid_show   = true
+    color  grid_color
+    bool   overlay
+
+type Yearly
+    int     year
+    float   base
+    float[] data
+
+type YearlySettings
+    bool   show
+    int    ST
+    color  color_1
+    int    size_1
+    string style_1
+    color  color_2
+    int    size_2
+    string style_2
+    color  color_3
+    int    size_3
+    string style_3
+    color  color_4
+    int    size_4
+    string style_4
+
+type YearlySet
+    bool     show_1
+    bool     show_2
+    bool     show_3
+    bool     show_4
+    int      length_1
+    int      length_2
+    int      length_3
+    int      length_4
+    float    start_price
+    Yearly[] yearly1
+    Yearly[] yearly2
+    Yearly[] yearly3
+    Yearly[] yearly4
+    YearlySettings settings
+
+Settings settings = Settings.new()
+settings.overlay      := overlay_lines
+settings.border_show  := grid_border_show
+settings.border_color := grid_border_color
+settings.grid_show    := grid_show
+settings.grid_color   := grid_color
+settings.factor       := detrend_factor
+
+var float[] active   = array.new<float>()
+var YearlySet yset   = YearlySet.new()
+var Yearly[] y1      = array.new<Yearly>()
+var Yearly[] y2      = array.new<Yearly>()
+var Yearly[] y3      = array.new<Yearly>()
+var Yearly[] y4      = array.new<Yearly>()
+yset.yearly1         := y1
+yset.yearly2         := y2
+yset.yearly3         := y3
+yset.yearly4         := y4
+yset.settings        := YearlySettings.new()
+yset.show_1          := show1
+yset.length_1        := len1
+yset.settings.color_1:= col1
+yset.settings.size_1 := sz1
+yset.settings.style_1:= st1
+yset.show_2          := show2
+yset.length_2        := len2
+yset.settings.color_2:= col2
+yset.settings.size_2 := sz2
+yset.settings.style_2:= st2
+yset.show_3          := show3
+yset.length_3        := len3
+yset.settings.color_3:= col3
+yset.settings.size_3 := sz3
+yset.settings.style_3:= st3
+yset.show_4          := show4
+yset.length_4        := len4
+yset.settings.color_4:= col4
+yset.settings.size_4 := sz4
+yset.settings.style_4:= st4
+
+var polyline[] lines = array.new<polyline>()
+
+method removeOutliers(Yearly[] this) =>
+    float[] temp = array.new<float>()
+    for y in this
+        temp.concat(y.data)
+        if temp.size() > 1
+            temp.sort(order.ascending)
+            float q1 = temp.slice(0, temp.size()/2).median()
+            float q3 = temp.slice(temp.size()/2, temp.size()).median()
+            iqr = q3 - q1
+            lowerBound = q1 - settings.factor * iqr
+            upperBound = q3 + settings.factor * iqr
+            for y in this
+                for i=0 to y.data.size()-1
+                    if y.data.get(i) < lowerBound
+                        y.data.set(i, lowerBound)
+                    if y.data.get(i) > upperBound
+                        y.data.set(i, upperBound)
+    this
+
+method getMax(Yearly[] this) =>
+    int max = 0
+    for y in this
+        if y.data.size() > max
+            max := y.data.size()
+    max
+
+method total(Yearly[] this) =>
+    int max = this.getMax()
+    float[] totals = array.new<float>()
+    for i = 0 to max-1
+        float average = 0
+        for y in this
+            if y.data.size() > i
+                average += y.data.get(i)
+        average := this.size() > 0 ? average / this.size() : na
+        totals.push(average)
+    totals
+
+method plotgrid(YearlySet this) =>
+    float[] totals1 = this.yearly1.total()
+    float[] totals2 = this.yearly2.total()
+    float[] totals3 = this.yearly3.total()
+    float[] totals4 = this.yearly4.total()
+    int totals = na(totals1) ? 0 : totals1.size()
+    if not na(totals2) and totals2.size() > totals
+        totals := totals2.size()
+    if not na(totals3) and totals3.size() > totals
+        totals := totals3.size()
+    if not na(totals4) and totals4.size() > totals
+        totals := totals4.size()
+    int start = bar_index - active.size()+1
+    int end   = start + math.max(totals-1, 0)
+    if settings.border_show
+        line.new(start, 0, start, 100, color=settings.border_color)
+        line.new(start, 0, end, 0, color=settings.border_color)
+        line.new(end, 0, end, 100, color=settings.border_color)
+        line.new(start, 100, end, 100, color=settings.border_color)
+    if settings.grid_show
+        line.new(start, 20, end, 20, style=line.style_dotted, color=color.new(color.gray, 50))
+        line.new(start, 40, end, 40, style=line.style_dotted, color=color.new(color.gray, 50))
+        line.new(start, 60, end, 60, style=line.style_dotted, color=color.new(color.gray, 50))
+        line.new(start, 80, end, 80, style=line.style_dotted, color=color.new(color.gray, 50))
+    this
+
+method plot(Yearly[] this, float start_price, color c, int size, string style, bool overlay) =>
+    var points  = array.new<chart.point>()
+    var opoints = array.new<chart.point>()
+    float[] totals = this.total()
+    int start = bar_index - active.size()+1
+    var float price = start_price
+    array.clear(points)
+    array.clear(opoints)
+    float[] temp = array.new<float>()
+    temp.push(price)
+    for i = 1 to (na(totals) ? 0 : totals.size()-1)
+        value = totals.get(i)
+        price := price + (price * (value/100))
+        temp.push(price)
+    minValue = temp.min()
+    maxValue = temp.max()
+    for i = 0 to temp.size() - 1
+        value = temp.get(i)
+        nvalue = (maxValue - minValue) != 0 ? (value - minValue) / (maxValue - minValue) * 100 : 50
+        idx = start + i
+        points.push(chart.point.from_index(idx, nvalue))
+        opoints.push(chart.point.from_index(idx, value))
+    if overlay
+        lines.push(polyline.new(points = opoints, line_color = c, line_width = size, line_style=lineStyle(style), force_overlay = true))
+    lines.push(polyline.new(points = points, line_color = c, line_width = size, line_style=lineStyle(style), force_overlay = false))
+    this
+
+// ========================= Presidential grouping =========================
+pres_cycle_of_year(int y, int anchor) =>
+    r = (y - anchor) % 4
+    r < 0 ? r + 4 : r
+
+cycle_focus() =>
+    which_cycle == "Election (0)"  ? 0 :
+    which_cycle == "Post (1)"      ? 1 :
+    which_cycle == "Midterm (2)"   ? 2 :
+    which_cycle == "Pre (3)"       ? 3 :
+    pres_cycle_of_year(year(timenow), anchor_year)
+
+var Yearly[] presYears = array.new<Yearly>()
+
+// ========================= Monthly aggregators =========================
+var mSumGen = array.new_float(12, 0.0)
+var mCntGen = array.new_int(12, 0)
+var mSumP0  = array.new_float(12, 0.0)
+var mCntP0  = array.new_int(12, 0)
+var mSumP1  = array.new_float(12, 0.0)
+var mCntP1  = array.new_int(12, 0)
+var mSumP2  = array.new_float(12, 0.0)
+var mCntP2  = array.new_int(12, 0)
+var mSumP3  = array.new_float(12, 0.0)
+var mCntP3  = array.new_int(12, 0)
+var float monthStart = na
+
+// ========================= Yearly collection & plotting =========================
+var bool done  = false
+var bool start = false
+
+if ta.change(year(time("D")))
+    start := true
+    done  := false
+    yset.start_price := base
+    for p in lines
+        p.delete()
+    if active.size() > 0
+        Yearly add = Yearly.new()
+        add.year := year[1]
+        add.data := active.copy()
+        if yset.show_1
+            yset.yearly1.push(add.copy())
+            if yset.yearly1.size() > yset.length_1
+                yset.yearly1.remove(0)
+        if yset.show_2
+            yset.yearly2.push(add.copy())
+            if yset.yearly2.size() > yset.length_2
+                yset.yearly2.remove(0)
+        if yset.show_3
+            yset.yearly3.push(add.copy())
+            if yset.yearly3.size() > yset.length_3
+                yset.yearly3.remove(0)
+        if yset.show_4
+            yset.yearly4.push(add.copy())
+            if yset.yearly4.size() > yset.length_4
+                yset.yearly4.remove(0)
+        prevCycle = pres_cycle_of_year(year[1], anchor_year)
+        if prevCycle == cycle_focus()
+            presYears.push(add.copy())
+            if presYears.size() > pres_len
+                presYears.remove(0)
+        active.clear()
+
+if start and ta.change(time("D"))
+    ret = (base/base[1]-1.0)*100.0
+    active.push(ret)
+    if na(monthStart) and not na(base)
+        monthStart := base
+    if ta.change(month(time("D")))
+        prevMonth = month(time("D"))[1] - 1
+        mret = monthStart != 0 ? base[1]/monthStart - 1.0 : na
+        if not na(mret)
+            array.set(mSumGen, prevMonth, array.get(mSumGen, prevMonth) + mret)
+            array.set(mCntGen, prevMonth, array.get(mCntGen, prevMonth) + 1)
+            pc = pres_cycle_of_year(year(time("D"))[1], anchor_year)
+            if pc == 0
+                array.set(mSumP0, prevMonth, array.get(mSumP0, prevMonth) + mret)
+                array.set(mCntP0, prevMonth, array.get(mCntP0, prevMonth) + 1)
+            if pc == 1
+                array.set(mSumP1, prevMonth, array.get(mSumP1, prevMonth) + mret)
+                array.set(mCntP1, prevMonth, array.get(mCntP1, prevMonth) + 1)
+            if pc == 2
+                array.set(mSumP2, prevMonth, array.get(mSumP2, prevMonth) + mret)
+                array.set(mCntP2, prevMonth, array.get(mCntP2, prevMonth) + 1)
+            if pc == 3
+                array.set(mSumP3, prevMonth, array.get(mSumP3, prevMonth) + mret)
+                array.set(mCntP3, prevMonth, array.get(mCntP3, prevMonth) + 1)
+        monthStart := base
+
+if barstate.islast and not done
+    yset.plotgrid()
+    if yset.show_1
+        yset.yearly1.removeOutliers().plot(yset.start_price, yset.settings.color_1, yset.settings.size_1, yset.settings.style_1, settings.overlay)
+    if yset.show_2
+        yset.yearly2.removeOutliers().plot(yset.start_price, yset.settings.color_2, yset.settings.size_2, yset.settings.style_2, settings.overlay)
+    if yset.show_3
+        yset.yearly3.removeOutliers().plot(yset.start_price, yset.settings.color_3, yset.settings.size_3, yset.settings.style_3, settings.overlay)
+    if yset.show_4
+        yset.yearly4.removeOutliers().plot(yset.start_price, yset.settings.color_4, yset.settings.size_4, yset.settings.style_4, settings.overlay)
+    if pres_show and presYears.size() > 0
+        presYears.removeOutliers().plot(yset.start_price, pres_color, pres_size, pres_style, settings.overlay)
+    done := true
+
+// ========================= Monthly bar painter =========================
+var int firstDayOfYear = bar_index
+if ta.change(year)
+    firstDayOfYear := bar_index
+barsinyear = 252
+
+var float[] monthsAvg = array.new<float>()
+if barstate.islast and show_months != "None"
+    array.clear(monthsAvg)
+    if show_months == "General"
+        for i=0 to 11
+            s  = array.get(mSumGen, i)
+            c  = array.get(mCntGen, i)
+            av = c > 0 ? 100.0 * s / c : na
+            array.push(monthsAvg, av)
+    else
+        cf = cycle_focus()
+        for i=0 to 11
+            s = cf==0 ? array.get(mSumP0,i) : cf==1 ? array.get(mSumP1,i) : cf==2 ? array.get(mSumP2,i) : array.get(mSumP3,i)
+            c = cf==0 ? array.get(mCntP0,i) : cf==1 ? array.get(mCntP1,i) : cf==2 ? array.get(mCntP2,i) : array.get(mCntP3,i)
+            av = c > 0 ? 100.0 * s / c : na
+            array.push(monthsAvg, av)
+
+    // Remove any existing labels/polylines
+    l = label.all
+    if array.size(l) > 0
+        for i = 0 to array.size(l) - 1
+            label.delete(array.get(l, i))
+    p = polyline.all
+    if array.size(p) > 0
+        for i = 0 to array.size(p) - 1
+            polyline.delete(array.get(p, i))
+
+    // Redraw the seasonality lines that were removed by polyline deletion
+    yset.plotgrid()
+    if yset.show_1
+        yset.yearly1.removeOutliers().plot(yset.start_price, yset.settings.color_1, yset.settings.size_1, yset.settings.style_1, settings.overlay)
+    if yset.show_2
+        yset.yearly2.removeOutliers().plot(yset.start_price, yset.settings.color_2, yset.settings.size_2, yset.settings.style_2, settings.overlay)
+    if yset.show_3
+        yset.yearly3.removeOutliers().plot(yset.start_price, yset.settings.color_3, yset.settings.size_3, yset.settings.style_3, settings.overlay)
+    if yset.show_4
+        yset.yearly4.removeOutliers().plot(yset.start_price, yset.settings.color_4, yset.settings.size_4, yset.settings.style_4, settings.overlay)
+    if pres_show and presYears.size() > 0
+        presYears.removeOutliers().plot(yset.start_price, pres_color, pres_size, pres_style, settings.overlay)
+
+    for i = 0 to array.size(monthsAvg)-1
+        value = array.get(monthsAvg, i)
+        if not na(value)
+            polylineclr = value>0 ? bar_up : bar_dn
+            arr_months_point=array.new<chart.point>()
+            v = value<0 ? math.sqrt(-value)*-5 : math.sqrt(value)*5
+            x0 = firstDayOfYear + math.round((i    )*barsinyear/12.0)
+            x1 = firstDayOfYear + math.round((i + 1)*barsinyear/12.0)
+            y0 = 100.0
+            y1 = 100.0 + v
+            arr_months_point.push(chart.point.from_index(x0, y0))
+            arr_months_point.push(chart.point.from_index(x1, y0))
+            arr_months_point.push(chart.point.from_index(x1, y1))
+            arr_months_point.push(chart.point.from_index(x0, y1))
+            polyline.new(arr_months_point,false,true,xloc.bar_index,line_width = 1,line_color = color.rgb(255, 255, 255,50),fill_color = polylineclr)
+            ly = v>0 ? 1.01*(y1) : 0.98*(y1)
+            label.new(x0 + (x1-x0)/2, ly, str.tostring(math.round(value*100)/100)+'%', xloc.bar_index, yloc.price, style= label.style_none, text_color=color.new(color.white,0))
