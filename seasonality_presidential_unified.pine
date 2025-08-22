@@ -9,7 +9,7 @@ string group_grid   = "Grid"
 string group_other  = "Other"
 string group_months = "Monthly Bars"
 
-srcMode           = input.string("Auto", "Source mode", options = ["Auto","Local","External"], group = group_source, tooltip = "Auto: prefer Local if enough history; otherwise use External list (priority order).")
+srcMode           = input.string("Auto (Local→External)", "Source mode", options = ["Auto (Local→External)","Local","External","External→Local"], group = group_source, tooltip = "Auto: Local if sufficient history, else External. External→Local: External preferred, Local if unavailable.")
 preferLocalYears  = input.int(12, "Prefer Local if ≥ (years)", minval=0, maxval=100, group=group_source)
 src1              = input.symbol("SPY", "External 1 (priority)", group=group_source)
 src2              = input.symbol("SPX", "External 2", group=group_source)
@@ -97,10 +97,32 @@ ext5 = request.security(src5, "D", close, ignore_invalid_symbol=true)
 ext = na(ext1) ? (na(ext2) ? (na(ext3) ? (na(ext4) ? ext5 : ext4) : ext3) : ext2) : ext1
 
 localBars = ta.cum(not na(localClose) ? 1 : 0)
-preferLocal = srcMode == "Local" or (srcMode == "Auto" and localBars >= preferLocalYears * 252)
-useExternal = srcMode == "External" or (srcMode == "Auto" and not preferLocal)
+// New mode flags
+modeAuto           = srcMode == "Auto (Local→External)"
+modeLocalOnly      = srcMode == "Local"
+modeExternalOnly   = srcMode == "External"
+modeExternalFirst  = srcMode == "External→Local"
+preferLocal        = modeAuto and (localBars >= preferLocalYears * 252)
 
-base = preferLocal ? localClose : ext
+baseLocal    = localClose
+baseExternal = ext
+base_selected = na
+
+if modeLocalOnly
+    base_selected := baseLocal
+else if modeExternalOnly
+    // Fall back to Local when External is unavailable
+    base_selected := not na(baseExternal) ? baseExternal : baseLocal
+else if modeExternalFirst
+    // Prefer External, use Local if External is NA
+    base_selected := not na(baseExternal) ? baseExternal : baseLocal
+else
+    // Auto (Local→External): prefer Local when history is sufficient
+    preferred = preferLocal ? baseLocal : baseExternal
+    fallback  = preferLocal ? baseExternal : baseLocal
+    base_selected := not na(preferred) ? preferred : fallback
+
+base = base_selected
 
 // ========================= Types and structures =========================
 type Settings
@@ -346,13 +368,14 @@ if ta.change(year(time("D")))
         active.clear()
 
 if start and ta.change(time("D"))
-    ret = (base/base[1]-1.0)*100.0
-    active.push(ret)
+    ret = (not na(base) and not na(base[1])) ? (base/base[1]-1.0)*100.0 : na
+    if not na(ret)
+        active.push(ret)
     if na(monthStart) and not na(base)
         monthStart := base
     if ta.change(month(time("D")))
         prevMonth = month(time("D"))[1] - 1
-        mret = monthStart != 0 ? base[1]/monthStart - 1.0 : na
+        mret = (not na(base[1]) and not na(monthStart) and monthStart != 0) ? base[1]/monthStart - 1.0 : na
         if not na(mret)
             array.set(mSumGen, prevMonth, array.get(mSumGen, prevMonth) + mret)
             array.set(mCntGen, prevMonth, array.get(mCntGen, prevMonth) + 1)
