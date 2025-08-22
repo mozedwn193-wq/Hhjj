@@ -62,6 +62,23 @@ show_months       = input.string("General", "Monthly bars", options=["None","Gen
 bar_up            = input.color(color.rgb(76,190,80,60), "Up fill", group=group_months, inline="mb")
 bar_dn            = input.color(color.rgb(255,82,82,60), "Down fill", group=group_months, inline="mb")
 
+// SEED vendor mode (optional)
+string group_seed = "Vendor (SEED)"
+seed_enabled              = input.bool(false, "Enable SEED vendor mode", group=group_seed)
+seed_period_years         = input.string("10 years","SEED Period",group=group_seed,options = ["10 years","15 years"], tooltip = "Date Range for the SEED seasonal chart")
+seed_remove_trend         = input.bool(true,'Remove overarching trends',group=group_seed, tooltip = 'Detrending removes overarching trends to highlight cycles')
+seed_show_monts           = input.string('none','SEED Monthly bars source',group=group_seed,options = ['none','General','Presidential'])
+seed_show_patterns        = input.bool(false,'Show SEED patterns',group=group_seed)
+seed_winning_rate         = input.int(80,'SEED patterns with winning rate ≥ (%)',group =group_seed)
+seed_repo_10              = input.string('SEED_SSDASDAS_SEASONAX:', 'SEED Repo 10y', group=group_seed)
+seed_repo_15              = input.string('SEED_SSDASDAS_SEASONAX_2:', 'SEED Repo 15y', group=group_seed)
+seed_sh                   = input.bool(true,'Draw SEED general',group=group_seed,inline = 'sg')
+seed_clr                  = input.color(#000eff,'',group=group_seed,inline = 'sg')
+seed_linewidth            = input.int(2,"", options=[1,2,3],group=group_seed,inline = 'sg')
+seed_sh2                  = input.bool(true,'Draw SEED presidential',group=group_seed,inline = 'sp2')
+seed_clr2                 = input.color(color.rgb(2, 110, 6),'',group=group_seed,inline = 'sp2')
+seed_linewidth2           = input.int(2,"", options=[1,2,3],group=group_seed,inline = 'sp2')
+
 // ========================= Utilities =========================
 color transparent = #00000000
 
@@ -431,3 +448,135 @@ if barstate.islast and show_months != "None"
             polyline.new(arr_months_point,false,true,xloc.bar_index,line_width = 1,line_color = color.rgb(255, 255, 255,50),fill_color = polylineclr)
             ly = v>0 ? 1.01*(y1) : 0.98*(y1)
             label.new(x0 + (x1-x0)/2, ly, str.tostring(math.round(value*100)/100)+'%', xloc.bar_index, yloc.price, style= label.style_none, text_color=color.new(color.white,0))
+
+// ========================= SEED vendor mode implementation =========================
+if seed_enabled
+    // Map to vendor tickers
+    v_ticker = syminfo.ticker
+    if v_ticker == 'ES1!' or v_ticker == 'SPX' or v_ticker == 'SSO' or v_ticker == 'UPRO'
+        v_ticker := 'SPY'
+    if v_ticker == 'NQ1!' or v_ticker == 'QLD' or v_ticker == 'TQQQ' or v_ticker == 'NDX'
+        v_ticker := 'QQQ'
+    if v_ticker == 'BTCUSDT' or v_ticker == 'BTCUSDT.P' or v_ticker == 'BTCUSDC'
+        v_ticker := 'BTCUSD'
+
+    var v_firstDayOfYear = bar_index
+    if ta.change(year)
+        v_firstDayOfYear := bar_index
+
+    var v_barsinyear = 252
+    v_ofst = timeframe.isdaily ? v_barsinyear : 0
+
+    v_repo = seed_period_years == '10 years' ? seed_repo_10 : seed_repo_15
+
+    [v_season, v_president, v_data4] = request.security(v_repo + v_ticker, 'D', [open, close, volume], barmerge.gaps_on, ignore_invalid_symbol=true)
+
+    var v_season_found = false
+    if not na(v_season)
+        v_season_found := true
+
+    // Months and patterns via vendor
+    v_months_val() =>
+        r = false
+        if seed_show_monts == 'General'
+            r := dayofmonth < 15
+        if seed_show_monts == 'Presidential'
+            r := dayofmonth > 15
+        ret = str.startswith(str.tostring(volume),'2') ? -1*high : high
+        ta.valuewhen(r, ret, 0)
+
+    v_patterns_has(s) =>
+        if not na(s)
+            patternsArray = array.new_float(0)
+            array.push(patternsArray, time)
+            for i = 1 to str.length(str.tostring(s)) - 1
+                array.push(patternsArray, str.tonumber(str.substring(str.tostring(s), i, i+1)))
+            patternsArray
+        else
+            na
+
+    v_weeks_val() =>
+        low > 0 ? na : -1*low
+
+    [v_months, v_patterns] = request.security(v_repo + '_PATTERN_' + v_ticker, '1D', [v_months_val(), v_patterns_has(volume)], barmerge.gaps_on, ignore_invalid_symbol=true)
+    v_weeks = request.security(v_repo + '_PATTERN_' + v_ticker, '1W', v_weeks_val(), barmerge.gaps_on, ignore_invalid_symbol=true)
+
+    // Track months data across bars
+    var v_arr_months = array.new<float>(13)
+    if not na(v_months) and year(timenow) != year(time)
+        v_arr_months.set(month, v_months)
+
+    // Prepare polylines data
+    var v_arr = array.new<chart.point>()
+    var v_arrp = array.new<chart.point>()
+
+    // Parse detrended values encoded in vendor volume
+    float v_season_det = na
+    float v_pres_det = na
+    v_data4_arr = str.split(str.tostring(v_data4), '.')
+    if array.size(v_data4_arr) > 1
+        first_value = str.tonumber(array.get(v_data4_arr, 0))
+        second_value = array.get(v_data4_arr, 1)
+        second_val = str.tonumber(str.substring(second_value, 0, str.length(second_value) - 1))
+        v_season_det := first_value / 100
+        v_pres_det := second_val / 100
+
+    if (not na(v_season) or not na(v_season_det)) and v_arr.size() < 250
+        v_arr.push(chart.point.from_index(bar_index + v_ofst, seed_remove_trend ? v_season_det : v_season))
+    if (not na(v_president) or not na(v_pres_det)) and v_arrp.size() < 250
+        v_arrp.push(chart.point.from_index(bar_index + v_ofst, seed_remove_trend ? v_pres_det : v_president))
+
+    // Patterns & win-rate from vendor
+    var v_m = matrix.new<float>()
+    var v_patterns_value = array.new<float>()
+    var v_win_rate = array.new<float>()
+    if not na(v_weeks)
+        v_split = str.split(str.tostring(v_weeks), '.')
+        if array.size(v_split) > 1
+            array.push(v_patterns_value, str.tonumber(array.get(v_split, 0)) / 100)
+            wr_s = array.get(v_split, 1)
+            wr_v = str.tonumber(str.substring(wr_s, 0, str.length(wr_s) - 1)) / 100
+            array.push(v_win_rate, wr_v)
+    if not na(v_patterns)
+        matrix.add_row(v_m, matrix.rows(v_m), v_patterns)
+
+    // Draw at last bar to avoid repeated objects per bar
+    if barstate.islast
+        // Draw vendor seasonality lines
+        if seed_sh and v_ofst != 0 and v_arr.size() > 1
+            polyline.new(v_arr, false, false, xloc.bar_index, line_width=seed_linewidth, line_color=seed_clr)
+        if seed_sh2 and v_ofst != 0 and v_arrp.size() > 1
+            polyline.new(v_arrp, false, false, xloc.bar_index, line_width=seed_linewidth2, line_color=seed_clr2)
+
+        // Draw vendor monthly bars if requested
+        if seed_show_monts != 'none' and v_ofst != 0 and v_season_found
+            if v_arr_months.size() > 12
+                v_arr_months.remove(0)
+            for [idx, val] in v_arr_months
+                polylineclr = val > 0 ? color.rgb(76, 190, 80,60) : color.rgb(255, 82, 82,60)
+                v_pts = array.new<chart.point>()
+                v_val = 0.0
+                if val < 0
+                    v_val := math.sqrt(-val) * -5
+                else
+                    v_val := math.sqrt(val) * 5
+                array.push(v_pts, chart.point.from_index(v_firstDayOfYear + idx * v_barsinyear/12, 100))
+                array.push(v_pts, chart.point.from_index(v_firstDayOfYear + idx * v_barsinyear/12 + v_barsinyear/12, 100))
+                array.push(v_pts, chart.point.from_index(v_firstDayOfYear + idx * v_barsinyear/12 + v_barsinyear/12, (v_val)+100))
+                array.push(v_pts, chart.point.from_index(v_firstDayOfYear + idx * v_barsinyear/12, (v_val)+100))
+                polyline.new(v_pts, false, true, xloc.bar_index, line_width = 1, line_color = color.rgb(255, 255, 255,50), fill_color = polylineclr)
+                ly = v_val > 0 ? 1.01*(v_val+100) : 0.98*(v_val+100)
+                label.new(v_firstDayOfYear + v_barsinyear/12*idx + v_barsinyear/12 - v_barsinyear/12/2, ly, str.tostring(val)+'%', xloc.bar_index, yloc.price, style=label.style_none)
+
+        // Draw vendor patterns with win-rate filter
+        if seed_show_patterns and matrix.rows(v_m) != 0 and v_ofst != 0 and v_patterns_value.size() > 0 and v_win_rate.size() > 0
+            for c = 1 to matrix.columns(v_m) - 1
+                v_char_points = array.new<chart.point>()
+                for r = 0 to matrix.rows(v_m) - 1
+                    if matrix.get(v_m, r, c) == 1
+                        x = math.round(matrix.get(v_m, r, 0)) + 86400000 * 364
+                        y = v_patterns_value.get(c - 1) + 100
+                        array.push(v_char_points, chart.point.from_time(x, y))
+                if v_win_rate.get(c - 1) * 100 >= seed_winning_rate
+                    label.new(array.get(v_char_points, math.round(array.size(v_char_points)/2 - 1)), 'R: ' + str.tostring(v_patterns_value.get(c-1)) + '% W: ' + str.tostring(math.round(v_win_rate.get(c-1)*100)) + '%', xloc = xloc.bar_time, yloc = yloc.price, color = color.rgb(172, 245, 174, (100 - (v_win_rate.get(c-1)*v_win_rate.get(c-1)*100))), style = label.style_none, text_font_family = font.family_monospace, size = size.normal)
+                    polyline.new(v_char_points, curved = false, closed = true, xloc = xloc.bar_time, line_style = line.style_solid, line_width = 2, line_color = color.rgb(14, 72, 233))
