@@ -10,6 +10,11 @@ bullclr = input.color(defval= color.teal,title="Bull :",inline="clr", group = "B
 bearclr = input.color(defval= color.red,title="Bear :",inline="clr", group = "Bias")
 pclr = input.color(defval= color.black,title="Next :",inline="clr", group = "Bias")
 
+// Box styling (width and style)
+width_box   = input.int(defval=1, title="Border Width :", group="Bias", inline="bx1")
+style_box_input = input.string(defval="dotted", title="Style:", options=["solid","dotted","dashed"], group="Bias", inline="bx1")
+style_box = style_box_input == "solid" ? line.style_solid : style_box_input == "dotted" ? line.style_dotted : line.style_dashed
+
 show_box = input.bool(defval=true,title="Show HTF boxes",inline="box", group = "Bias")
 boxclr = input.color(defval= color.navy,title=" Color :",inline="box", group = "Bias")
 sw_clr = input.color(defval= color.rgb(219, 219, 219, 65),title="Sweep Zone color :",inline="box1", group = "Bias")
@@ -448,19 +453,19 @@ f_control(_mtf,_htf)=>
 
 // ============== Plot base HTF boxes and sweep zones
 if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(htf) and time == ht0 and timeframe.period != htf and show_box and plot_conhtf
-    boxhtf1=box.new(left = ht1, top = hh1 , right = ht0, bottom = hl1,xloc = xloc.bar_time,border_width = 1,border_style = line.style_dotted,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
+    boxhtf1=box.new(left = ht1, top = hh1 , right = ht0, bottom = hl1,xloc = xloc.bar_time,border_width = width_box,border_style = style_box,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
 if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(htf) and timeframe.period != htf and show_box  and plot_conhtf
-    boxhtf=box.new(left = ht0, top = high > hh0 ? high : hh0 , right = time+1, bottom =low < hl0 ? low : hl0,xloc = xloc.bar_time,border_width = 1,border_style = line.style_dotted,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
+    boxhtf=box.new(left = ht0, top = high > hh0 ? high : hh0 , right = time+1, bottom =low < hl0 ? low : hl0,xloc = xloc.bar_time,border_width = width_box,border_style = style_box,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
     box.delete(boxhtf[1])
 
 if base_plots_on and f_pair_plot_ok(mtf, htf) and hh0 > hhlevel and hc0 < hhlevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
     lasthighswept := ht0
-    boxh=box.new(left = ht0, top = hh0 , right = time, bottom = hhlevel,xloc = xloc.bar_time,border_width = 1,bgcolor =sw_clr , border_color = sw_clr )
+    boxh=box.new(left = ht0, top = hh0 , right = time, bottom = hhlevel,xloc = xloc.bar_time,border_width = width_box,border_style = style_box,bgcolor =sw_clr , border_color = sw_clr )
     if lasthighswept[1] == ht0
         box.delete(boxh[1])
 if base_plots_on and f_pair_plot_ok(mtf, htf) and hl0 < lllevel and hc0 > lllevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
     lastlowswept := ht0
-    boxl=box.new(left = ht0, top = lllevel , right = time, bottom = hl0,xloc = xloc.bar_time,border_width = 1,bgcolor =sw_clr , border_color = sw_clr )
+    boxl=box.new(left = ht0, top = lllevel , right = time, bottom = hl0,xloc = xloc.bar_time,border_width = width_box,border_style = style_box,bgcolor =sw_clr , border_color = sw_clr )
     if lastlowswept[1] == ht0
         box.delete(boxl[1])
 
@@ -477,9 +482,9 @@ if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(mtf) and pbecisd != 0.
     line.delete(pbe_line[1])
 
 if base_plots_on and f_pair_plot_ok(mtf, htf) and bu_cisd and (not bu_cisd[1] or bucisd !=bucisd[1]) and f_tfcon(mtf) and show_cisd  and plot_conhtf and plot_conmtf
-    box.new(left= bu_index, top= bucisd,right= time,xloc=xloc.bar_time, bottom= bucisd,border_color = bullclr,border_width  = 1,text=f_text(mtf),text_color = bullclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_bottom)
+    box.new(left= bu_index, top= bucisd,right= time,xloc=xloc.bar_time, bottom= bucisd,border_color = bullclr,border_width  = width_box,border_style=style_box,text=f_text(mtf),text_color = bullclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_bottom)
 if base_plots_on and f_pair_plot_ok(mtf, htf) and be_cisd and (not be_cisd[1] or becisd != becisd[1]) and f_tfcon(mtf)and show_cisd  and plot_conhtf and plot_conmtf
-    box.new(left= be_index, top= becisd,right= time,xloc=xloc.bar_time, bottom= becisd,border_color = bearclr,border_width  = 1,text=f_text(mtf),text_color = bearclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_top)
+    box.new(left= be_index, top= becisd,right= time,xloc=xloc.bar_time, bottom= becisd,border_color = bearclr,border_width  = width_box,border_style=style_box,text=f_text(mtf),text_color = bearclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_top)
 
 // ============== Helper for pair label
 label_pair(_htf, _mtf) => f_text(_htf) + "/" + f_text(_mtf)
@@ -496,9 +501,9 @@ plot_pair(_on, _mtf, _htf, _pbu_next, _bu, _bu_idx, _bu_on, _pbe_next, _be, _be_
             ln_be := line.new(x1=_be_idx, y1=_pbe_next, x2=time+2*dt, y2=_pbe_next, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
             line.delete(ln_be[1])
         if _bu_on and (not _bu_on[1] or _bu != _bu[1])
-            box.new(left=_bu_idx, top=_bu, right=time, bottom=_bu, xloc=xloc.bar_time, border_color=bullclr, border_width=1, text=_name, text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
+            box.new(left=_bu_idx, top=_bu, right=time, bottom=_bu, xloc=xloc.bar_time, border_color=bullclr, border_width=width_box, border_style=style_box, text=_name, text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
         if _be_on and (not _be_on[1] or _be != _be[1])
-            box.new(left=_be_idx, top=_be, right=time, bottom=_be, xloc=xloc.bar_time, border_color=bearclr, border_width=1, text=_name, text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
+            box.new(left=_be_idx, top=_be, right=time, bottom=_be, xloc=xloc.bar_time, border_color=bearclr, border_width=width_box, border_style=style_box, text=_name, text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
 
 plot_pair(p1_on, p1_mtf, p1_htf, p1_pbu, p1_bu, p1_bu_idx, p1_bu_on, p1_pbe, p1_be, p1_be_idx, p1_be_on, label_pair(p1_htf,p1_mtf))
 plot_pair(p2_on, p2_mtf, p2_htf, p2_pbu, p2_bu, p2_bu_idx, p2_bu_on, p2_pbe, p2_be, p2_be_idx, p2_be_on, label_pair(p2_htf,p2_mtf))
