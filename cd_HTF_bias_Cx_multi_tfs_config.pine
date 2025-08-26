@@ -95,6 +95,12 @@ f_text(string _tf)=>
 f_tfcon(_tf)=>
     timeframe.in_seconds(_tf) / 60 >= timeframe.in_seconds(timeframe.period)/60
 
+// Per-pair plotting gate: only plot when chart TF <= pair MTF, chart TF < pair HTF, and MTF < HTF
+f_pair_plot_ok(_mtf, _htf) =>
+    timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(_mtf) and
+     timeframe.in_seconds(timeframe.period) <  timeframe.in_seconds(_htf) and
+     timeframe.in_seconds(_mtf) < timeframe.in_seconds(_htf)
+
 f_get_color(_bias)=>
     tb_color= _bias  > 0 ? color.teal : _bias < 0 ? color.red : color.gray
 f_get_text(_bias)=>
@@ -472,7 +478,7 @@ label_pair(_htf, _mtf) => f_text(_htf) + "/" + f_text(_mtf)
 
 // ============== Plot configurable pairs (CISD projection + boxes)
 plot_pair(_on, _mtf, _htf, _pbu_next, _bu, _bu_idx, _bu_on, _pbe_next, _be, _be_idx, _be_on, _name) =>
-    if multi_pairs_on and _on and show_cisd and f_tfcon(_mtf)
+    if multi_pairs_on and _on and show_cisd and f_pair_plot_ok(_mtf, _htf)
         var ln_bu = line.new(na,na,na,na)
         var ln_be = line.new(na,na,na,na)
         if _pbu_next != 999999999.9
