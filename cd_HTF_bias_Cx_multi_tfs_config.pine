@@ -664,3 +664,217 @@ if not ignore
                 table.cell(tablo,0,8,text=str.tostring(s6)+": " +f_get_text(bias6) ,text_color=color.white,bgcolor= f_get_color(bias6), text_size = i_font)
             if ok7    
                 table.cell(tablo,0,9,text=str.tostring(s7)+": " +f_get_text(bias7) ,text_color=color.white,bgcolor= f_get_color(bias7), text_size = i_font)
+
+// ================= HTF module (merged) =================
+grpHTF = "HTF"
+show_htf_module = input.bool(true, title="Enable HTF Module", group=grpHTF)
+htf_fix      = input.timeframe(defval="60", title="HTF (Fixed)", group=grpHTF, inline="htf")
+autoMapHTF   = input.bool(defval=true, title="Auto", group=grpHTF, inline="htf", tooltip="Auto map HTF from chart TF: 1m→15m, 5m→1h, 15m→4h, 1h→1D, 4h→1W, 1D→1M, 1W→3M")
+manualModeHTF = input.string(defval="Mapping", title="Manual Options", options=["Mapping","Fixed TF"], group=grpHTF, inline="man")
+
+// Manual Mapping rows (primary choices)
+map_lt_1m   = input.timeframe(defval="5",   title="If current TF < 1m", group=grpHTF, inline="m1")
+map_lt_3m   = input.timeframe(defval="15",  title="If current TF < 3m", group=grpHTF, inline="m2")
+map_lt_5m   = input.timeframe(defval="30",  title="If current TF < 5m", group=grpHTF, inline="m3")
+map_lt_15m  = input.timeframe(defval="60",  title="If current TF < 15m", group=grpHTF, inline="m4")
+map_lt_30m  = input.timeframe(defval="240", title="If current TF < 30m", group=grpHTF, inline="m5")
+map_lt_1h   = input.timeframe(defval="D",   title="If current TF < 1H", group=grpHTF, inline="m6")
+map_lt_4h   = input.timeframe(defval="D",   title="If current TF < 4H", group=grpHTF, inline="m7")
+map_lt_1d   = input.timeframe(defval="W",   title="If current TF < 1D", group=grpHTF, inline="m8")
+map_lt_1w   = input.timeframe(defval="M",   title="If current TF < 1W", group=grpHTF, inline="m9")
+map_lt_1mth = input.timeframe(defval="3M",  title="If current TF < 1M", group=grpHTF, inline="m10")
+
+showhtf_mod   = input.bool(defval=true, title="Show HTF boxes", group=grpHTF, inline="htf2")
+show_candle   = input.bool(defval=true, title="Show HTF Candle", group=grpHTF, inline="htf2")
+looksmt       = input.bool(defval=true, title="Show SMT", group=grpHTF, inline="smt")
+dx            = input.int(defval=0, title="Start from ahead", group=grpHTF, inline="htf2")
+
+// Auto mapping: current chart TF -> HTF
+f_map_htf_from_chart_tf(_chartTf) =>
+    switch _chartTf
+        "1"   => "15"
+        "5"   => "60"
+        "15"  => "240"
+        "60"  => "D"
+        "240" => "W"
+        "D"   => "M"
+        "W"   => "3M"
+        => htf_fix
+
+// Manual mapping evaluator
+f_map_manual_htf(_chartTf) =>
+    _sec = timeframe.in_seconds(_chartTf)
+    _res = map_lt_1m
+    if _sec < timeframe.in_seconds("1")
+        _res := map_lt_1m
+    else if _sec < timeframe.in_seconds("3")
+        _res := map_lt_3m
+    else if _sec < timeframe.in_seconds("5")
+        _res := map_lt_5m
+    else if _sec < timeframe.in_seconds("15")
+        _res := map_lt_15m
+    else if _sec < timeframe.in_seconds("30")
+        _res := map_lt_30m
+    else if _sec < timeframe.in_seconds("60")
+        _res := map_lt_1h
+    else if _sec < timeframe.in_seconds("240")
+        _res := map_lt_4h
+    else if _sec < timeframe.in_seconds("D")
+        _res := map_lt_1d
+    else if _sec < timeframe.in_seconds("W")
+        _res := map_lt_1w
+    else if _sec < timeframe.in_seconds("M")
+        _res := map_lt_1mth
+    else
+        _res := map_lt_1mth
+    _res
+
+// Determine HTF to use for module
+htf_used = autoMapHTF ? f_map_htf_from_chart_tf(tf) : manualModeHTF == "Fixed TF" ? htf_fix : f_map_manual_htf(tf)
+
+// HTF live state for module (reusing f_live_mini)
+[MH1, ML1, MC1, MO1, MT1, MH0, ML0, MC0, MO0, MT0, MH1bar, ML1bar, MH0bar, ML0bar] = f_live_mini(htf_used)
+var MH2 = high
+var ML2 = low
+var MT2 = time
+if timeframe.change(htf_used)
+    MH2 := MH1[1]
+    ML2 := ML1[1]
+    MT2 := MT1[1]
+
+// Sweep logic for module
+h_swept_mod = MH0 > MH1 and math.max(MO0, MC0) <= MH1
+l_swept_mod = ML0 < ML1 and math.min(MO0, MC0) >= ML1
+var h_swept1_mod = false
+var l_swept1_mod = false
+if timeframe.change(htf_used)
+    h_swept1_mod := h_swept_mod[1]
+    l_swept1_mod := l_swept_mod[1]
+
+// Draw HTF boxes for module
+if show_htf_module and showhtf_mod and f_tfcon(htf_used) and time == MT0 and timeframe.period != htf_used
+    htf_box_color_mod = MC1 > MO1 ? bullclr : MC1 < MO1 ? bearclr : boxclr
+    box_mod_prev = box.new(left=MT1, top=MH1, right=MT0, bottom=ML1, xloc=xloc.bar_time, border_width=width_box, border_style=style_box, bgcolor=color.rgb(255,255,255,100), border_color=htf_box_color_mod)
+if show_htf_module and showhtf_mod and f_tfcon(htf_used) and timeframe.period != htf_used
+    htf_box_color_mod_live = MC0 > MO0 ? bullclr : MC0 < MO0 ? bearclr : boxclr
+    box_mod_live = box.new(left=MT0, top=high > MH0 ? high : MH0, right=time+1, bottom=low < ML0 ? low : ML0, xloc=xloc.bar_time, border_width=width_box, border_style=style_box, bgcolor=color.rgb(255,255,255,100), border_color=htf_box_color_mod_live)
+    box.delete(box_mod_live[1])
+
+// Sweep shaded boxes
+if show_htf_module and showhtf_mod and f_tfcon(htf_used) and timeframe.period != htf_used and MH0 > MH1 and close < MH1 and MO0 < MH1
+    box_mod_hsw = box.new(left=MT0, top=MH0, right=time, bottom=MH1, xloc=xloc.bar_time, border_width=1, border_style=line.style_dotted, bgcolor=sw_clr, border_color=color.new(color.gray, 70))
+if show_htf_module and showhtf_mod and f_tfcon(htf_used) and timeframe.period != htf_used and ML0 < ML1 and close > ML1 and MO0 > ML1
+    box_mod_lsw = box.new(left=MT0, top=ML1, right=time, bottom=ML0, xloc=xloc.bar_time, border_width=1, border_style=line.style_dotted, bgcolor=sw_clr, border_color=color.new(color.gray, 70))
+
+// Mini HTF candle panel
+if show_htf_module and show_candle and barstate.islast and f_tfcon(htf_used)
+    var ln_sw1 = line.new(na,na,na,na)
+    var ln_sw2 = line.new(na,na,na,na)
+    // Current
+    bl0  = box.new(left=bar_index+dx+18, top=MC0, right=bar_index+dx+20, bottom=MO0, bgcolor=MC0 < MO0 ? bearclr : bullclr, border_color=MC0 < MO0 ? bearclr : bullclr, text=f_text(htf_used), text_size=size.tiny, text_valign=text.align_center, text_halign=text.align_center, text_color=color.white)
+    wup  = box.new(left=bar_index+dx+19, top=MH0, right=bar_index+dx+19, bottom=math.max(MO0, MC0), border_color=MC0 < MO0 ? bearclr : bullclr, border_width=1)
+    wdw  = box.new(left=bar_index+dx+19, top=ML0, right=bar_index+dx+19, bottom=math.min(MO0, MC0), border_color=MC0 < MO0 ? bearclr : bullclr, border_width=1)
+    // Previous candles
+    bl01 = box.new(left=bar_index+dx+15, top=MC1, right=bar_index+dx+17, bottom=MO1, bgcolor=MC1 < MO1 ? bearclr : bullclr, border_color=MC1 < MO1 ? bearclr : bullclr, text=f_text(htf_used), text_size=size.tiny, text_valign=text.align_center, text_halign=text.align_center, text_color=color.white)
+    wup1 = box.new(left=bar_index+dx+16, top=MH1, right=bar_index+dx+16, bottom=math.max(MO1, MC1), border_color=MC1 < MO1 ? bearclr : bullclr, border_width=1)
+    wdw1 = box.new(left=bar_index+dx+16, top=ML1, right=bar_index+dx+16, bottom=math.min(MO1, MC1), border_color=MC1 < MO1 ? bearclr : bullclr, border_width=1)
+    bl02 = box.new(left=bar_index+dx+12, top=MC1[1], right=bar_index+dx+14, bottom=MO1[1], bgcolor=MC1[1] < MO1[1] ? bearclr : bullclr, border_color=MC1[1] < MO1[1] ? bearclr : bullclr, text=f_text(htf_used), text_size=size.tiny, text_valign=text.align_center, text_halign=text.align_center, text_color=color.white)
+    wup2 = box.new(left=bar_index+dx+13, top=MH1[1], right=bar_index+dx+13, bottom=math.max(MO1[1], MC1[1]), border_color=MC1[1] < MO1[1] ? bearclr : bullclr, border_width=1)
+    wdw2 = box.new(left=bar_index+dx+13, top=ML1[1], right=bar_index+dx+13, bottom=math.min(MO1[1], MC1[1]), border_color=MC1[1] < MO1[1] ? bearclr : bullclr, border_width=1)
+    bl03 = box.new(left=bar_index+dx+9,  top=MC1[2], right=bar_index+dx+11, bottom=MO1[2], bgcolor=MC1[2] < MO1[2] ? bearclr : bullclr, border_color=MC1[2] < MO1[2] ? bearclr : bullclr, text=f_text(htf_used), text_size=size.tiny, text_valign=text.align_center, text_halign=text.align_center, text_color=color.white)
+    wup3 = box.new(left=bar_index+dx+10, top=MH1[2], right=bar_index+dx+10, bottom=math.max(MO1[2], MC1[2]), border_color=MC1[2] < MO1[2] ? bearclr : bullclr, border_width=1)
+    wdw3 = box.new(left=bar_index+dx+10, top=ML1[2], right=bar_index+dx+10, bottom=math.min(MO1[2], MC1[2]), border_color=MC1[2] < MO1[2] ? bearclr : bullclr, border_width=1)
+    // Sweep markers
+    if MH0 > MH1 and MH1 > math.max(MO0, MC0)
+        ln_sw1 := line.new(x1=bar_index+dx+16, y1=MH1, x2=bar_index+dx+19, y2=MH1, color=bearclr, style=line.style_solid, width=2)
+        line.delete(ln_sw1[1])
+    if ML0 < ML1 and ML1 < math.min(MO0, MC0)
+        ln_sw2 := line.new(x1=bar_index+dx+16, y1=ML1, x2=bar_index+dx+19, y2=ML1, color=bullclr, style=line.style_solid, width=2)
+        line.delete(ln_sw2[1])
+
+// SMT (simple)
+if show_htf_module and looksmt and timeframe.in_seconds(tf) < timeframe.in_seconds(htf_used)
+    // Example placeholder SMT signals based on HTF highs/lows divergence style
+    // Users can extend with correlation inputs if needed
+    na
+
+// Key Levels (3 rows)
+grpKey = "Time Frames => Key Levels"
+show_keylvl  = input.bool(defval=true, title="Show Key Levels", group=grpKey, inline="key")
+showkeytf1   = input.bool(defval=true, title="", group=grpKey, inline="key1")
+showkeytf2   = input.bool(defval=true, title="", group=grpKey, inline="key2")
+showkeytf3   = input.bool(defval=true, title="", group=grpKey, inline="key3")
+keytf1      = input.timeframe(defval="1W",  title="Tf1 :", group=grpKey, inline="key1")
+keytf2      = input.timeframe(defval="1D",  title="Tf2 :", group=grpKey, inline="key2")
+keytf3      = input.timeframe(defval="240", title="Tf3 :", group=grpKey, inline="key3")
+keytf1_clr  = input.color(defval=color.gray, title="", group=grpKey, inline="key1")
+keytf2_clr  = input.color(defval=color.gray, title="", group=grpKey, inline="key2")
+keytf3_clr  = input.color(defval=color.gray, title="", group=grpKey, inline="key3")
+
+// Auto mapping for key levels
+f_key_auto_from_chart_tf(_chartTf) =>
+    switch _chartTf
+        "1"   => ["15","60","240"]
+        "3"   => ["15","60","240"]
+        "5"   => ["30","60","240"]
+        "15"  => ["60","240","D"]
+        "30"  => ["240","D","D"]
+        "60"  => ["240","D","D"]
+        "240" => ["D","W","M"]
+        "D"   => ["W","M","3M"]
+        "W"   => ["M","3M","3M"]
+        => [keytf1, keytf2, keytf3]
+
+keyAutoMap    = input.bool(defval=true, title="Auto", group=grpKey, inline="keymode")
+keyManualMode = input.string(defval="Mapping", title="Manual Options", options=["Mapping","Fixed TFs"], group=grpKey, inline="keymode")
+
+// Manual mapping for key levels
+f_key_manual_from_chart_tf(_chartTf) =>
+    _sec = timeframe.in_seconds(_chartTf)
+    _r1 = keytf1
+    _r2 = keytf2
+    _r3 = keytf3
+    if _sec <= timeframe.in_seconds("1")
+        _r1 := "15", _r2 := "60", _r3 := "240"
+    else if _sec <= timeframe.in_seconds("5")
+        _r1 := "30", _r2 := "60", _r3 := "240"
+    else if _sec <= timeframe.in_seconds("15")
+        _r1 := "60", _r2 := "240", _r3 := "D"
+    else if _sec <= timeframe.in_seconds("30")
+        _r1 := "240", _r2 := "D", _r3 := "D"
+    else if _sec <= timeframe.in_seconds("60")
+        _r1 := "240", _r2 := "D", _r3 := "D"
+    else if _sec <= timeframe.in_seconds("D")
+        _r1 := "D", _r2 := "W", _r3 := "M"
+    else
+        _r1 := keytf1, _r2 := keytf2, _r3 := keytf3
+    [_r1, _r2, _r3]
+
+[auto_k1, auto_k2, auto_k3] = f_key_auto_from_chart_tf(tf)
+[map_k1,  map_k2,  map_k3]  = f_key_manual_from_chart_tf(tf)
+
+key1_used = keyAutoMap ? auto_k1 : keyManualMode == "Fixed TFs" ? keytf1 : map_k1
+key2_used = keyAutoMap ? auto_k2 : keyManualMode == "Fixed TFs" ? keytf2 : map_k2
+key3_used = keyAutoMap ? auto_k3 : keyManualMode == "Fixed TFs" ? keytf3 : map_k3
+
+[TF1H1, TF1L1, TF1C1, TF1O1, TF1T1, T1H0, T1L0, T1C0, T1O0, T1T0, _, _, _, _] = f_live_mini(key1_used)
+[TF2H1, TF2L1, TF2C1, TF2O1, TF2T1, T2H0, T2L0, T2C0, T2O0, T2T0, _, _, _, _] = f_live_mini(key2_used)
+[TF3H1, TF3L1, TF3C1, TF3O1, TF3T1, T3H0, T3L0, T3C0, T3O0, T3T0, _, _, _, _] = f_live_mini(key3_used)
+
+nx_proj = 8
+if show_htf_module and show_keylvl and barstate.islast
+    if showkeytf1
+        wbox1 = box.new(left=MT0, top=TF1H1, right=time + nx_proj * dt, bottom=TF1H1, xloc=xloc.bar_time, border_color=keytf1_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key1_used) + " h", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        wbox2 = box.new(left=MT0, top=TF1L1, right=time + nx_proj * dt, bottom=TF1L1, xloc=xloc.bar_time, border_color=keytf1_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key1_used) + " l", text_color=color.new(color.red,0), text_valign=text.align_top, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        wbox3 = box.new(left=MT0, top=T1O0,   right=time + nx_proj * dt, bottom=T1O0,   xloc=xloc.bar_time, border_color=keytf1_clr, bgcolor=color.new(color.gray,100), text=f_text(key1_used) + " open ", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        box.delete(wbox1[1]), box.delete(wbox2[1]), box.delete(wbox3[1])
+    if showkeytf2
+        dbox1 = box.new(left=MT0, top=TF2H1, right=time + nx_proj * dt, bottom=TF2H1, xloc=xloc.bar_time, border_color=keytf2_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key2_used) + " h", text_color=color.new(color.red,0), text_valign=text.align_top, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        dbox2 = box.new(left=MT0, top=TF2L1, right=time + nx_proj * dt, bottom=TF2L1, xloc=xloc.bar_time, border_color=keytf2_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key2_used) + " l", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        dbox3 = box.new(left=MT0, top=T2O0,   right=time + nx_proj * dt, bottom=T2O0,   xloc=xloc.bar_time, border_color=keytf2_clr, bgcolor=color.new(color.gray,100), text=f_text(key2_used) + " open ", text_color=color.new(color.red,0), text_valign=text.align_top, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        box.delete(dbox1[1]), box.delete(dbox2[1]), box.delete(dbox3[1])
+    if showkeytf3
+        h4box1 = box.new(left=MT0, top=TF3H1, right=time + nx_proj * dt, bottom=TF3H1, xloc=xloc.bar_time, border_color=keytf3_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key3_used) + " h", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        h4box2 = box.new(left=MT0, top=TF3L1, right=time + nx_proj * dt, bottom=TF3L1, xloc=xloc.bar_time, border_color=keytf3_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key3_used) + " l", text_color=color.new(color.red,0), text_valign=text.align_top, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        h4box3 = box.new(left=MT0, top=T3O0,   right=time + nx_proj * dt, bottom=T3O0,   xloc=xloc.bar_time, border_color=keytf3_clr, bgcolor=color.new(color.gray,100), text=f_text(key3_used) + " open ", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        box.delete(h4box1[1]), box.delete(h4box2[1]), box.delete(h4box3[1])
