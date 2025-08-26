@@ -105,6 +105,10 @@ f_pair_plot_ok(_mtf, _htf) =>
     chart_is_intraday_or_daily = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds("1D")
     pair_ok or (htf_is_monthly_or_higher and chart_is_intraday_or_daily)
 
+// Relaxed gate for assets section: allow when chart TF <= MTF and chart TF <= HTF (<=, not <)
+f_assets_ok(_mtf, _htf) =>
+    timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(_mtf) and timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(_htf)
+
 f_get_color(_bias)=>
     tb_color= _bias  > 0 ? color.teal : _bias < 0 ? color.red : color.gray
 f_get_text(_bias)=>
@@ -574,7 +578,7 @@ if tableOn and multi_pairs_on
 
 // ============== External assets alerts (as-is from base logic)
 if not ignore
-    if plot_conmtf and plot_conhtf
+    if f_assets_ok(mtf, htf)
         bias1= ok1 ? request.security(s1,mtf,bias0) : na
         bias2= ok2 ? request.security(s2,mtf,bias0) : na
         bias3= ok3 ? request.security(s3,mtf,bias0) : na
@@ -638,3 +642,20 @@ if not ignore
             alert(s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
         if bias7 == -11 and not (bias7[1] == -11)   and alert_ind and ok7 and alert_sbear
             alert(s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
+
+
+        if tableOn2 and f_assets_ok(mtf, htf)
+            if ok1
+                table.cell(tablo,0,3,text=str.tostring(s1)+": " +f_get_text(bias1) ,text_color=color.white,bgcolor= f_get_color(bias1), text_size = i_font)
+            if ok2
+                table.cell(tablo,0,4,text=str.tostring(s2)+": " +f_get_text(bias2) ,text_color=color.white,bgcolor= f_get_color(bias2), text_size = i_font)
+            if ok3
+                table.cell(tablo,0,5,text=str.tostring(s3)+": " +f_get_text(bias3) ,text_color=color.white,bgcolor= f_get_color(bias3), text_size = i_font)
+            if ok4
+                table.cell(tablo,0,6,text=str.tostring(s4)+": " +f_get_text(bias4) ,text_color=color.white,bgcolor= f_get_color(bias4), text_size = i_font)
+            if ok5    
+                table.cell(tablo,0,7,text=str.tostring(s5)+": " +f_get_text(bias5) ,text_color=color.white,bgcolor= f_get_color(bias5), text_size = i_font)
+            if ok6
+                table.cell(tablo,0,8,text=str.tostring(s6)+": " +f_get_text(bias6) ,text_color=color.white,bgcolor= f_get_color(bias6), text_size = i_font)
+            if ok7    
+                table.cell(tablo,0,9,text=str.tostring(s7)+": " +f_get_text(bias7) ,text_color=color.white,bgcolor= f_get_color(bias7), text_size = i_font)
