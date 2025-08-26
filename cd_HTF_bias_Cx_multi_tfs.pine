@@ -20,25 +20,25 @@ tableOn2 = input.bool(true, title="Add other assets to HTF Bias Table ", group="
 grpPairs = "Multi TF Pairs"
 multi_pairs_on = input.bool(true, title="Enable Multi TF Pairs", group=grpPairs)
 
-p1_on  = input.bool(true,  title="Pair 1", group=grPairs, inline="p1")
-p1_htf = input.timeframe("1D",  title="HTF", group=grPairs, inline="p1")
-p1_mtf = input.timeframe("60",  title="MTF", group=grPairs, inline="p1")
+p1_on  = input.bool(true,  title="Pair 1", group=grpPairs, inline="p1")
+p1_htf = input.timeframe("1D",  title="HTF", group=grpPairs, inline="p1")
+p1_mtf = input.timeframe("60",  title="MTF", group=grpPairs, inline="p1")
 
-p2_on  = input.bool(true,  title="Pair 2", group=grPairs, inline="p2")
-p2_htf = input.timeframe("1W",  title="HTF", group=grPairs, inline="p2")
-p2_mtf = input.timeframe("240", title="MTF", group=grPairs, inline="p2")
+p2_on  = input.bool(true,  title="Pair 2", group=grpPairs, inline="p2")
+p2_htf = input.timeframe("1W",  title="HTF", group=grpPairs, inline="p2")
+p2_mtf = input.timeframe("240", title="MTF", group=grpPairs, inline="p2")
 
-p3_on  = input.bool(true,  title="Pair 3", group=grPairs, inline="p3")
-p3_htf = input.timeframe("1M",  title="HTF", group=grPairs, inline="p3")
-p3_mtf = input.timeframe("1D",  title="MTF", group=grPairs, inline="p3")
+p3_on  = input.bool(true,  title="Pair 3", group=grpPairs, inline="p3")
+p3_htf = input.timeframe("1M",  title="HTF", group=grpPairs, inline="p3")
+p3_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p3")
 
-p4_on  = input.bool(true,  title="Pair 4", group=grPairs, inline="p4")
-p4_htf = input.timeframe("3M",  title="HTF", group=grPairs, inline="p4")
-p4_mtf = input.timeframe("1D",  title="MTF", group=grPairs, inline="p4")
+p4_on  = input.bool(true,  title="Pair 4", group=grpPairs, inline="p4")
+p4_htf = input.timeframe("3M",  title="HTF", group=grpPairs, inline="p4")
+p4_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p4")
 
-p5_on  = input.bool(true,  title="Pair 5", group=grPairs, inline="p5")
-p5_htf = input.timeframe("6M",  title="HTF", group=grPairs, inline="p5")
-p5_mtf = input.timeframe("1D",  title="MTF", group=grPairs, inline="p5")
+p5_on  = input.bool(true,  title="Pair 5", group=grpPairs, inline="p5")
+p5_htf = input.timeframe("6M",  title="HTF", group=grpPairs, inline="p5")
+p5_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p5")
 
 gr1 = "Alerts"
 alert_ind   = input.bool(defval=true, title = "Use indicator alerts", inline="b",group = gr1,tooltip = "When using the TradingView alert feature, it should be inactive.")
