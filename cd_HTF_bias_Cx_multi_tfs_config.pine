@@ -151,6 +151,22 @@ f_live_mini(_htf)=>
     _c0:= close
     [_h1,_l1,_c1,_o1,_t1,_h0,_l0,_c0,_o0,_t0,_h1bar,_l1bar,_h0bar,_l0bar]
 
+// ============== Base pair runtime context
+[hh1,hl1,hc1,ho1,ht1,hh0,hl0,hc0,ho0,ht0,hh1bar,hl1bar,hh0bar,hl0bar]=f_live_mini(htf)
+var hh2 = high
+var hh3 = high
+var hh4 = high
+var lh2  =low 
+var hl3  = low 
+var hl4  = low
+var ht2  = time 
+var ht3  = time
+var ht4  = time
+if timeframe.change(htf)
+    hh2 := hh1[1] , hh3 := hh2[1], hh4 := hh3[1]
+    lh2 := hl1[1] , hl3 := lh2[1], hl4 := hl3[1]
+    ht2 := ht1[1] , ht3 := ht2[1], ht4 := ht3[1]
+
 // Core sweep/cisd controller
 f_sweep(_htf)=>
     hsweep = false 
@@ -412,22 +428,6 @@ f_control(_mtf,_htf)=>
 
    
     [bear_level,bear_plot,bear_index,bear_cisd,bull_level,bull_plot,bull_index,bull_cisd,bear_sweepcisd,bull_sweepcisd,bias,hslevel,lslevel]
-
-// ============== Base pair runtime context
-[hh1,hl1,hc1,ho1,ht1,hh0,hl0,hc0,ho0,ht0,hh1bar,hl1bar,hh0bar,hl0bar]=f_live_mini(htf)
-var hh2 = high
-var hh3 = high
-var hh4 = high
-var lh2  =low 
-var hl3  = low 
-var hl4  = low
-var ht2  = time 
-var ht3  = time
-var ht4  = time
-if timeframe.change(htf)
-    hh2 := hh1[1] , hh3 := hh2[1], hh4 := hh3[1]
-    lh2 := hl1[1] , hl3 := lh2[1], hl4 := hl3[1]
-    ht2 := ht1[1] , ht3 := ht2[1], ht4 := ht3[1]
 
 // ============== Base control call
 [pbecisd,becisd,be_index,be_cisd,pbucisd,bucisd,bu_index,bu_cisd,be_sweepcisd,bu_sweepcisd,bias0,hhlevel,lllevel] = f_control(mtf,htf)
