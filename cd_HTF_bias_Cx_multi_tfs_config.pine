@@ -1,6 +1,7 @@
 //@version=6
-indicator("cd_HTF_bias_Cx (multi TFs)", overlay=true)
+indicator("cd_HTF_bias_Cx (configurable multi TFs)", overlay=true)
 
+// ================= Base inputs =================
 htf = input.timeframe(defval="1D", title= "Tf for bias (HTF):", group = "Bias")
 mtf = input.timeframe(defval="60", title= "Tf for confirme (cisd):", group = "Bias")
 
@@ -12,34 +13,12 @@ pclr = input.color(defval= color.black,title="Next :",inline="clr", group = "Bia
 show_box = input.bool(defval=true,title="Show HTF boxes",inline="box", group = "Bias")
 boxclr = input.color(defval= color.navy,title=" Color :",inline="box", group = "Bias")
 sw_clr = input.color(defval= color.rgb(219, 219, 219, 65),title="Sweep Zone color :",inline="box1", group = "Bias")
-//////////////
+
+// ================= Table =================
 tableOn  = input.bool(true, title="HTF Bias Table ", group="Table")
 tableOn2 = input.bool(true, title="Add other assets to HTF Bias Table ", group="Table",tooltip = "Alerts are not affected")
 
-// Multi TF Pairs (configurable)
-grpPairs = "Multi TF Pairs"
-multi_pairs_on = input.bool(true, title="Enable Multi TF Pairs", group=grpPairs)
-
-p1_on  = input.bool(true,  title="Pair 1", group=grPairs, inline="p1")
-p1_htf = input.timeframe("1D",  title="HTF", group=grPairs, inline="p1")
-p1_mtf = input.timeframe("60",  title="MTF", group=grPairs, inline="p1")
-
-p2_on  = input.bool(true,  title="Pair 2", group=grPairs, inline="p2")
-p2_htf = input.timeframe("1W",  title="HTF", group=grPairs, inline="p2")
-p2_mtf = input.timeframe("240", title="MTF", group=grPairs, inline="p2")
-
-p3_on  = input.bool(true,  title="Pair 3", group=grPairs, inline="p3")
-p3_htf = input.timeframe("1M",  title="HTF", group=grPairs, inline="p3")
-p3_mtf = input.timeframe("1D",  title="MTF", group=grPairs, inline="p3")
-
-p4_on  = input.bool(true,  title="Pair 4", group=grPairs, inline="p4")
-p4_htf = input.timeframe("3M",  title="HTF", group=grPairs, inline="p4")
-p4_mtf = input.timeframe("1D",  title="MTF", group=grPairs, inline="p4")
-
-p5_on  = input.bool(true,  title="Pair 5", group=grPairs, inline="p5")
-p5_htf = input.timeframe("6M",  title="HTF", group=grPairs, inline="p5")
-p5_mtf = input.timeframe("1D",  title="MTF", group=grPairs, inline="p5")
-
+// ================= Alerts =================
 gr1 = "Alerts"
 alert_ind   = input.bool(defval=true, title = "Use indicator alerts", inline="b",group = gr1,tooltip = "When using the TradingView alert feature, it should be inactive.")
 alert_bull  = input.bool(defval=false,title = "Bullish alerts", inline="b1",group = gr1)
@@ -47,11 +26,11 @@ alert_bear  = input.bool(defval=false,title = "Bearish alerts", inline="b2",grou
 alert_sbull = input.bool(defval=false,title = "Strong Bullish alerts", inline="b1",group = gr1)
 alert_sbear = input.bool(defval=false,title = "Strong Bearish alerts", inline="b2",group = gr1)
 
-//Table Location & Size
+// ================= Table Location & Size =================
 i_font     = input.string("small", "Text size",  options = ["tiny", "small",  "normal", "large", "huge"], group = "Table", inline  = "1")
 i_pos      = input.string(position.top_right, "Table Position", inline  = "1", options = [position.middle_right, position.top_right,position.bottom_right,position.bottom_center], group = "Table")
 
-//Assets
+// ================= Assets =================
 ignore =input.bool(defval = false,  title = "Ignore these assets " , group = "Assets",inline="s0",tooltip = "When the box is selected, assets are passive")
 
 ok1 = input.bool(defval=true,title="",group = "Assets",inline="s1")
@@ -70,16 +49,39 @@ s5=input.symbol(defval = "PEPPERSTONE:US500",   title = "5 : " , group = "Assets
 s6=input.symbol(defval = "PEPPERSTONE:XAUUSD",  title = "6 : " , group = "Assets",inline="s6")
 s7=input.symbol(defval = "PEPPERSTONE:XAGUSD",  title = "7 : " , group = "Assets",inline="s7")
 
+// ================= Configurable Multi TF Pairs =================
+grpPairs = "Multi TF Pairs"
+multi_pairs_on = input.bool(true, title="Enable Multi TF Pairs", group=grpPairs)
+
+p1_on  = input.bool(true,  title="Pair 1", group=grpPairs, inline="p1")
+p1_htf = input.timeframe("1D",  title="HTF", group=grpPairs, inline="p1")
+p1_mtf = input.timeframe("60",  title="MTF", group=grpPairs, inline="p1")
+
+p2_on  = input.bool(true,  title="Pair 2", group=grpPairs, inline="p2")
+p2_htf = input.timeframe("1W",  title="HTF", group=grpPairs, inline="p2")
+p2_mtf = input.timeframe("240", title="MTF", group=grpPairs, inline="p2")
+
+p3_on  = input.bool(true,  title="Pair 3", group=grpPairs, inline="p3")
+p3_htf = input.timeframe("1M",  title="HTF", group=grpPairs, inline="p3")
+p3_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p3")
+
+p4_on  = input.bool(true,  title="Pair 4", group=grpPairs, inline="p4")
+p4_htf = input.timeframe("3M",  title="HTF", group=grpPairs, inline="p4")
+p4_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p4")
+
+p5_on  = input.bool(true,  title="Pair 5", group=grpPairs, inline="p5")
+p5_htf = input.timeframe("6M",  title="HTF", group=grpPairs, inline="p5")
+p5_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p5")
+
 /////////////////////////////
 sym= syminfo.tickerid
 tf = timeframe.period
 plot_conmtf = timeframe.in_seconds(tf) *1000 <= timeframe.in_seconds(mtf)*1000 
 plot_conhtf = timeframe.in_seconds(tf) *1000 <  timeframe.in_seconds(htf)*1000
-var bearish_bias = false
-var bullish_bias = false
 var tablo = table.new(position = i_pos,columns = 2,rows = 28,frame_color=color.white,frame_width=2,bgcolor=color.teal,border_color=color.white,border_width=1)
 var lasthighswept = 0
 var lastlowswept = 0
+
 //////////////////////////////// functions
 add_to_array(arr, value) =>
     array.unshift(arr, value)
@@ -141,20 +143,8 @@ f_live_mini(_htf)=>
         _l1bar := _l0bar[1] 
     _c0:= close
     [_h1,_l1,_c1,_o1,_t1,_h0,_l0,_c0,_o0,_t0,_h1bar,_l1bar,_h0bar,_l0bar]
-[hh1,hl1,hc1,ho1,ht1,hh0,hl0,hc0,ho0,ht0,hh1bar,hl1bar,hh0bar,hl0bar]=f_live_mini(htf)  
-var hh2 = high
-var hh3 = high
-var hh4 = high
-var lh2  =low 
-var hl3  = low 
-var hl4  = low
-var ht2  = time 
-var ht3  = time
-var ht4  = time
-if timeframe.change(htf)
-    hh2 := hh1[1] , hh3 := hh2[1], hh4 := hh3[1]
-    lh2 := hl1[1] , hl3 := lh2[1], hl4 := hl3[1]
-    ht2 := ht1[1] , ht3 := ht2[1], ht4 := ht3[1]      
+
+// Core sweep/cisd controller
 f_sweep(_htf)=>
     hsweep = false 
     lsweep = false 
@@ -415,21 +405,38 @@ f_control(_mtf,_htf)=>
 
    
     [bear_level,bear_plot,bear_index,bear_cisd,bull_level,bull_plot,bull_index,bull_cisd,bear_sweepcisd,bull_sweepcisd,bias,hslevel,lslevel]
-////////////////////////////////////////////////////////////////////////
+
+// ============== Base pair runtime context
+[hh1,hl1,hc1,ho1,ht1,hh0,hl0,hc0,ho0,ht0,hh1bar,hl1bar,hh0bar,hl0bar]=f_live_mini(htf)
+var hh2 = high
+var hh3 = high
+var hh4 = high
+var lh2  =low 
+var hl3  = low 
+var hl4  = low
+var ht2  = time 
+var ht3  = time
+var ht4  = time
+if timeframe.change(htf)
+    hh2 := hh1[1] , hh3 := hh2[1], hh4 := hh3[1]
+    lh2 := hl1[1] , hl3 := lh2[1], hl4 := hl3[1]
+    ht2 := ht1[1] , ht3 := ht2[1], ht4 := ht3[1]
+
+// ============== Base control call
 [pbecisd,becisd,be_index,be_cisd,pbucisd,bucisd,bu_index,bu_cisd,be_sweepcisd,bu_sweepcisd,bias0,hhlevel,lllevel] = f_control(mtf,htf)
 
-// Fixed pairs
-[pbecisdD,becisdD,be_indexD,be_cisdD,pbucisdD,bucisdD,bu_indexD,bu_cisdD,be_sweepcisdD,bu_sweepcisdD,biasD,hsD,lsD] = f_control("60",  "1D")
-[pbecisdW,becisdW,be_indexW,be_cisdW,pbucisdW,bucisdW,bu_indexW,bu_cisdW,be_sweepcisdW,bu_sweepcisdW,biasW,hsW,lsW] = f_control("240", "1W")
-[pbecisdM,becisdM,be_indexM,be_cisdM,pbucisdM,bucisdM,bu_indexM,bu_cisdM,be_sweepcisdM,bu_sweepcisdM,biasM,hsM,lsM] = f_control("1D",  "1M")
-[pbecisdQ,becisdQ,be_indexQ,be_cisdQ,pbucisdQ,bucisdQ,bu_indexQ,bu_cisdQ,be_sweepcisdQ,bu_sweepcisdQ,biasQ,hsQ,lsQ] = f_control("1D",  "3M")
-[pbecisdH,becisdH,be_indexH,be_cisdH,pbucisdH,bucisdH,bu_indexH,bu_cisdH,be_sweepcisdH,bu_sweepcisdH,biasH,hsH,lsH] = f_control("1D",  "6M")
+// ============== Configurable pairs compute
+[p1_pbe,p1_be,p1_be_idx,p1_be_on,p1_pbu,p1_bu,p1_bu_idx,p1_bu_on,p1_be_sc,p1_bu_sc,p1_bias,p1_hs,p1_ls] = f_control(p1_mtf,p1_htf)
+[p2_pbe,p2_be,p2_be_idx,p2_be_on,p2_pbu,p2_bu,p2_bu_idx,p2_bu_on,p2_be_sc,p2_bu_sc,p2_bias,p2_hs,p2_ls] = f_control(p2_mtf,p2_htf)
+[p3_pbe,p3_be,p3_be_idx,p3_be_on,p3_pbu,p3_bu,p3_bu_idx,p3_bu_on,p3_be_sc,p3_bu_sc,p3_bias,p3_hs,p3_ls] = f_control(p3_mtf,p3_htf)
+[p4_pbe,p4_be,p4_be_idx,p4_be_on,p4_pbu,p4_bu,p4_bu_idx,p4_bu_on,p4_be_sc,p4_bu_sc,p4_bias,p4_hs,p4_ls] = f_control(p4_mtf,p4_htf)
+[p5_pbe,p5_be,p5_be_idx,p5_be_on,p5_pbu,p5_bu,p5_bu_idx,p5_bu_on,p5_be_sc,p5_bu_sc,p5_bias,p5_hs,p5_ls] = f_control(p5_mtf,p5_htf)
 
-//////////////////// plot (base pair)
+// ============== Plot base HTF boxes and sweep zones
 if f_tfcon(htf) and time == ht0 and timeframe.period != htf and show_box and plot_conhtf
-    boxhtf1=box.new(left = ht1, top = hh1 , right = ht0, bottom = hl1,xloc = xloc.bar_time,border_width = 1,border_style = line.style_dotted,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr ,text = "",text_color= color.navy, text_size=size.tiny ,text_halign = text.align_right,text_valign = text.align_center )
+    boxhtf1=box.new(left = ht1, top = hh1 , right = ht0, bottom = hl1,xloc = xloc.bar_time,border_width = 1,border_style = line.style_dotted,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
 if f_tfcon(htf) and timeframe.period != htf and show_box  and plot_conhtf
-    boxhtf=box.new(left = ht0, top = high > hh0 ? high : hh0 , right = time+1, bottom =low < hl0 ? low : hl0,xloc = xloc.bar_time,border_width = 1,border_style = line.style_dotted,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr  ,text = "",text_color= color.navy, text_size=size.tiny ,text_halign = text.align_right,text_valign = text.align_center)
+    boxhtf=box.new(left = ht0, top = high > hh0 ? high : hh0 , right = time+1, bottom =low < hl0 ? low : hl0,xloc = xloc.bar_time,border_width = 1,border_style = line.style_dotted,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
     box.delete(boxhtf[1])
 
 if hh0 > hhlevel and hc0 < hhlevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
@@ -442,10 +449,10 @@ if hl0 < lllevel and hc0 > lllevel and f_tfcon(htf) and timeframe.period != htf 
     boxl=box.new(left = ht0, top = lllevel , right = time, bottom = hl0,xloc = xloc.bar_time,border_width = 1,bgcolor =sw_clr , border_color = sw_clr )
     if lastlowswept[1] == ht0
         box.delete(boxl[1])
+
 dt = timeframe.in_seconds(tf)*1000 
 
-
-
+// ============== Base pair CISD projection + boxes
 var pbu_line = line.new(na,na,na,na)
 var pbe_line = line.new(na,na,na,na)
 if f_tfcon(mtf) and pbucisd != 999999999.9 and show_cisd  and plot_conhtf and plot_conmtf
@@ -455,187 +462,107 @@ if f_tfcon(mtf) and pbecisd != 0.0 and show_cisd  and plot_conhtf and plot_conmt
     pbe_line :=line.new(x1= be_index, y1= pbecisd,x2= time+2*dt, y2= pbecisd, xloc=xloc.bar_time,color = pclr,width  = 1,style = line.style_dashed)
     line.delete(pbe_line[1])
 
-
 if bu_cisd and (not bu_cisd[1] or bucisd !=bucisd[1]) and f_tfcon(mtf) and show_cisd  and plot_conhtf and plot_conmtf
-    bu_line =box.new(left= bu_index, top= bucisd,right= time,xloc=xloc.bar_time, bottom= bucisd,border_color = bullclr,border_width  = 1,text=f_text(mtf),text_color = bullclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_bottom)
-    line.delete(pbu_line[1])
-if be_cisd and (not be_cisd[1] or becisd != becisd[1]) and f_tfcon(mtf)and show_cisd  and plot_conhtf and plot_conmtf 
-    be_line =box.new(left= be_index, top= becisd,right= time,xloc=xloc.bar_time, bottom= becisd,border_color = bearclr,border_width  = 1,text=f_text(mtf),text_color = bearclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_top)
-    line.delete(pbe_line[1])
+    box.new(left= bu_index, top= bucisd,right= time,xloc=xloc.bar_time, bottom= bucisd,border_color = bullclr,border_width  = 1,text=f_text(mtf),text_color = bullclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_bottom)
+if be_cisd and (not be_cisd[1] or becisd != becisd[1]) and f_tfcon(mtf)and show_cisd  and plot_conhtf and plot_conmtf
+    box.new(left= be_index, top= becisd,right= time,xloc=xloc.bar_time, bottom= becisd,border_color = bearclr,border_width  = 1,text=f_text(mtf),text_color = bearclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_top)
 
-// Fixed pairs plotting (CISD next lines and boxes) D/1H, W/4H, M/1D, 3M/1D, 6M/1D
-var pbu_line_D = line.new(na,na,na,na)
-var pbe_line_D = line.new(na,na,na,na)
-var pbu_line_W = line.new(na,na,na,na)
-var pbe_line_W = line.new(na,na,na,na)
-var pbu_line_M = line.new(na,na,na,na)
-var pbe_line_M = line.new(na,na,na,na)
-var pbu_line_Q = line.new(na,na,na,na)
-var pbe_line_Q = line.new(na,na,na,na)
-var pbu_line_H = line.new(na,na,na,na)
-var pbe_line_H = line.new(na,na,na,na)
+// ============== Helper for pair label
+label_pair(_htf, _mtf) => f_text(_htf) + "/" + f_text(_mtf)
 
-// D/1H
-if f_tfcon("60") and pbucisdD != 999999999.9 and show_cisd
-    pbu_line_D := line.new(x1= bu_indexD, y1= pbucisdD, x2= time+2*dt, y2= pbucisdD, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbu_line_D[1])
-if f_tfcon("60") and pbecisdD != 0.0 and show_cisd
-    pbe_line_D := line.new(x1= be_indexD, y1= pbecisdD, x2= time+2*dt, y2= pbecisdD, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbe_line_D[1])
-if bu_cisdD and (not bu_cisdD[1] or (bucisdD != bucisdD[1])) and f_tfcon("60") and show_cisd
-    box.new(left= bu_indexD, top= bucisdD, right= time, xloc=xloc.bar_time, bottom= bucisdD, border_color=bullclr, border_width=1, text="D/1H", text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
-if be_cisdD and (not be_cisdD[1] or (becisdD != becisdD[1])) and f_tfcon("60") and show_cisd
-    box.new(left= be_indexD, top= becisdD, right= time, xloc=xloc.bar_time, bottom= becisdD, border_color=bearclr, border_width=1, text="D/1H", text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
+// ============== Plot configurable pairs (CISD projection + boxes)
+plot_pair(_on, _mtf, _htf, _pbu_next, _bu, _bu_idx, _bu_on, _pbe_next, _be, _be_idx, _be_on, _name) =>
+    if multi_pairs_on and _on and show_cisd and f_tfcon(_mtf)
+        var ln_bu = line.new(na,na,na,na)
+        var ln_be = line.new(na,na,na,na)
+        if _pbu_next != 999999999.9
+            ln_bu := line.new(x1=_bu_idx, y1=_pbu_next, x2=time+2*dt, y2=_pbu_next, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
+            line.delete(ln_bu[1])
+        if _pbe_next != 0.0
+            ln_be := line.new(x1=_be_idx, y1=_pbe_next, x2=time+2*dt, y2=_pbe_next, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
+            line.delete(ln_be[1])
+        if _bu_on and (not _bu_on[1] or _bu != _bu[1])
+            box.new(left=_bu_idx, top=_bu, right=time, bottom=_bu, xloc=xloc.bar_time, border_color=bullclr, border_width=1, text=_name, text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
+        if _be_on and (not _be_on[1] or _be != _be[1])
+            box.new(left=_be_idx, top=_be, right=time, bottom=_be, xloc=xloc.bar_time, border_color=bearclr, border_width=1, text=_name, text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
 
-// W/4H
-if f_tfcon("240") and pbucisdW != 999999999.9 and show_cisd
-    pbu_line_W := line.new(x1= bu_indexW, y1= pbucisdW, x2= time+2*dt, y2= pbucisdW, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbu_line_W[1])
-if f_tfcon("240") and pbecisdW != 0.0 and show_cisd
-    pbe_line_W := line.new(x1= be_indexW, y1= pbecisdW, x2= time+2*dt, y2= pbecisdW, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbe_line_W[1])
-if bu_cisdW and (not bu_cisdW[1] or (bucisdW != bucisdW[1])) and f_tfcon("240") and show_cisd
-    box.new(left= bu_indexW, top= bucisdW, right= time, xloc=xloc.bar_time, bottom= bucisdW, border_color=bullclr, border_width=1, text="W/4H", text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
-if be_cisdW and (not be_cisdW[1] or (becisdW != becisdW[1])) and f_tfcon("240") and show_cisd
-    box.new(left= be_indexW, top= becisdW, right= time, xloc=xloc.bar_time, bottom= becisdW, border_color=bearclr, border_width=1, text="W/4H", text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
+plot_pair(p1_on, p1_mtf, p1_htf, p1_pbu, p1_bu, p1_bu_idx, p1_bu_on, p1_pbe, p1_be, p1_be_idx, p1_be_on, label_pair(p1_htf,p1_mtf))
+plot_pair(p2_on, p2_mtf, p2_htf, p2_pbu, p2_bu, p2_bu_idx, p2_bu_on, p2_pbe, p2_be, p2_be_idx, p2_be_on, label_pair(p2_htf,p2_mtf))
+plot_pair(p3_on, p3_mtf, p3_htf, p3_pbu, p3_bu, p3_bu_idx, p3_bu_on, p3_pbe, p3_be, p3_be_idx, p3_be_on, label_pair(p3_htf,p3_mtf))
+plot_pair(p4_on, p4_mtf, p4_htf, p4_pbu, p4_bu, p4_bu_idx, p4_bu_on, p4_pbe, p4_be, p4_be_idx, p4_be_on, label_pair(p4_htf,p4_mtf))
+plot_pair(p5_on, p5_mtf, p5_htf, p5_pbu, p5_bu, p5_bu_idx, p5_bu_on, p5_pbe, p5_be, p5_be_idx, p5_be_on, label_pair(p5_htf,p5_mtf))
 
-// M/1D
-if f_tfcon("1D") and pbucisdM != 999999999.9 and show_cisd
-    pbu_line_M := line.new(x1= bu_indexM, y1= pbucisdM, x2= time+2*dt, y2= pbucisdM, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbu_line_M[1])
-if f_tfcon("1D") and pbecisdM != 0.0 and show_cisd
-    pbe_line_M := line.new(x1= be_indexM, y1= pbecisdM, x2= time+2*dt, y2= pbecisdM, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbe_line_M[1])
-if bu_cisdM and (not bu_cisdM[1] or (bucisdM != bucisdM[1])) and f_tfcon("1D") and show_cisd
-    box.new(left= bu_indexM, top= bucisdM, right= time, xloc=xloc.bar_time, bottom= bucisdM, border_color=bullclr, border_width=1, text="M/1D", text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
-if be_cisdM and (not be_cisdM[1] or (becisdM != becisdM[1])) and f_tfcon("1D") and show_cisd
-    box.new(left= be_indexM, top= becisdM, right= time, xloc=xloc.bar_time, bottom= becisdM, border_color=bearclr, border_width=1, text="M/1D", text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
-
-// 3M/1D
-if f_tfcon("1D") and pbucisdQ != 999999999.9 and show_cisd
-    pbu_line_Q := line.new(x1= bu_indexQ, y1= pbucisdQ, x2= time+2*dt, y2= pbucisdQ, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbu_line_Q[1])
-if f_tfcon("1D") and pbecisdQ != 0.0 and show_cisd
-    pbe_line_Q := line.new(x1= be_indexQ, y1= pbecisdQ, x2= time+2*dt, y2= pbecisdQ, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbe_line_Q[1])
-if bu_cisdQ and (not bu_cisdQ[1] or (bucisdQ != bucisdQ[1])) and f_tfcon("1D") and show_cisd
-    box.new(left= bu_indexQ, top= bucisdQ, right= time, xloc=xloc.bar_time, bottom= bucisdQ, border_color=bullclr, border_width=1, text="3M/1D", text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
-if be_cisdQ and (not be_cisdQ[1] or (becisdQ != becisdQ[1])) and f_tfcon("1D") and show_cisd
-    box.new(left= be_indexQ, top= becisdQ, right= time, xloc=xloc.bar_time, bottom= becisdQ, border_color=bearclr, border_width=1, text="3M/1D", text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
-
-// 6M/1D
-if f_tfcon("1D") and pbucisdH != 999999999.9 and show_cisd
-    pbu_line_H := line.new(x1= bu_indexH, y1= pbucisdH, x2= time+2*dt, y2= pbucisdH, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbu_line_H[1])
-if f_tfcon("1D") and pbecisdH != 0.0 and show_cisd
-    pbe_line_H := line.new(x1= be_indexH, y1= pbecisdH, x2= time+2*dt, y2= pbecisdH, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
-    line.delete(pbe_line_H[1])
-if bu_cisdH and (not bu_cisdH[1] or (bucisdH != bucisdH[1])) and f_tfcon("1D") and show_cisd
-    box.new(left= bu_indexH, top= bucisdH, right= time, xloc=xloc.bar_time, bottom= bucisdH, border_color=bullclr, border_width=1, text="6M/1D", text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
-if be_cisdH and (not be_cisdH[1] or (becisdH != becisdH[1])) and f_tfcon("1D") and show_cisd
-    box.new(left= be_indexH, top= becisdH, right= time, xloc=xloc.bar_time, bottom= becisdH, border_color=bearclr, border_width=1, text="6M/1D", text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
-
-// Alerts (base pair)
+// ============== Alerts (base pair runtime alerts)
 if bias0 == -1 and not (bias0[1] == -1) and not (bias0[1] == -11)  and not alert_ind and alert_bear
-    alert(sym +',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🔴 Bearish Alert', alert.freq_once_per_bar) 
-
-if bias0 == 1 and not (bias0[1] == 1) and not (bias0[1] == 11)  and not alert_ind and alert_bull        
-    alert(sym + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🟢 Bullish Alarm', alert.freq_once_per_bar) 
-
+    alert(sym +',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🔴 Bearish Alert', alert.freq_once_per_bar)
+if bias0 == 1 and not (bias0[1] == 1) and not (bias0[1] == 11)  and not alert_ind and alert_bull
+    alert(sym + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🟢 Bullish Alarm', alert.freq_once_per_bar)
 if bias0 == -11 and not (bias0[1] == -11) and not alert_ind and alert_sbear
-    alert(sym +',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🔴 Strong Bearish Alert', alert.freq_once_per_bar) 
+    alert(sym +',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🔴 Strong Bearish Alert', alert.freq_once_per_bar)
+if bias0 == 11 and not (bias0[1] == 11) and not alert_ind and alert_sbull
+    alert(sym + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
 
-if bias0 == 11 and not (bias0[1] == 11) and not alert_ind and alert_sbull        
-    alert(sym + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar) 
+// ============== Alertconditions for configurable pairs (gated by toggles)
+alertcondition(multi_pairs_on and p1_on and p1_bias ==  1 and (p1_bias[1] != 1 and p1_bias[1] != 11), "P1 Bullish",          "P1 "+label_pair(p1_htf,p1_mtf)+": Bullish")
+alertcondition(multi_pairs_on and p1_on and p1_bias == -1 and (p1_bias[1] != -1 and p1_bias[1] != -11), "P1 Bearish",        "P1 "+label_pair(p1_htf,p1_mtf)+": Bearish")
+alertcondition(multi_pairs_on and p1_on and p1_bias == 11 and p1_bias[1] != 11,                         "P1 Strong Bullish","P1 "+label_pair(p1_htf,p1_mtf)+": Strong Bullish")
+alertcondition(multi_pairs_on and p1_on and p1_bias == -11 and p1_bias[1] != -11,                       "P1 Strong Bearish","P1 "+label_pair(p1_htf,p1_mtf)+": Strong Bearish")
 
-// Fixed pair alertconditions (current symbol)
-alertcondition(biasD ==  1 and (biasD[1] != 1 and biasD[1] != 11), "D/1H Bullish",          "D/1H: Bullish")
-alertcondition(biasD == -1 and (biasD[1] != -1 and biasD[1] != -11), "D/1H Bearish",        "D/1H: Bearish")
-alertcondition(biasD == 11 and biasD[1] != 11,                        "D/1H Strong Bullish","D/1H: Strong Bullish")
-alertcondition(biasD == -11 and biasD[1] != -11,                      "D/1H Strong Bearish","D/1H: Strong Bearish")
+alertcondition(multi_pairs_on and p2_on and p2_bias ==  1 and (p2_bias[1] != 1 and p2_bias[1] != 11), "P2 Bullish",          "P2 "+label_pair(p2_htf,p2_mtf)+": Bullish")
+alertcondition(multi_pairs_on and p2_on and p2_bias == -1 and (p2_bias[1] != -1 and p2_bias[1] != -11), "P2 Bearish",        "P2 "+label_pair(p2_htf,p2_mtf)+": Bearish")
+alertcondition(multi_pairs_on and p2_on and p2_bias == 11 and p2_bias[1] != 11,                         "P2 Strong Bullish","P2 "+label_pair(p2_htf,p2_mtf)+": Strong Bullish")
+alertcondition(multi_pairs_on and p2_on and p2_bias == -11 and p2_bias[1] != -11,                       "P2 Strong Bearish","P2 "+label_pair(p2_htf,p2_mtf)+": Strong Bearish")
 
-alertcondition(biasW ==  1 and (biasW[1] != 1 and biasW[1] != 11), "W/4H Bullish",          "W/4H: Bullish")
-alertcondition(biasW == -1 and (biasW[1] != -1 and biasW[1] != -11), "W/4H Bearish",         "W/4H: Bearish")
-alertcondition(biasW == 11 and biasW[1] != 11,                        "W/4H Strong Bullish", "W/4H: Strong Bullish")
-alertcondition(biasW == -11 and biasW[1] != -11,                      "W/4H Strong Bearish", "W/4H: Strong Bearish")
+alertcondition(multi_pairs_on and p3_on and p3_bias ==  1 and (p3_bias[1] != 1 and p3_bias[1] != 11), "P3 Bullish",          "P3 "+label_pair(p3_htf,p3_mtf)+": Bullish")
+alertcondition(multi_pairs_on and p3_on and p3_bias == -1 and (p3_bias[1] != -1 and p3_bias[1] != -11), "P3 Bearish",        "P3 "+label_pair(p3_htf,p3_mtf)+": Bearish")
+alertcondition(multi_pairs_on and p3_on and p3_bias == 11 and p3_bias[1] != 11,                         "P3 Strong Bullish","P3 "+label_pair(p3_htf,p3_mtf)+": Strong Bullish")
+alertcondition(multi_pairs_on and p3_on and p3_bias == -11 and p3_bias[1] != -11,                       "P3 Strong Bearish","P3 "+label_pair(p3_htf,p3_mtf)+": Strong Bearish")
 
-alertcondition(biasM ==  1 and (biasM[1] != 1 and biasM[1] != 11), "M/1D Bullish",          "M/1D: Bullish")
-alertcondition(biasM == -1 and (biasM[1] != -1 and biasM[1] != -11), "M/1D Bearish",         "M/1D: Bearish")
-alertcondition(biasM == 11 and biasM[1] != 11,                        "M/1D Strong Bullish", "M/1D: Strong Bullish")
-alertcondition(biasM == -11 and biasM[1] != -11,                      "M/1D Strong Bearish", "M/1D: Strong Bearish")
+alertcondition(multi_pairs_on and p4_on and p4_bias ==  1 and (p4_bias[1] != 1 and p4_bias[1] != 11), "P4 Bullish",          "P4 "+label_pair(p4_htf,p4_mtf)+": Bullish")
+alertcondition(multi_pairs_on and p4_on and p4_bias == -1 and (p4_bias[1] != -1 and p4_bias[1] != -11), "P4 Bearish",        "P4 "+label_pair(p4_htf,p4_mtf)+": Bearish")
+alertcondition(multi_pairs_on and p4_on and p4_bias == 11 and p4_bias[1] != 11,                         "P4 Strong Bullish","P4 "+label_pair(p4_htf,p4_mtf)+": Strong Bullish")
+alertcondition(multi_pairs_on and p4_on and p4_bias == -11 and p4_bias[1] != -11,                       "P4 Strong Bearish","P4 "+label_pair(p4_htf,p4_mtf)+": Strong Bearish")
 
-alertcondition(biasQ ==  1 and (biasQ[1] != 1 and biasQ[1] != 11), "3M/1D Bullish",          "3M/1D: Bullish")
-alertcondition(biasQ == -1 and (biasQ[1] != -1 and biasQ[1] != -11), "3M/1D Bearish",         "3M/1D: Bearish")
-alertcondition(biasQ == 11 and biasQ[1] != 11,                        "3M/1D Strong Bullish", "3M/1D: Strong Bullish")
-alertcondition(biasQ == -11 and biasQ[1] != -11,                      "3M/1D Strong Bearish", "3M/1D: Strong Bearish")
+alertcondition(multi_pairs_on and p5_on and p5_bias ==  1 and (p5_bias[1] != 1 and p5_bias[1] != 11), "P5 Bullish",          "P5 "+label_pair(p5_htf,p5_mtf)+": Bullish")
+alertcondition(multi_pairs_on and p5_on and p5_bias == -1 and (p5_bias[1] != -1 and p5_bias[1] != -11), "P5 Bearish",        "P5 "+label_pair(p5_htf,p5_mtf)+": Bearish")
+alertcondition(multi_pairs_on and p5_on and p5_bias == 11 and p5_bias[1] != 11,                         "P5 Strong Bullish","P5 "+label_pair(p5_htf,p5_mtf)+": Strong Bullish")
+alertcondition(multi_pairs_on and p5_on and p5_bias == -11 and p5_bias[1] != -11,                       "P5 Strong Bearish","P5 "+label_pair(p5_htf,p5_mtf)+": Strong Bearish")
 
-alertcondition(biasH ==  1 and (biasH[1] != 1 and biasH[1] != 11), "6M/1D Bullish",          "6M/1D: Bullish")
-alertcondition(biasH == -1 and (biasH[1] != -1 and biasH[1] != -11), "6M/1D Bearish",         "6M/1D: Bearish")
-alertcondition(biasH == 11 and biasH[1] != 11,                        "6M/1D Strong Bullish", "6M/1D: Strong Bullish")
-alertcondition(biasH == -11 and biasH[1] != -11,                      "6M/1D Strong Bearish", "6M/1D: Strong Bearish")
+// Optional runtime alerts reusing toggles
+runtime_pair_alerts(_on, _bias, _name) =>
+    if not alert_ind and _on
+        if alert_bull and _bias == 1 and (_bias[1] != 1 and _bias[1] != 11)
+            alert(sym + ", "+_name+", 🟢 Bullish", alert.freq_once_per_bar)
+        if alert_bear and _bias == -1 and (_bias[1] != -1 and _bias[1] != -11)
+            alert(sym + ", "+_name+", 🔴 Bearish", alert.freq_once_per_bar)
+        if alert_sbull and _bias == 11 and _bias[1] != 11
+            alert(sym + ", "+_name+", 🟢 Strong Bullish", alert.freq_once_per_bar)
+        if alert_sbear and _bias == -11 and _bias[1] != -11
+            alert(sym + ", "+_name+", 🔴 Strong Bearish", alert.freq_once_per_bar)
 
-// Runtime alerts with toggles for fixed pairs
-if not alert_ind
-    if alert_bull and biasD == 1 and (biasD[1] != 1 and biasD[1] != 11)
-        alert(sym + ", D/1H, 🟢 Bullish", alert.freq_once_per_bar)
-    if alert_bear and biasD == -1 and (biasD[1] != -1 and biasD[1] != -11)
-        alert(sym + ", D/1H, 🔴 Bearish", alert.freq_once_per_bar)
-    if alert_sbull and biasD == 11 and biasD[1] != 11
-        alert(sym + ", D/1H, 🟢 Strong Bullish", alert.freq_once_per_bar)
-    if alert_sbear and biasD == -11 and biasD[1] != -11
-        alert(sym + ", D/1H, 🔴 Strong Bearish", alert.freq_once_per_bar)
+runtime_pair_alerts(multi_pairs_on and p1_on, p1_bias, label_pair(p1_htf,p1_mtf))
+runtime_pair_alerts(multi_pairs_on and p2_on, p2_bias, label_pair(p2_htf,p2_mtf))
+runtime_pair_alerts(multi_pairs_on and p3_on, p3_bias, label_pair(p3_htf,p3_mtf))
+runtime_pair_alerts(multi_pairs_on and p4_on, p4_bias, label_pair(p4_htf,p4_mtf))
+runtime_pair_alerts(multi_pairs_on and p5_on, p5_bias, label_pair(p5_htf,p5_mtf))
 
-    if alert_bull and biasW == 1 and (biasW[1] != 1 and biasW[1] != 11)
-        alert(sym + ", W/4H, 🟢 Bullish", alert.freq_once_per_bar)
-    if alert_bear and biasW == -1 and (biasW[1] != -1 and biasW[1] != -11)
-        alert(sym + ", W/4H, 🔴 Bearish", alert.freq_once_per_bar)
-    if alert_sbull and biasW == 11 and biasW[1] != 11
-        alert(sym + ", W/4H, 🟢 Strong Bullish", alert.freq_once_per_bar)
-    if alert_sbear and biasW == -11 and biasW[1] != -11
-        alert(sym + ", W/4H, 🔴 Strong Bearish", alert.freq_once_per_bar)
-
-    if alert_bull and biasM == 1 and (biasM[1] != 1 and biasM[1] != 11)
-        alert(sym + ", M/1D, 🟢 Bullish", alert.freq_once_per_bar)
-    if alert_bear and biasM == -1 and (biasM[1] != -1 and biasM[1] != -11)
-        alert(sym + ", M/1D, 🔴 Bearish", alert.freq_once_per_bar)
-    if alert_sbull and biasM == 11 and biasM[1] != 11
-        alert(sym + ", M/1D, 🟢 Strong Bullish", alert.freq_once_per_bar)
-    if alert_sbear and biasM == -11 and biasM[1] != -11
-        alert(sym + ", M/1D, 🔴 Strong Bearish", alert.freq_once_per_bar)
-
-    if alert_bull and biasQ == 1 and (biasQ[1] != 1 and biasQ[1] != 11)
-        alert(sym + ", 3M/1D, 🟢 Bullish", alert.freq_once_per_bar)
-    if alert_bear and biasQ == -1 and (biasQ[1] != -1 and biasQ[1] != -11)
-        alert(sym + ", 3M/1D, 🔴 Bearish", alert.freq_once_per_bar)
-    if alert_sbull and biasQ == 11 and biasQ[1] != 11
-        alert(sym + ", 3M/1D, 🟢 Strong Bullish", alert.freq_once_per_bar)
-    if alert_sbear and biasQ == -11 and biasQ[1] != -11
-        alert(sym + ", 3M/1D, 🔴 Strong Bearish", alert.freq_once_per_bar)
-
-    if alert_bull and biasH == 1 and (biasH[1] != 1 and biasH[1] != 11)
-        alert(sym + ", 6M/1D, 🟢 Bullish", alert.freq_once_per_bar)
-    if alert_bear and biasH == -1 and (biasH[1] != -1 and biasH[1] != -11)
-        alert(sym + ", 6M/1D, 🔴 Bearish", alert.freq_once_per_bar)
-    if alert_sbull and biasH == 11 and biasH[1] != 11
-        alert(sym + ", 6M/1D, 🟢 Strong Bullish", alert.freq_once_per_bar)
-    if alert_sbear and biasH == -11 and biasH[1] != -11
-        alert(sym + ", 6M/1D, 🔴 Strong Bearish", alert.freq_once_per_bar)
-
+// ============== Table
 if tableOn
     table.cell(tablo,0,0,text="Tf Alingment & Bias" ,text_color=color.white,bgcolor= color.teal, text_size = size.normal)
     table.cell(tablo,0,1,text="HTF : "+ f_text(htf)+"  MTF : "+ f_text(mtf) ,text_color=color.white,bgcolor= color.teal, text_size = size.normal)
-    if plot_conmtf and plot_conhtf
-        table.cell(tablo,0,2,text=" Chart Asset's Bias: "+f_get_text(bias0) ,text_color=color.white,bgcolor= f_get_color(bias0), text_size = i_font)
+    table.cell(tablo,0,2,text=" Chart Asset's Bias: "+f_get_text(bias0) ,text_color=color.white,bgcolor= f_get_color(bias0), text_size = i_font)
 
-// Extra table rows for fixed pairs
-if tableOn
-    table.cell(tablo,0,10,text="Multi TF Bias",text_color=color.white,bgcolor=color.teal,text_size=size.normal)
-    table.cell(tablo,0,11,text="D/1H: "+ f_get_text(biasD),text_color=color.white,bgcolor=f_get_color(biasD),text_size=i_font)
-    table.cell(tablo,0,12,text="W/4H: "+ f_get_text(biasW),text_color=color.white,bgcolor=f_get_color(biasW),text_size=i_font)
-    table.cell(tablo,0,13,text="M/1D: "+ f_get_text(biasM),text_color=color.white,bgcolor=f_get_color(biasM),text_size=i_font)
-    table.cell(tablo,0,14,text="3M/1D: "+ f_get_text(biasQ),text_color=color.white,bgcolor=f_get_color(biasQ),text_size=i_font)
-    table.cell(tablo,0,15,text="6M/1D: "+ f_get_text(biasH),text_color=color.white,bgcolor=f_get_color(biasH),text_size=i_font)
+if tableOn and multi_pairs_on
+    // P1..P5 rows
+    table.cell(tablo,0,10,text="Pairs",text_color=color.white,bgcolor=color.teal,text_size=size.normal)
+    lbl1 = label_pair(p1_htf,p1_mtf), lbl2 = label_pair(p2_htf,p2_mtf), lbl3 = label_pair(p3_htf,p3_mtf), lbl4 = label_pair(p4_htf,p4_mtf), lbl5 = label_pair(p5_htf,p5_mtf)
+    table.cell(tablo,0,11,text=(p1_on ? (lbl1+": "+f_get_text(p1_bias)) : (lbl1+": OFF")),text_color=color.white,bgcolor=(p1_on ? f_get_color(p1_bias) : color.gray),text_size=i_font)
+    table.cell(tablo,0,12,text=(p2_on ? (lbl2+": "+f_get_text(p2_bias)) : (lbl2+": OFF")),text_color=color.white,bgcolor=(p2_on ? f_get_color(p2_bias) : color.gray),text_size=i_font)
+    table.cell(tablo,0,13,text=(p3_on ? (lbl3+": "+f_get_text(p3_bias)) : (lbl3+": OFF")),text_color=color.white,bgcolor=(p3_on ? f_get_color(p3_bias) : color.gray),text_size=i_font)
+    table.cell(tablo,0,14,text=(p4_on ? (lbl4+": "+f_get_text(p4_bias)) : (lbl4+": OFF")),text_color=color.white,bgcolor=(p4_on ? f_get_color(p4_bias) : color.gray),text_size=i_font)
+    table.cell(tablo,0,15,text=(p5_on ? (lbl5+": "+f_get_text(p5_bias)) : (lbl5+": OFF")),text_color=color.white,bgcolor=(p5_on ? f_get_color(p5_bias) : color.gray),text_size=i_font)
 
+// ============== External assets alerts (as-is from base logic)
 if not ignore
     if plot_conmtf and plot_conhtf
         bias1= ok1 ? request.security(s1,mtf,bias0) : na
@@ -645,7 +572,6 @@ if not ignore
         bias5= ok5 ? request.security(s5,mtf,bias0) : na
         bias6= ok6 ? request.security(s6,mtf,bias0) : na
         bias7= ok7 ? request.security(s7,mtf,bias0) : na 
-////////////////bullish alerts
         if bias1 == 1 and not (bias1[1] == 1) and not (bias1[1] == 11) and alert_ind and ok1 and alert_bull
             alert( s1 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
         if bias2 == 1 and not (bias2[1] == 1) and not (bias2[1] == 11) and alert_ind and ok2 and alert_bull
@@ -660,7 +586,6 @@ if not ignore
             alert( s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
         if bias7 == 1 and not (bias7[1] == 1) and not (bias7[1] == 11) and alert_ind and ok7 and alert_bull
             alert( s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
-/////////////// bearish alerts
         if bias1 == -1 and not (bias1[1] == -1) and not (bias1[1] == -11) and alert_ind and ok1 and alert_bear
             alert(s1 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
         if bias2 == -1 and not (bias2[1] == -1) and not (bias2[1] == -11) and alert_ind and ok2 and alert_bear
@@ -675,7 +600,6 @@ if not ignore
             alert(s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
         if bias7 == -1 and not (bias7[1] == -1)  and not (bias7[1] == -11) and alert_ind and ok7 and alert_bear
             alert(s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
-////// strong bullish alerts
         if bias1 == 11 and not (bias1[1] == 11) and alert_ind and ok1 and alert_sbull
             alert( s1 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
         if bias2 == 11 and not (bias2[1] == 11)  and alert_ind and ok2 and alert_sbull
@@ -690,7 +614,6 @@ if not ignore
             alert( s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
         if bias7 == 11 and not (bias7[1] == 11)   and alert_ind and ok7 and alert_sbull
             alert( s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
-///////strong bearish
         if bias1 == -11 and not (bias1[1] == -11)   and alert_ind and ok1 and alert_sbear
             alert(s1 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
         if bias2 == -11 and not (bias2[1] == -11)  and alert_ind and ok2 and alert_sbear
@@ -705,20 +628,3 @@ if not ignore
             alert(s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
         if bias7 == -11 and not (bias7[1] == -11)   and alert_ind and ok7 and alert_sbear
             alert(s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
-
-
-        if tableOn2 and plot_conmtf and plot_conhtf
-            if ok1
-                table.cell(tablo,0,3,text=str.tostring(s1)+": " +f_get_text(bias1) ,text_color=color.white,bgcolor= f_get_color(bias1), text_size = i_font)
-            if ok2
-                table.cell(tablo,0,4,text=str.tostring(s2)+": " +f_get_text(bias2) ,text_color=color.white,bgcolor= f_get_color(bias2), text_size = i_font)
-            if ok3
-                table.cell(tablo,0,5,text=str.tostring(s3)+": " +f_get_text(bias3) ,text_color=color.white,bgcolor= f_get_color(bias3), text_size = i_font)
-            if ok4
-                table.cell(tablo,0,6,text=str.tostring(s4)+": " +f_get_text(bias4) ,text_color=color.white,bgcolor= f_get_color(bias4), text_size = i_font)
-            if ok5    
-                table.cell(tablo,0,7,text=str.tostring(s5)+": " +f_get_text(bias5) ,text_color=color.white,bgcolor= f_get_color(bias5), text_size = i_font)
-            if ok6
-                table.cell(tablo,0,8,text=str.tostring(s6)+": " +f_get_text(bias6) ,text_color=color.white,bgcolor= f_get_color(bias6), text_size = i_font)
-            if ok7    
-                table.cell(tablo,0,9,text=str.tostring(s7)+": " +f_get_text(bias7) ,text_color=color.white,bgcolor= f_get_color(bias7), text_size = i_font)
