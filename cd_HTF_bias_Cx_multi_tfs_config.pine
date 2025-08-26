@@ -13,6 +13,7 @@ pclr = input.color(defval= color.black,title="Next :",inline="clr", group = "Bia
 show_box = input.bool(defval=true,title="Show HTF boxes",inline="box", group = "Bias")
 boxclr = input.color(defval= color.navy,title=" Color :",inline="box", group = "Bias")
 sw_clr = input.color(defval= color.rgb(219, 219, 219, 65),title="Sweep Zone color :",inline="box1", group = "Bias")
+base_plots_on = input.bool(true, title="Enable Main Pair (HTF/MTF) Plots", group="Bias")
 
 // ================= Table =================
 tableOn  = input.bool(true, title="HTF Bias Table ", group="Table")
@@ -439,18 +440,18 @@ if timeframe.change(htf)
 [p5_pbe,p5_be,p5_be_idx,p5_be_on,p5_pbu,p5_bu,p5_bu_idx,p5_bu_on,p5_be_sc,p5_bu_sc,p5_bias,p5_hs,p5_ls] = f_control(p5_mtf,p5_htf)
 
 // ============== Plot base HTF boxes and sweep zones
-if f_tfcon(htf) and time == ht0 and timeframe.period != htf and show_box and plot_conhtf
+if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(htf) and time == ht0 and timeframe.period != htf and show_box and plot_conhtf
     boxhtf1=box.new(left = ht1, top = hh1 , right = ht0, bottom = hl1,xloc = xloc.bar_time,border_width = 1,border_style = line.style_dotted,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
-if f_tfcon(htf) and timeframe.period != htf and show_box  and plot_conhtf
+if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(htf) and timeframe.period != htf and show_box  and plot_conhtf
     boxhtf=box.new(left = ht0, top = high > hh0 ? high : hh0 , right = time+1, bottom =low < hl0 ? low : hl0,xloc = xloc.bar_time,border_width = 1,border_style = line.style_dotted,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
     box.delete(boxhtf[1])
 
-if hh0 > hhlevel and hc0 < hhlevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
+if base_plots_on and f_pair_plot_ok(mtf, htf) and hh0 > hhlevel and hc0 < hhlevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
     lasthighswept := ht0
     boxh=box.new(left = ht0, top = hh0 , right = time, bottom = hhlevel,xloc = xloc.bar_time,border_width = 1,bgcolor =sw_clr , border_color = sw_clr )
     if lasthighswept[1] == ht0
         box.delete(boxh[1])
-if hl0 < lllevel and hc0 > lllevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
+if base_plots_on and f_pair_plot_ok(mtf, htf) and hl0 < lllevel and hc0 > lllevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
     lastlowswept := ht0
     boxl=box.new(left = ht0, top = lllevel , right = time, bottom = hl0,xloc = xloc.bar_time,border_width = 1,bgcolor =sw_clr , border_color = sw_clr )
     if lastlowswept[1] == ht0
@@ -461,16 +462,16 @@ dt = timeframe.in_seconds(tf)*1000
 // ============== Base pair CISD projection + boxes
 var pbu_line = line.new(na,na,na,na)
 var pbe_line = line.new(na,na,na,na)
-if f_tfcon(mtf) and pbucisd != 999999999.9 and show_cisd  and plot_conhtf and plot_conmtf
+if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(mtf) and pbucisd != 999999999.9 and show_cisd  and plot_conhtf and plot_conmtf
     pbu_line :=line.new(x1= bu_index, y1= pbucisd,x2= time+2*dt , y2= pbucisd, xloc=xloc.bar_time,color = pclr,width  = 1,style = line.style_dashed)
     line.delete(pbu_line[1])
-if f_tfcon(mtf) and pbecisd != 0.0 and show_cisd  and plot_conhtf and plot_conmtf
+if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(mtf) and pbecisd != 0.0 and show_cisd  and plot_conhtf and plot_conmtf
     pbe_line :=line.new(x1= be_index, y1= pbecisd,x2= time+2*dt, y2= pbecisd, xloc=xloc.bar_time,color = pclr,width  = 1,style = line.style_dashed)
     line.delete(pbe_line[1])
 
-if bu_cisd and (not bu_cisd[1] or bucisd !=bucisd[1]) and f_tfcon(mtf) and show_cisd  and plot_conhtf and plot_conmtf
+if base_plots_on and f_pair_plot_ok(mtf, htf) and bu_cisd and (not bu_cisd[1] or bucisd !=bucisd[1]) and f_tfcon(mtf) and show_cisd  and plot_conhtf and plot_conmtf
     box.new(left= bu_index, top= bucisd,right= time,xloc=xloc.bar_time, bottom= bucisd,border_color = bullclr,border_width  = 1,text=f_text(mtf),text_color = bullclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_bottom)
-if be_cisd and (not be_cisd[1] or becisd != becisd[1]) and f_tfcon(mtf)and show_cisd  and plot_conhtf and plot_conmtf
+if base_plots_on and f_pair_plot_ok(mtf, htf) and be_cisd and (not be_cisd[1] or becisd != becisd[1]) and f_tfcon(mtf)and show_cisd  and plot_conhtf and plot_conmtf
     box.new(left= be_index, top= becisd,right= time,xloc=xloc.bar_time, bottom= becisd,border_color = bearclr,border_width  = 1,text=f_text(mtf),text_color = bearclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_top)
 
 // ============== Helper for pair label
