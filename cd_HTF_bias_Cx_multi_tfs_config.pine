@@ -13,7 +13,7 @@ pclr = input.color(defval= color.black,title="Next :",inline="clr", group = "Bia
 show_box = input.bool(defval=true,title="Show HTF boxes",inline="box", group = "Bias")
 boxclr = input.color(defval= color.navy,title=" Color :",inline="box", group = "Bias")
 sw_clr = input.color(defval= color.rgb(219, 219, 219, 65),title="Sweep Zone color :",inline="box1", group = "Bias")
-base_plots_on = input.bool(true, title="Enable Main Pair (HTF/MTF) Plots", group="Bias")
+base_plots_on = input.bool(false, title="Enable Main Pair (HTF/MTF) Plots", group="Bias")
 
 // ================= Table =================
 tableOn  = input.bool(true, title="HTF Bias Table ", group="Table")
@@ -98,9 +98,12 @@ f_tfcon(_tf)=>
 
 // Per-pair plotting gate: only plot when chart TF <= pair MTF, chart TF < pair HTF, and MTF < HTF
 f_pair_plot_ok(_mtf, _htf) =>
-    timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(_mtf) and
-     timeframe.in_seconds(timeframe.period) <  timeframe.in_seconds(_htf) and
+    pair_ok = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(_mtf) and
      timeframe.in_seconds(_mtf) < timeframe.in_seconds(_htf)
+    // Allow high HTF (>= 1M) to plot on lower charts regardless of chart < HTF strictness
+    htf_is_monthly_or_higher = timeframe.in_seconds(_htf) >= timeframe.in_seconds("1M")
+    chart_is_intraday_or_daily = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds("1D")
+    pair_ok or (htf_is_monthly_or_higher and chart_is_intraday_or_daily)
 
 f_get_color(_bias)=>
     tb_color= _bias  > 0 ? color.teal : _bias < 0 ? color.red : color.gray
