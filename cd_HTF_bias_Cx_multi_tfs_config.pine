@@ -1,0 +1,880 @@
+//@version=6
+indicator("cd_HTF_bias_Cx (configurable multi TFs)", overlay=true)
+
+// ================= Base inputs =================
+htf = input.timeframe(defval="1D", title= "Tf for bias (HTF):", group = "Bias")
+mtf = input.timeframe(defval="60", title= "Tf for confirme (cisd):", group = "Bias")
+
+show_cisd = input.bool(defval=true,title="Show cisd lines",inline="clr", group = "Bias")
+bullclr = input.color(defval= color.teal,title="Bull :",inline="clr", group = "Bias")
+bearclr = input.color(defval= color.red,title="Bear :",inline="clr", group = "Bias")
+pclr = input.color(defval= color.black,title="Next :",inline="clr", group = "Bias")
+
+// Box styling (width and style)
+width_box   = input.int(defval=1, title="Border Width :", group="Bias", inline="bx1")
+style_box_input = input.string(defval="dotted", title="Style:", options=["solid","dotted","dashed"], group="Bias", inline="bx1")
+style_box = style_box_input == "solid" ? line.style_solid : style_box_input == "dotted" ? line.style_dotted : line.style_dashed
+
+show_box = input.bool(defval=true,title="Show HTF boxes",inline="box", group = "Bias")
+boxclr = input.color(defval= color.navy,title=" Color :",inline="box", group = "Bias")
+sw_clr = input.color(defval= color.rgb(219, 219, 219, 65),title="Sweep Zone color :",inline="box1", group = "Bias")
+base_plots_on = input.bool(false, title="Enable Main Pair (HTF/MTF) Plots", group="Bias")
+
+// ================= Table =================
+tableOn  = input.bool(true, title="HTF Bias Table ", group="Table")
+tableOn2 = input.bool(true, title="Add other assets to HTF Bias Table ", group="Table",tooltip = "Alerts are not affected")
+
+// ================= Alerts =================
+gr1 = "Alerts"
+alert_ind   = input.bool(defval=true, title = "Use indicator alerts", inline="b",group = gr1,tooltip = "When using the TradingView alert feature, it should be inactive.")
+alert_bull  = input.bool(defval=false,title = "Bullish alerts", inline="b1",group = gr1)
+alert_bear  = input.bool(defval=false,title = "Bearish alerts", inline="b2",group = gr1)
+alert_sbull = input.bool(defval=false,title = "Strong Bullish alerts", inline="b1",group = gr1)
+alert_sbear = input.bool(defval=false,title = "Strong Bearish alerts", inline="b2",group = gr1)
+
+// ================= Table Location & Size =================
+i_font     = input.string("small", "Text size",  options = ["tiny", "small",  "normal", "large", "huge"], group = "Table", inline  = "1")
+i_pos      = input.string(position.top_right, "Table Position", inline  = "1", options = [position.middle_right, position.top_right,position.bottom_right,position.bottom_center], group = "Table")
+
+// ================= Assets =================
+ignore =input.bool(defval = false,  title = "Ignore these assets " , group = "Assets",inline="s0",tooltip = "When the box is selected, assets are passive")
+
+ok1 = input.bool(defval=true,title="",group = "Assets",inline="s1")
+ok2 = input.bool(defval=true,title="",group = "Assets",inline="s2")
+ok3 = input.bool(defval=true,title="",group = "Assets",inline="s3")
+ok4 = input.bool(defval=true,title="",group = "Assets",inline="s4")
+ok5 = input.bool(defval=true,title="",group = "Assets",inline="s5")
+ok6 = input.bool(defval=true,title="",group = "Assets",inline="s6")
+ok7 = input.bool(defval=true,title="",group = "Assets",inline="s7")
+
+s1=input.symbol(defval = "PEPPERSTONE:EURUSD",  title = "1 : " , group = "Assets",inline="s1")
+s2=input.symbol(defval = "PEPPERSTONE:GBPUSD",  title = "2 : " , group = "Assets",inline="s2")
+s3=input.symbol(defval = "TVC:DXY",             title = "3 : " , group = "Assets",inline="s3")
+s4=input.symbol(defval = "PEPPERSTONE:NAS100",  title = "4 : " , group = "Assets",inline="s4")
+s5=input.symbol(defval = "PEPPERSTONE:US500",   title = "5 : " , group = "Assets",inline="s5")
+s6=input.symbol(defval = "PEPPERSTONE:XAUUSD",  title = "6 : " , group = "Assets",inline="s6")
+s7=input.symbol(defval = "PEPPERSTONE:XAGUSD",  title = "7 : " , group = "Assets",inline="s7")
+
+// ================= Configurable Multi TF Pairs =================
+grpPairs = "Multi TF Pairs"
+multi_pairs_on = input.bool(true, title="Enable Multi TF Pairs", group=grpPairs)
+
+p1_on  = input.bool(true,  title="Pair 1", group=grpPairs, inline="p1")
+p1_htf = input.timeframe("1D",  title="HTF", group=grpPairs, inline="p1")
+p1_mtf = input.timeframe("60",  title="MTF", group=grpPairs, inline="p1")
+
+p2_on  = input.bool(true,  title="Pair 2", group=grpPairs, inline="p2")
+p2_htf = input.timeframe("1W",  title="HTF", group=grpPairs, inline="p2")
+p2_mtf = input.timeframe("240", title="MTF", group=grpPairs, inline="p2")
+
+p3_on  = input.bool(true,  title="Pair 3", group=grpPairs, inline="p3")
+p3_htf = input.timeframe("1M",  title="HTF", group=grpPairs, inline="p3")
+p3_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p3")
+
+p4_on  = input.bool(true,  title="Pair 4", group=grpPairs, inline="p4")
+p4_htf = input.timeframe("3M",  title="HTF", group=grpPairs, inline="p4")
+p4_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p4")
+
+p5_on  = input.bool(true,  title="Pair 5", group=grpPairs, inline="p5")
+p5_htf = input.timeframe("6M",  title="HTF", group=grpPairs, inline="p5")
+p5_mtf = input.timeframe("1D",  title="MTF", group=grpPairs, inline="p5")
+
+/////////////////////////////
+sym= syminfo.tickerid
+tf = timeframe.period
+plot_conmtf = timeframe.in_seconds(tf) *1000 <= timeframe.in_seconds(mtf)*1000 
+plot_conhtf = timeframe.in_seconds(tf) *1000 <  timeframe.in_seconds(htf)*1000
+var tablo = table.new(position = i_pos,columns = 2,rows = 28,frame_color=color.white,frame_width=2,bgcolor=color.teal,border_color=color.white,border_width=1)
+var lasthighswept = 0
+var lastlowswept = 0
+
+//////////////////////////////// functions
+add_to_array(arr, value) =>
+    array.unshift(arr, value)
+    if array.size(arr) > 100
+        array.pop(arr)
+f_text(string _tf)=>
+    _text = str.tonumber(_tf) < 59 ? _tf + 'm'  :
+     str.tonumber(_tf) > 59  ? 'h'+ str.tostring(math.floor(str.tonumber(_tf)/60))    : _tf
+    _text := _tf == "1D" ? "D" : _tf == "1W" ? "W" : _tf == "1M" ? "M" : _tf
+
+f_tfcon(_tf)=>
+    timeframe.in_seconds(_tf) / 60 >= timeframe.in_seconds(timeframe.period)/60
+
+// Per-pair plotting gate: only plot when chart TF <= pair MTF, chart TF < pair HTF, and MTF < HTF
+f_pair_plot_ok(_mtf, _htf) =>
+    pair_ok = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(_mtf) and
+     timeframe.in_seconds(_mtf) < timeframe.in_seconds(_htf)
+    // Allow high HTF (>= 1M) to plot on lower charts regardless of chart < HTF strictness
+    htf_is_monthly_or_higher = timeframe.in_seconds(_htf) >= timeframe.in_seconds("1M")
+    chart_is_intraday_or_daily = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds("1D")
+    pair_ok or (htf_is_monthly_or_higher and chart_is_intraday_or_daily)
+
+// Relaxed gate for assets section: allow when chart TF <= MTF and chart TF <= HTF (<=, not <)
+f_assets_ok(_mtf, _htf) =>
+    timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(_mtf) and timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(_htf)
+
+f_get_color(_bias)=>
+    tb_color= _bias  > 0 ? color.teal : _bias < 0 ? color.red : color.gray
+f_get_text(_bias)=>
+    txt= 
+     _bias  == 11 ? "Strong Bullish" : 
+     _bias  ==  1 ? "Bullish" : 
+     _bias  == -1 ? "Bearish" :
+     _bias  ==-11 ? "Strong Bearish" : "No Bias" 
+
+f_live_mini(_htf)=>
+    var _o0 = open
+    var _h0 = high
+    var _l0 = low
+    var _t0 = time
+    var _c0 = close
+    var _h0bar = time
+    var _l0bar = time
+
+    var _h1 = high
+    var _l1 = low
+    var _t1 = time
+    var _c1 = close
+    var _o1 = open
+    var _h1bar = time
+    var _l1bar = time 
+
+    if timeframe.change(_htf)
+        _t0 := time
+        _o0 := open
+        _h0 := high
+        _l0 := low
+    if high >= _h0
+        _h0 := high
+        _h0bar := time
+
+    if low <= _l0
+        _l0 := low
+        _l0bar := time
+    if timeframe.change(_htf)        
+        _o1 := _o0[1]
+        _h1 := _h0[1]
+        _l1 := _l0[1]
+        _t1 := _t0[1]
+        _c1 := close[1]
+        _h1bar := _h0bar[1]
+        _l1bar := _l0bar[1] 
+    _c0:= close
+    [_h1,_l1,_c1,_o1,_t1,_h0,_l0,_c0,_o0,_t0,_h1bar,_l1bar,_h0bar,_l0bar]
+
+// ============== Base pair runtime context
+[hh1,hl1,hc1,ho1,ht1,hh0,hl0,hc0,ho0,ht0,hh1bar,hl1bar,hh0bar,hl0bar]=f_live_mini(htf)
+var hh2 = high
+var hh3 = high
+var hh4 = high
+var lh2  =low 
+var hl3  = low 
+var hl4  = low
+var ht2  = time 
+var ht3  = time
+var ht4  = time
+if timeframe.change(htf)
+    hh2 := hh1[1] , hh3 := hh2[1], hh4 := hh3[1]
+    lh2 := hl1[1] , hl3 := lh2[1], hl4 := hl3[1]
+    ht2 := ht1[1] , ht3 := ht2[1], ht4 := ht3[1]
+
+// Core sweep/cisd controller
+f_sweep(_htf)=>
+    hsweep = false 
+    lsweep = false 
+    var hsweep1 = false 
+    var lsweep1 = false
+    var hsweep2 = false 
+    var lsweep2 = false 
+    var hbreak =  false 
+    var lbreak =  false    
+    _hslevel = high 
+    _lslevel = low
+    _hslevel := hh1
+    _lslevel := hl1
+    hbreak := false
+    lbreak := false   
+    if (hh0 > hh1 and math.max(ho0,hc0) <= hh1)  or (ho0 > hh1  and hc0 < hh1)
+        hsweep := true
+        _hslevel := hh1
+    if hh1 > hh0
+        hbreak := true
+      
+    if (hh0 > hh2 and math.max(ho0,hc0) <= hh2 and hh2 > _hslevel)  and not hbreak
+        hsweep := true
+        _hslevel := hh2 
+    if hh2 > hh0
+        hbreak := true  
+
+    if (hh0 > hh3 and math.max(ho0,hc0) <= hh3 and hh3 > _hslevel) and not hbreak  
+        hsweep := true
+        _hslevel := hh3
+    if hh3 > hh0
+        hbreak := true  
+
+    if (hh0 > hh4 and math.max(ho0,hc0) <= hh4 and hh4 > _hslevel) and not hbreak 
+        hsweep := true
+        _hslevel := hh4  
+
+    if hc0 > _hslevel 
+        hsweep := false
+
+
+    if (hl0 < hl1 and math.min(ho0,hc0) >= hl1 ) or (ho0 < hl1  and hc0 > hl1)
+        lsweep  := true
+        _lslevel := hl1
+    if hl1 < hl0
+        lbreak := true
+    if (hl0 < lh2 and math.min(ho0,hc0) >= lh2 and lh2 < _lslevel ) and not lbreak
+        lsweep  := true
+        _lslevel := lh2 
+    if lh2 < hl0
+        lbreak := true        
+    if (hl0 < hl3 and math.min(ho0,hc0) >=hl3 and hl3 < _lslevel ) and not lbreak
+        lsweep  := true
+        _lslevel := hl3 
+    if hl3 < hl0
+        lbreak := true 
+    if (hl0 < hl4 and math.min(ho0,hc0) >=hl4 and hl4 < _lslevel ) and not lbreak
+        lsweep  := true
+        _lslevel := hl4
+
+    if hc0 < _lslevel
+        lsweep := false 
+
+
+    if timeframe.change(_htf)
+        hsweep1 := hsweep[1]
+        lsweep1 := lsweep[1]
+        hsweep2 := hsweep1[1]
+        lsweep2 := lsweep1[1] 
+
+    [hh0,hh1,hl0,hl1,hsweep,hsweep1,lsweep,lsweep1,hsweep2,lsweep2,_hslevel,_lslevel]   
+
+f_control(_mtf,_htf)=>
+    var bear_cisd = false
+    var bear_level = open
+    var bear_index = bar_index
+    var bull_cisd = false
+    var bull_level = open
+    var bull_index = bar_index    
+    var mtf_h = array.new_float()
+    var mtf_l = array.new_float() 
+    var mtf_o = array.new_float()
+    var mtf_c = array.new_float()
+    var mtf_t = array.new_int()
+    var mtf_hbar   = array.new_int() 
+    var mtf_lbar   = array.new_int()
+    var mtf_candle = array.new_int()  
+    var mup1 = false
+    var mdw1 = false
+    var meq1 = false
+    var bear_sweepcisd=false
+    var bull_sweepcisd=false 
+    var bull_plot = 999999999.9
+    var bear_plot = 0.0 
+    var bear_sl   = high
+    var bull_sl   = low
+    var bear_time = time
+    var bull_time = time
+    var bull_key  = low
+    var bear_key  = high
+    var SCbull_key = low
+    var SCbear_key = high  
+    var last_cisd = 0
+    var bias = 0
+    [mh1,ml1,mc1,mo1,mt1,mh0,ml0,mc0,mo0,mt0,mh1bar,ml1bar,mh0bar,ml0bar]=f_live_mini(_mtf)
+    [hth0,hth1,htl0,htl1,hsweep,hsweep1,lsweep,lsweep1,hsweep2,lsweep2,hslevel,lslevel]=f_sweep(_htf) 
+    mtf_ok = (mt0 + timeframe.in_seconds(_mtf)*1000 == time + timeframe.in_seconds(tf)*1000 and barstate.isconfirmed)
+
+    mup = mc0 > mo0
+    mdw = mc0 < mo0
+    meq = mc0 == mo0 
+    if timeframe.change(_mtf)
+        add_to_array(mtf_h, mh1)
+        add_to_array(mtf_l, ml1) 
+        add_to_array(mtf_o, mo1)
+        add_to_array(mtf_c, mc1) 
+        add_to_array(mtf_t, mt1)
+        add_to_array(mtf_hbar, mh1bar)
+        add_to_array(mtf_lbar, ml1bar)
+        mup1 := mup[1] 
+        mdw1 := mdw[1]
+        meq1 := meq[1]                       
+        add_to_array(mtf_candle,mup1 ? 1 : mdw1 ? -1 : 0)
+
+/////////////////////bear cisd
+    if high == hth0 and high > hth1
+        bear_cisd := false
+        if (mdw1 or meq1) and mup
+            bear_level := mo0
+            bear_index := mt0
+
+        if ((mdw1 or meq1) and mup) == false and array.size(mtf_h) > 15
+            for i = 1 to 15
+                if array.get(mtf_h,i) > mh0
+                    break            
+                if (array.get(mtf_candle,i) == -1 or array.get(mtf_candle,i) == 0) and array.get(mtf_candle,i-1) == 1 
+                    ybar = i - 1
+                    bear_level := array.get(mtf_o,ybar)
+                    bear_index := array.get(mtf_t,ybar)
+                                       
+                    for j= ybar to 0
+                        if array.get(mtf_o,j) < bear_level and array.get(mtf_candle,j) == 1
+                            bear_level := array.get(mtf_o,j)
+                            bear_index := array.get(mtf_t,j)                            
+
+                    if bear_level > mo0 and not (mc0 < mo0)
+                        bear_level := mo0
+                        bear_index := time   
+                    if bear_level > mo0 and (mc0 < mo0)
+                        bear_level := ml0
+                        bear_index := time 
+               
+                    break
+/////////////////////////// bull cisd
+
+    if low == htl0 and low < htl1
+        bull_cisd := false
+        if (mup1 or meq1) and mdw
+            bull_level := mo0
+            bull_index := mt0
+
+        if ((mup1 or meq1) and mdw) == false and array.size(mtf_l) > 15
+            for i = 1 to 15
+                if array.get(mtf_l,i) < ml0
+                    break
+
+                if (array.get(mtf_candle,i) == 1 or array.get(mtf_candle,i) == 0) and array.get(mtf_candle,i-1) == -1 
+                    xbar = i - 1 
+                    bull_level := array.get(mtf_o,xbar)
+                    bull_index := array.get(mtf_t,xbar)
+                    for j= xbar to 0
+                        if array.get(mtf_o,j) > bull_level and array.get(mtf_candle,j) == -1 
+                            bull_level := array.get(mtf_o,j)
+                            bull_index := array.get(mtf_t,j) 
+
+                    if bull_level < mo0 and not (mc0 > mo0)
+                        bull_level := mo0
+                        bull_index := time   
+                    if bull_level < mo0 and (mc0 > mo0)
+                        bull_level := mh0
+                        bull_index := time
+           
+                    break
+
+//////////////////////////////////////////high sweep + cisd
+
+
+    if mc0 < bear_level  and time > bear_index and bear_cisd == false and mtf_ok
+        bear_cisd := true
+        bear_plot := bear_level
+        bear_level := 0.0 
+        bear_time  := time
+        last_cisd  := -1
+        float hmax = 0.0
+        for i = 0 to 100
+            if open[i] == bear_plot and close[i] > open[i]
+                if  high[i] >= hmax
+                    hmax := high[i]                
+                break
+            if high[i] > hmax
+                hmax := high[i]
+        bear_key := hmax
+/////////////////////////// 
+    if (hsweep or (hsweep1 and not hsweep and hth0 <= hth1)or (hsweep2 and not hsweep and not hsweep1 and hh2 > hth1 and hh2 > hth0 )) and bear_cisd
+        bear_sweepcisd := true
+        SCbear_key := bear_key
+        bias := -1
+    if mh0 >= SCbear_key
+        bear_sweepcisd := false  
+////////////////////////////////// bullsweep + cisd
+
+
+    if mc0 > bull_level  and time > bull_index and bull_cisd == false and mtf_ok
+        bull_cisd := true
+        bull_plot := bull_level
+        bull_level := 999999999.9
+        bull_time  := time
+        last_cisd  := 1
+        float lmin = 99999999999.9
+        for i = 0 to 100
+            if open[i] == bull_plot and close[i] < open[i]
+                if  low[i] <= lmin
+                    lmin := low[i] 
+                break
+            if low[i] < lmin
+                lmin := low[i]
+        bull_key := lmin
+//////////////////////////////////////
+    if (lsweep or (lsweep1 and not lsweep and htl0 >= htl1) or (lsweep2 and not lsweep and not lsweep1 and lh2 < htl1 and lh2 < htl0 )   ) and bull_cisd 
+        bull_sweepcisd := true
+        SCbull_key := bull_key
+        bias := 1
+/////////////////////////////////////////
+    if ml0 < SCbull_key
+        bull_sweepcisd := false
+//////////////////////////////////////////////////////bias
+    if bull_sweepcisd 
+        bias := 1
+    if bear_sweepcisd
+        bias := -1 
+    if bull_sweepcisd and bear_sweepcisd 
+        if bear_time > bull_time
+            bias := -1
+        else
+            bias := 1
+    if not bull_sweepcisd and not bear_sweepcisd
+        bias := 0
+
+
+    if bias == 1 and mc1 > bear_key 
+        bias := 11
+    if bias == -1 and mc1 < bull_key
+        bias := -11
+    if bias == 11 and not bear_sweepcisd and bear_cisd
+        bias := 1
+    if bias == -11 and not bull_sweepcisd and bull_cisd
+        bias := -1 
+
+   
+    [bear_level,bear_plot,bear_index,bear_cisd,bull_level,bull_plot,bull_index,bull_cisd,bear_sweepcisd,bull_sweepcisd,bias,hslevel,lslevel]
+
+// ============== Base control call
+[pbecisd,becisd,be_index,be_cisd,pbucisd,bucisd,bu_index,bu_cisd,be_sweepcisd,bu_sweepcisd,bias0,hhlevel,lllevel] = f_control(mtf,htf)
+
+// ============== Configurable pairs compute (FIXED: each pair now truly independent)
+[p1_pbe,p1_be,p1_be_idx,p1_be_on,p1_pbu,p1_bu,p1_bu_idx,p1_bu_on,p1_be_sc,p1_bu_sc,p1_bias,p1_hs,p1_ls] = f_control(p1_mtf,p1_htf)
+[p2_pbe,p2_be,p2_be_idx,p2_be_on,p2_pbu,p2_bu,p2_bu_idx,p2_bu_on,p2_be_sc,p2_bu_sc,p2_bias,p2_hs,p2_ls] = f_control(p2_mtf,p2_htf)
+[p3_pbe,p3_be,p3_be_idx,p3_be_on,p3_pbu,p3_bu,p3_bu_idx,p3_bu_on,p3_be_sc,p3_bu_sc,p3_bias,p3_hs,p3_ls] = f_control(p3_mtf,p3_htf)
+[p4_pbe,p4_be,p4_be_idx,p4_be_on,p4_pbu,p4_bu,p4_bu_idx,p4_bu_on,p4_be_sc,p4_bu_sc,p4_bias,p4_hs,p4_ls] = f_control(p4_mtf,p4_htf)
+[p5_pbe,p5_be,p5_be_idx,p5_be_on,p5_pbu,p5_bu,p5_bu_idx,p5_bu_on,p5_be_sc,p5_bu_sc,p5_bias,p5_hs,p5_ls] = f_control(p5_mtf,p5_htf)
+
+// ============== Plot base HTF boxes and sweep zones (FIXED: now properly gated)
+if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(htf) and time == ht0 and timeframe.period != htf and show_box and plot_conhtf
+    boxhtf1=box.new(left = ht1, top = hh1 , right = ht0, bottom = hl1,xloc = xloc.bar_time,border_width = width_box,border_style = style_box,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
+if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(htf) and timeframe.period != htf and show_box  and plot_conhtf
+    boxhtf=box.new(left = ht0, top = high > hh0 ? high : hh0 , right = time+1, bottom =low < hl0 ? low : hl0,xloc = xloc.bar_time,border_width = width_box,border_style = style_box,bgcolor =color.rgb(255, 255, 255, 100) , border_color = boxclr)
+    box.delete(boxhtf[1])
+
+if base_plots_on and f_pair_plot_ok(mtf, htf) and hh0 > hhlevel and hc0 < hhlevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
+    lasthighswept := ht0
+    boxh=box.new(left = ht0, top = hh0 , right = time, bottom = hhlevel,xloc = xloc.bar_time,border_width = width_box,border_style = style_box,bgcolor =sw_clr , border_color = sw_clr )
+    if lasthighswept[1] == ht0
+        box.delete(boxh[1])
+if base_plots_on and f_pair_plot_ok(mtf, htf) and hl0 < lllevel and hc0 > lllevel and f_tfcon(htf) and timeframe.period != htf and show_box and plot_conhtf
+    lastlowswept := ht0
+    boxl=box.new(left = ht0, top = lllevel , right = time, bottom = hl0,xloc = xloc.bar_time,border_width = width_box,border_style = style_box,bgcolor =sw_clr , border_color = sw_clr )
+    if lastlowswept[1] == ht0
+        box.delete(boxl[1])
+
+dt = timeframe.in_seconds(tf)*1000 
+
+// ============== Base pair CISD projection + boxes (FIXED: now properly gated)
+var pbu_line = line.new(na,na,na,na)
+var pbe_line = line.new(na,na,na,na)
+if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(mtf) and pbucisd != 999999999.9 and show_cisd  and plot_conhtf and plot_conmtf
+    pbu_line :=line.new(x1= bu_index, y1= pbucisd,x2= time+2*dt , y2= pbucisd, xloc=xloc.bar_time,color = pclr,width  = 1,style = line.style_dashed)
+    line.delete(pbu_line[1])
+if base_plots_on and f_pair_plot_ok(mtf, htf) and f_tfcon(mtf) and pbecisd != 0.0 and show_cisd  and plot_conhtf and plot_conmtf
+    pbe_line :=line.new(x1= be_index, y1= pbecisd,x2= time+2*dt, y2= pbecisd, xloc=xloc.bar_time,color = pclr,width  = 1,style = line.style_dashed)
+    line.delete(pbe_line[1])
+
+if base_plots_on and f_pair_plot_ok(mtf, htf) and bu_cisd and (not bu_cisd[1] or bucisd !=bucisd[1]) and f_tfcon(mtf) and show_cisd  and plot_conhtf and plot_conmtf
+    box.new(left= bu_index, top= bucisd,right= time,xloc=xloc.bar_time, bottom= bucisd,border_color = bullclr,border_width  = width_box,border_style=style_box,text=f_text(mtf),text_color = bullclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_bottom)
+if base_plots_on and f_pair_plot_ok(mtf, htf) and be_cisd and (not be_cisd[1] or becisd != becisd[1]) and f_tfcon(mtf)and show_cisd  and plot_conhtf and plot_conmtf
+    box.new(left= be_index, top= becisd,right= time,xloc=xloc.bar_time, bottom= becisd,border_color = bearclr,border_width  = width_box,border_style=style_box,text=f_text(mtf),text_color = bearclr,text_size=i_font,text_halign = text.align_center,text_valign = text.align_top)
+
+// ============== Helper for pair label
+label_pair(_htf, _mtf) => f_text(_htf) + "/" + f_text(_mtf)
+
+// ============== Plot configurable pairs (CISD projection + boxes) - FIXED: now truly independent
+plot_pair(_on, _mtf, _htf, _pbu_next, _bu, _bu_idx, _bu_on, _pbe_next, _be, _be_idx, _be_on, _name) =>
+    if multi_pairs_on and _on and show_cisd and f_pair_plot_ok(_mtf, _htf)
+        var ln_bu = line.new(na,na,na,na)
+        var ln_be = line.new(na,na,na,na)
+        if _pbu_next != 999999999.9
+            ln_bu := line.new(x1=_bu_idx, y1=_pbu_next, x2=time+2*dt, y2=_pbu_next, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
+            line.delete(ln_bu[1])
+        if _pbe_next != 0.0
+            ln_be := line.new(x1=_be_idx, y1=_pbe_next, x2=time+2*dt, y2=_pbe_next, xloc=xloc.bar_time, color=pclr, width=1, style=line.style_dashed)
+            line.delete(ln_be[1])
+        if _bu_on and (not _bu_on[1] or _bu != _bu[1])
+            box.new(left=_bu_idx, top=_bu, right=time, bottom=_bu, xloc=xloc.bar_time, border_color=bullclr, border_width=width_box, border_style=style_box, text=_name, text_color=bullclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_bottom)
+        if _be_on and (not _be_on[1] or _be != _be[1])
+            box.new(left=_be_idx, top=_be, right=time, bottom=_be, xloc=xloc.bar_time, border_color=bearclr, border_width=width_box, border_style=style_box, text=_name, text_color=bearclr, text_size=i_font, text_halign=text.align_center, text_valign=text.align_top)
+
+plot_pair(p1_on, p1_mtf, p1_htf, p1_pbu, p1_bu, p1_bu_idx, p1_bu_on, p1_pbe, p1_be, p1_be_idx, p1_be_on, label_pair(p1_htf,p1_mtf))
+plot_pair(p2_on, p2_mtf, p2_htf, p2_pbu, p2_bu, p2_bu_idx, p2_bu_on, p2_pbe, p2_be, p2_be_idx, p2_be_on, label_pair(p2_htf,p2_mtf))
+plot_pair(p3_on, p3_mtf, p3_htf, p3_pbu, p3_bu, p3_bu_idx, p3_bu_on, p3_pbe, p3_be, p3_be_idx, p3_be_on, label_pair(p3_htf,p3_mtf))
+plot_pair(p4_on, p4_mtf, p4_htf, p4_pbu, p4_bu, p4_bu_idx, p4_bu_on, p4_pbe, p4_be, p4_be_idx, p4_be_on, label_pair(p4_htf,p4_mtf))
+plot_pair(p5_on, p5_mtf, p5_htf, p5_pbu, p5_bu, p5_bu_idx, p5_bu_on, p5_pbe, p5_be, p5_be_idx, p5_be_on, label_pair(p5_htf,p5_mtf))
+
+// ============== Alerts (base pair runtime alerts)
+if bias0 == -1 and not (bias0[1] == -1) and not (bias0[1] == -11)  and not alert_ind and alert_bear
+    alert(sym +',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🔴 Bearish Alert', alert.freq_once_per_bar)
+if bias0 == 1 and not (bias0[1] == 1) and not (bias0[1] == 11)  and not alert_ind and alert_bull
+    alert(sym + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🟢 Bullish Alarm', alert.freq_once_per_bar)
+if bias0 == -11 and not (bias0[1] == -11) and not alert_ind and alert_sbear
+    alert(sym +',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🔴 Strong Bearish Alert', alert.freq_once_per_bar)
+if bias0 == 11 and not (bias0[1] == 11) and not alert_ind and alert_sbull
+    alert(sym + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf) + ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
+
+// ============== Alertconditions for configurable pairs (gated by toggles)
+alertcondition(multi_pairs_on and p1_on and p1_bias ==  1 and (p1_bias[1] != 1 and p1_bias[1] != 11), "P1 Bullish",          "P1 Bullish")
+alertcondition(multi_pairs_on and p1_on and p1_bias == -1 and (p1_bias[1] != -1 and p1_bias[1] != -11), "P1 Bearish",        "P1 Bearish")
+alertcondition(multi_pairs_on and p1_on and p1_bias == 11 and p1_bias[1] != 11,                         "P1 Strong Bullish","P1 Strong Bullish")
+alertcondition(multi_pairs_on and p1_on and p1_bias == -11 and p1_bias[1] != -11,                       "P1 Strong Bearish","P1 Strong Bearish")
+
+alertcondition(multi_pairs_on and p2_on and p2_bias ==  1 and (p2_bias[1] != 1 and p2_bias[1] != 11), "P2 Bullish",          "P2 Bullish")
+alertcondition(multi_pairs_on and p2_on and p2_bias == -1 and (p2_bias[1] != -1 and p2_bias[1] != -11), "P2 Bearish",        "P2 Bearish")
+alertcondition(multi_pairs_on and p2_on and p2_bias == 11 and p2_bias[1] != 11,                         "P2 Strong Bullish","P2 Strong Bullish")
+alertcondition(multi_pairs_on and p2_on and p2_bias == -11 and p2_bias[1] != -11,                       "P2 Strong Bearish","P2 Strong Bearish")
+
+alertcondition(multi_pairs_on and p3_on and p3_bias ==  1 and (p3_bias[1] != 1 and p3_bias[1] != 11), "P3 Bullish",          "P3 Bullish")
+alertcondition(multi_pairs_on and p3_on and p3_bias == -1 and (p3_bias[1] != -1 and p3_bias[1] != -11), "P3 Bearish",        "P3 Bearish")
+alertcondition(multi_pairs_on and p3_on and p3_bias == 11 and p3_bias[1] != 11,                         "P3 Strong Bullish","P3 Strong Bullish")
+alertcondition(multi_pairs_on and p3_on and p3_bias == -11 and p3_bias[1] != -11,                       "P3 Strong Bearish","P3 Strong Bearish")
+
+alertcondition(multi_pairs_on and p4_on and p4_bias ==  1 and (p4_bias[1] != 1 and p4_bias[1] != 11), "P4 Bullish",          "P4 Bullish")
+alertcondition(multi_pairs_on and p4_on and p4_bias == -1 and (p4_bias[1] != -1 and p4_bias[1] != -11), "P4 Bearish",        "P4 Bearish")
+alertcondition(multi_pairs_on and p4_on and p4_bias == 11 and p4_bias[1] != 11,                         "P4 Strong Bullish","P4 Strong Bullish")
+alertcondition(multi_pairs_on and p4_on and p4_bias == -11 and p4_bias[1] != -11,                       "P4 Strong Bearish","P4 Strong Bearish")
+
+alertcondition(multi_pairs_on and p5_on and p5_bias ==  1 and (p5_bias[1] != 1 and p5_bias[1] != 11), "P5 Bullish",          "P5 Bullish")
+alertcondition(multi_pairs_on and p5_on and p5_bias == -1 and (p5_bias[1] != -1 and p5_bias[1] != -11), "P5 Bearish",        "P5 Bearish")
+alertcondition(multi_pairs_on and p5_on and p5_bias == 11 and p5_bias[1] != 11,                         "P5 Strong Bullish","P5 Strong Bullish")
+alertcondition(multi_pairs_on and p5_on and p5_bias == -11 and p5_bias[1] != -11,                       "P5 Strong Bearish","P5 Strong Bearish")
+
+// Optional runtime alerts reusing toggles
+runtime_pair_alerts(_on, _bias, _name) =>
+    if not alert_ind and _on
+        if alert_bull and _bias == 1 and (_bias[1] != 1 and _bias[1] != 11)
+            alert(sym + ", "+_name+", 🟢 Bullish", alert.freq_once_per_bar)
+        if alert_bear and _bias == -1 and (_bias[1] != -1 and _bias[1] != -11)
+            alert(sym + ", "+_name+", 🔴 Bearish", alert.freq_once_per_bar)
+        if alert_sbull and _bias == 11 and _bias[1] != 11
+            alert(sym + ", "+_name+", 🟢 Strong Bullish", alert.freq_once_per_bar)
+        if alert_sbear and _bias == -11 and _bias[1] != -11
+            alert(sym + ", "+_name+", 🔴 Strong Bearish", alert.freq_once_per_bar)
+
+runtime_pair_alerts(multi_pairs_on and p1_on, p1_bias, label_pair(p1_htf,p1_mtf))
+runtime_pair_alerts(multi_pairs_on and p2_on, p2_bias, label_pair(p2_htf,p2_mtf))
+runtime_pair_alerts(multi_pairs_on and p3_on, p3_bias, label_pair(p3_htf,p3_mtf))
+runtime_pair_alerts(multi_pairs_on and p4_on, p4_bias, label_pair(p4_htf,p4_mtf))
+runtime_pair_alerts(multi_pairs_on and p5_on, p5_bias, label_pair(p5_htf,p5_mtf))
+
+// ============== Table
+if tableOn
+    table.cell(tablo,0,0,text="Tf Alingment & Bias" ,text_color=color.white,bgcolor= color.teal, text_size = size.normal)
+    table.cell(tablo,0,1,text="HTF : "+ f_text(htf)+"  MTF : "+ f_text(mtf) ,text_color=color.white,bgcolor= color.teal, text_size = size.normal)
+    table.cell(tablo,0,2,text=" Chart Asset's Bias: "+f_get_text(bias0) ,text_color=color.white,bgcolor= f_get_color(bias0), text_size = i_font)
+
+if tableOn and multi_pairs_on
+    // P1..P5 rows
+    table.cell(tablo,0,10,text="Pairs",text_color=color.white,bgcolor=color.teal,text_size=size.normal)
+    lbl1 = label_pair(p1_htf,p1_mtf), lbl2 = label_pair(p2_htf,p2_mtf), lbl3 = label_pair(p3_htf,p3_mtf), lbl4 = label_pair(p4_htf,p4_mtf), lbl5 = label_pair(p5_htf,p5_mtf)
+    table.cell(tablo,0,11,text=(p1_on ? (lbl1+": "+f_get_text(p1_bias)) : (lbl1+": OFF")),text_color=color.white,bgcolor=(p1_on ? f_get_color(p1_bias) : color.gray),text_size=i_font)
+    table.cell(tablo,0,12,text=(p2_on ? (lbl2+": "+f_get_text(p2_bias)) : (lbl2+": OFF")),text_color=color.white,bgcolor=(p2_on ? f_get_color(p2_bias) : color.gray),text_size=i_font)
+    table.cell(tablo,0,13,text=(p3_on ? (lbl3+": "+f_get_text(p3_bias)) : (lbl3+": OFF")),text_color=color.white,bgcolor=(p3_on ? f_get_color(p3_bias) : color.gray),text_size=i_font)
+    table.cell(tablo,0,14,text=(p4_on ? (lbl4+": "+f_get_text(p4_bias)) : (lbl4+": OFF")),text_color=color.white,bgcolor=(p4_on ? f_get_color(p4_bias) : color.gray),text_size=i_font)
+    table.cell(tablo,0,15,text=(p5_on ? (lbl5+": "+f_get_text(p5_bias)) : (lbl5+": OFF")),text_color=color.white,bgcolor=(p5_on ? f_get_color(p5_bias) : color.gray),text_size=i_font)
+
+// ============== External assets alerts (as-is from base logic)
+if not ignore
+    if f_assets_ok(mtf, htf)
+        bias1= ok1 ? request.security(s1,mtf,bias0) : na
+        bias2= ok2 ? request.security(s2,mtf,bias0) : na
+        bias3= ok3 ? request.security(s3,mtf,bias0) : na
+        bias4= ok4 ? request.security(s4,mtf,bias0) : na
+        bias5= ok5 ? request.security(s5,mtf,bias0) : na
+        bias6= ok6 ? request.security(s6,mtf,bias0) : na
+        bias7= ok7 ? request.security(s7,mtf,bias0) : na 
+        if bias1 == 1 and not (bias1[1] == 1) and not (bias1[1] == 11) and alert_ind and ok1 and alert_bull
+            alert( s1 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
+        if bias2 == 1 and not (bias2[1] == 1) and not (bias2[1] == 11) and alert_ind and ok2 and alert_bull
+            alert( s2 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
+        if bias3 == 1 and not (bias3[1] == 1) and not (bias3[1] == 11) and alert_ind and ok3 and alert_bull
+            alert( s3 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
+        if bias4 == 1 and not (bias4[1] == 1) and not (bias4[1] == 11) and alert_ind and ok4 and alert_bull
+            alert( s4 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
+        if bias5 == 1 and not (bias5[1] == 1) and not (bias5[1] == 11) and alert_ind and ok5 and alert_bull
+            alert( s5 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
+        if bias6 == 1 and not (bias6[1] == 1) and not (bias6[1] == 11) and alert_ind and ok6 and alert_bull
+            alert( s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
+        if bias7 == 1 and not (bias7[1] == 1) and not (bias7[1] == 11) and alert_ind and ok7 and alert_bull
+            alert( s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Bullish Alarm', alert.freq_once_per_bar)
+        if bias1 == -1 and not (bias1[1] == -1) and not (bias1[1] == -11) and alert_ind and ok1 and alert_bear
+            alert(s1 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
+        if bias2 == -1 and not (bias2[1] == -1) and not (bias2[1] == -11) and alert_ind and ok2 and alert_bear
+            alert(s2 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
+        if bias3 == -1 and not (bias3[1] == -1) and not (bias3[1] == -11)  and alert_ind and ok3 and alert_bear
+            alert(s3 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
+        if bias4 == -1 and not (bias4[1] == -1) and not (bias4[1] == -11) and alert_ind and ok4 and alert_bear
+            alert(s4 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
+        if bias5 == -1 and not (bias5[1] == -1) and not (bias5[1] == -11) and alert_ind and ok5 and alert_bear
+            alert(s5 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
+        if bias6 == -1 and not (bias6[1] == -1) and not (bias6[1] == -11) and alert_ind and ok6 and alert_bear
+            alert(s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
+        if bias7 == -1 and not (bias7[1] == -1)  and not (bias7[1] == -11) and alert_ind and ok7 and alert_bear
+            alert(s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Bearish Alarm', alert.freq_once_per_bar)
+        if bias1 == 11 and not (bias1[1] == 11) and alert_ind and ok1 and alert_sbull
+            alert( s1 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
+        if bias2 == 11 and not (bias2[1] == 11)  and alert_ind and ok2 and alert_sbull
+            alert( s2 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
+        if bias3 == 11 and not (bias3[1] == 11)  and alert_ind and ok3 and alert_sbull
+            alert( s3 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
+        if bias4 == 11 and not (bias4[1] == 11)  and alert_ind and ok4 and alert_sbull
+            alert( s4 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
+        if bias5 == 11 and not (bias5[1] == 11)  and alert_ind and ok5 and alert_sbull
+            alert( s5 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
+        if bias6 == 11 and not (bias6[1] == 11)   and alert_ind and ok6 and alert_sbull
+            alert( s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
+        if bias7 == 11 and not (bias7[1] == 11)   and alert_ind and ok7 and alert_sbull
+            alert( s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🟢 Strong Bullish Alarm', alert.freq_once_per_bar)
+        if bias1 == -11 and not (bias1[1] == -11)   and alert_ind and ok1 and alert_sbear
+            alert(s1 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
+        if bias2 == -11 and not (bias2[1] == -11)  and alert_ind and ok2 and alert_sbear
+            alert(s2 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
+        if bias3 == -11 and not (bias3[1] == -11)   and alert_ind and ok3 and alert_sbear
+            alert(s3 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
+        if bias4 == -11 and not (bias4[1] == -11)  and alert_ind and ok4 and alert_sbear
+            alert(s4 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
+        if bias5 == -11 and not (bias5[1] == -11)   and alert_ind and ok5 and alert_sbear
+            alert(s5 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
+        if bias6 == -11 and not (bias6[1] == -11)   and alert_ind and ok6 and alert_sbear
+            alert(s6 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
+        if bias7 == -11 and not (bias7[1] == -11)   and alert_ind and ok7 and alert_sbear
+            alert(s7 + ',' + 'HTF : '+ f_text(htf)+'  MTF : '+ f_text(mtf)+ ',🔴 Strong Bearish Alarm', alert.freq_once_per_bar)
+
+
+        if tableOn2 and f_assets_ok(mtf, htf)
+            if ok1
+                table.cell(tablo,0,3,text=str.tostring(s1)+": " +f_get_text(bias1) ,text_color=color.white,bgcolor= f_get_color(bias1), text_size = i_font)
+            if ok2
+                table.cell(tablo,0,4,text=str.tostring(s2)+": " +f_get_text(bias2) ,text_color=color.white,bgcolor= f_get_color(bias2), text_size = i_font)
+            if ok3
+                table.cell(tablo,0,5,text=str.tostring(s3)+": " +f_get_text(bias3) ,text_color=color.white,bgcolor= f_get_color(bias3), text_size = i_font)
+            if ok4
+                table.cell(tablo,0,6,text=str.tostring(s4)+": " +f_get_text(bias4) ,text_color=color.white,bgcolor= f_get_color(bias4), text_size = i_font)
+            if ok5    
+                table.cell(tablo,0,7,text=str.tostring(s5)+": " +f_get_text(bias5) ,text_color=color.white,bgcolor= f_get_color(bias5), text_size = i_font)
+            if ok6
+                table.cell(tablo,0,8,text=str.tostring(s6)+": " +f_get_text(bias6) ,text_color=color.white,bgcolor= f_get_color(bias6), text_size = i_font)
+            if ok7    
+                table.cell(tablo,0,9,text=str.tostring(s7)+": " +f_get_text(bias7) ,text_color=color.white,bgcolor= f_get_color(bias7), text_size = i_font)
+
+// ================= HTF module (merged) =================
+grpHTF = "HTF"
+show_htf_module = input.bool(true, title="Enable HTF Module", group=grpHTF)
+htf_fix      = input.timeframe(defval="60", title="HTF (Fixed)", group=grpHTF, inline="htf")
+autoMapHTF   = input.bool(defval=true, title="Auto", group=grpHTF, inline="htf", tooltip="Auto map HTF from chart TF: 1m→15m, 5m→1h, 15m→4h, 1h→1D, 4h→1W, 1D→1M, 1W→3M")
+manualModeHTF = input.string(defval="Mapping", title="Manual Options", options=["Mapping","Fixed TF"], group=grpHTF, inline="man")
+
+// Manual Mapping rows (primary choices)
+map_lt_1m   = input.timeframe(defval="5",   title="If current TF < 1m", group=grpHTF, inline="m1")
+map_lt_3m   = input.timeframe(defval="15",  title="If current TF < 3m", group=grpHTF, inline="m2")
+map_lt_5m   = input.timeframe(defval="30",  title="If current TF < 5m", group=grpHTF, inline="m3")
+map_lt_15m  = input.timeframe(defval="60",  title="If current TF < 15m", group=grpHTF, inline="m4")
+map_lt_30m  = input.timeframe(defval="240", title="If current TF < 30m", group=grpHTF, inline="m5")
+map_lt_1h   = input.timeframe(defval="D",   title="If current TF < 1H", group=grpHTF, inline="m6")
+map_lt_4h   = input.timeframe(defval="D",   title="If current TF < 4H", group=grpHTF, inline="m7")
+map_lt_1d   = input.timeframe(defval="W",   title="If current TF < 1D", group=grpHTF, inline="m8")
+map_lt_1w   = input.timeframe(defval="M",   title="If current TF < 1W", group=grpHTF, inline="m9")
+map_lt_1mth = input.timeframe(defval="3M",  title="If current TF < 1M", group=grpHTF, inline="m10")
+
+showhtf_mod   = input.bool(defval=true, title="Show HTF boxes", group=grpHTF, inline="htf2")
+show_candle   = input.bool(defval=true, title="Show HTF Candle", group=grpHTF, inline="htf2")
+looksmt       = input.bool(defval=true, title="Show SMT", group=grpHTF, inline="smt")
+dx            = input.int(defval=0, title="Start from ahead", group=grpHTF, inline="htf2")
+
+// Auto mapping: current chart TF -> HTF
+f_map_htf_from_chart_tf(_chartTf) =>
+    switch _chartTf
+        "1"   => "15"
+        "5"   => "60"
+        "15"  => "240"
+        "60"  => "D"
+        "240" => "W"
+        "D"   => "M"
+        "W"   => "3M"
+        => htf_fix
+
+// Manual mapping evaluator
+f_map_manual_htf(_chartTf) =>
+    _sec = timeframe.in_seconds(_chartTf)
+    _res = map_lt_1m
+    if _sec < timeframe.in_seconds("1")
+        _res := map_lt_1m
+    else if _sec < timeframe.in_seconds("3")
+        _res := map_lt_3m
+    else if _sec < timeframe.in_seconds("5")
+        _res := map_lt_5m
+    else if _sec < timeframe.in_seconds("15")
+        _res := map_lt_15m
+    else if _sec < timeframe.in_seconds("30")
+        _res := map_lt_30m
+    else if _sec < timeframe.in_seconds("60")
+        _res := map_lt_1h
+    else if _sec < timeframe.in_seconds("240")
+        _res := map_lt_4h
+    else if _sec < timeframe.in_seconds("D")
+        _res := map_lt_1d
+    else if _sec < timeframe.in_seconds("W")
+        _res := map_lt_1w
+    else if _sec < timeframe.in_seconds("M")
+        _res := map_lt_1mth
+    else
+        _res := map_lt_1mth
+    _res
+
+// Determine HTF to use for module
+htf_used = autoMapHTF ? f_map_htf_from_chart_tf(tf) : manualModeHTF == "Fixed TF" ? htf_fix : f_map_manual_htf(tf)
+
+// HTF live state for module (reusing f_live_mini)
+[MH1, ML1, MC1, MO1, MT1, MH0, ML0, MC0, MO0, MT0, MH1bar, ML1bar, MH0bar, ML0bar] = f_live_mini(htf_used)
+var MH2 = high
+var ML2 = low
+var MT2 = time
+if timeframe.change(htf_used)
+    MH2 := MH1[1]
+    ML2 := ML1[1]
+    MT2 := MT1[1]
+
+// Sweep logic for module
+h_swept_mod = MH0 > MH1 and math.max(MO0, MC0) <= MH1
+l_swept_mod = ML0 < ML1 and math.min(MO0, MC0) >= ML1
+var h_swept1_mod = false
+var l_swept1_mod = false
+if timeframe.change(htf_used)
+    h_swept1_mod := h_swept_mod[1]
+    l_swept1_mod := l_swept_mod[1]
+
+// Draw HTF boxes for module
+if show_htf_module and showhtf_mod and f_tfcon(htf_used) and time == MT0 and timeframe.period != htf_used
+    htf_box_color_mod = MC1 > MO1 ? bullclr : MC1 < MO1 ? bearclr : boxclr
+    box_mod_prev = box.new(left=MT1, top=MH1, right=MT0, bottom=ML1, xloc=xloc.bar_time, border_width=width_box, border_style=style_box, bgcolor=color.rgb(255,255,255,100), border_color=htf_box_color_mod)
+if show_htf_module and showhtf_mod and f_tfcon(htf_used) and timeframe.period != htf_used
+    htf_box_color_mod_live = MC0 > MO0 ? bullclr : MC0 < MO0 ? bearclr : boxclr
+    box_mod_live = box.new(left=MT0, top=high > MH0 ? high : MH0, right=time+1, bottom=low < ML0 ? low : ML0, xloc=xloc.bar_time, border_width=width_box, border_style=style_box, bgcolor=color.rgb(255,255,255,100), border_color=htf_box_color_mod_live)
+    box.delete(box_mod_live[1])
+
+// Sweep shaded boxes
+if show_htf_module and showhtf_mod and f_tfcon(htf_used) and timeframe.period != htf_used and MH0 > MH1 and close < MH1 and MO0 < MH1
+    box_mod_hsw = box.new(left=MT0, top=MH0, right=time, bottom=MH1, xloc=xloc.bar_time, border_width=1, border_style=line.style_dotted, bgcolor=sw_clr, border_color=color.new(color.gray, 70))
+if show_htf_module and showhtf_mod and f_tfcon(htf_used) and timeframe.period != htf_used and ML0 < ML1 and close > ML1 and MO0 > ML1
+    box_mod_lsw = box.new(left=MT0, top=ML1, right=time, bottom=ML0, xloc=xloc.bar_time, border_width=1, border_style=line.style_dotted, bgcolor=sw_clr, border_color=color.new(color.gray, 70))
+
+// Mini HTF candle panel
+if show_htf_module and show_candle and barstate.islast and f_tfcon(htf_used)
+    var ln_sw1 = line.new(na,na,na,na)
+    var ln_sw2 = line.new(na,na,na,na)
+    // Current
+    bl0  = box.new(left=bar_index+dx+18, top=MC0, right=bar_index+dx+20, bottom=MO0, bgcolor=MC0 < MO0 ? bearclr : bullclr, border_color=MC0 < MO0 ? bearclr : bullclr, text=f_text(htf_used), text_size=size.tiny, text_valign=text.align_center, text_halign=text.align_center, text_color=color.white)
+    wup  = box.new(left=bar_index+dx+19, top=MH0, right=bar_index+dx+19, bottom=math.max(MO0, MC0), border_color=MC0 < MO0 ? bearclr : bullclr, border_width=1)
+    wdw  = box.new(left=bar_index+dx+19, top=ML0, right=bar_index+dx+19, bottom=math.min(MO0, MC0), border_color=MC0 < MO0 ? bearclr : bullclr, border_width=1)
+    // Previous candles
+    bl01 = box.new(left=bar_index+dx+15, top=MC1, right=bar_index+dx+17, bottom=MO1, bgcolor=MC1 < MO1 ? bearclr : bullclr, border_color=MC1 < MO1 ? bearclr : bullclr, text=f_text(htf_used), text_size=size.tiny, text_valign=text.align_center, text_halign=text.align_center, text_color=color.white)
+    wup1 = box.new(left=bar_index+dx+16, top=MH1, right=bar_index+dx+16, bottom=math.max(MO1, MC1), border_color=MC1 < MO1 ? bearclr : bullclr, border_width=1)
+    wdw1 = box.new(left=bar_index+dx+16, top=ML1, right=bar_index+dx+16, bottom=math.min(MO1, MC1), border_color=MC1 < MO1 ? bearclr : bullclr, border_width=1)
+    bl02 = box.new(left=bar_index+dx+12, top=MC1[1], right=bar_index+dx+14, bottom=MO1[1], bgcolor=MC1[1] < MO1[1] ? bearclr : bullclr, border_color=MC1[1] < MO1[1] ? bearclr : bullclr, text=f_text(htf_used), text_size=size.tiny, text_valign=text.align_center, text_halign=text.align_center, text_color=color.white)
+    wup2 = box.new(left=bar_index+dx+13, top=MH1[1], right=bar_index+dx+13, bottom=math.max(MO1[1], MC1[1]), border_color=MC1[1] < MO1[1] ? bearclr : bullclr, border_width=1)
+    wdw2 = box.new(left=bar_index+dx+13, top=ML1[1], right=bar_index+dx+13, bottom=math.min(MO1[1], MC1[1]), border_color=MC1[1] < MO1[1] ? bearclr : bullclr, border_width=1)
+    bl03 = box.new(left=bar_index+dx+9,  top=MC1[2], right=bar_index+dx+11, bottom=MO1[2], bgcolor=MC1[2] < MO1[2] ? bearclr : bullclr, border_color=MC1[2] < MO1[2] ? bearclr : bullclr, text=f_text(htf_used), text_size=size.tiny, text_valign=text.align_center, text_halign=text.align_center, text_color=color.white)
+    wup3 = box.new(left=bar_index+dx+10, top=MH1[2], right=bar_index+dx+10, bottom=math.max(MO1[2], MC1[2]), border_color=MC1[2] < MO1[2] ? bearclr : bullclr, border_width=1)
+    wdw3 = box.new(left=bar_index+dx+10, top=ML1[2], right=bar_index+dx+10, bottom=math.min(MO1[2], MC1[2]), border_color=MC1[2] < MO1[2] ? bearclr : bullclr, border_width=1)
+    // Sweep markers
+    if MH0 > MH1 and MH1 > math.max(MO0, MC0)
+        ln_sw1 := line.new(x1=bar_index+dx+16, y1=MH1, x2=bar_index+dx+19, y2=MH1, color=bearclr, style=line.style_solid, width=2)
+        line.delete(ln_sw1[1])
+    if ML0 < ML1 and ML1 < math.min(MO0, MC0)
+        ln_sw2 := line.new(x1=bar_index+dx+16, y1=ML1, x2=bar_index+dx+19, y2=ML1, color=bullclr, style=line.style_solid, width=2)
+        line.delete(ln_sw2[1])
+
+// SMT (simple)
+if show_htf_module and looksmt and timeframe.in_seconds(tf) < timeframe.in_seconds(htf_used)
+    // Example placeholder SMT signals based on HTF highs/lows divergence style
+    // Users can extend with correlation inputs if needed
+    na
+
+// Key Levels (3 rows)
+grpKey = "Time Frames => Key Levels"
+show_keylvl  = input.bool(defval=true, title="Show Key Levels", group=grpKey, inline="key")
+showkeytf1   = input.bool(defval=true, title="", group=grpKey, inline="key1")
+showkeytf2   = input.bool(defval=true, title="", group=grpKey, inline="key2")
+showkeytf3   = input.bool(defval=true, title="", group=grpKey, inline="key3")
+keytf1      = input.timeframe(defval="1W",  title="Tf1 :", group=grpKey, inline="key1")
+keytf2      = input.timeframe(defval="1D",  title="Tf2 :", group=grpKey, inline="key2")
+keytf3      = input.timeframe(defval="240", title="Tf3 :", group=grpKey, inline="key3")
+keytf1_clr  = input.color(defval=color.gray, title="", group=grpKey, inline="key1")
+keytf2_clr  = input.color(defval=color.gray, title="", group=grpKey, inline="key2")
+keytf3_clr  = input.color(defval=color.gray, title="", group=grpKey, inline="key3")
+
+// Auto mapping for key levels
+f_key_auto_from_chart_tf(_chartTf) =>
+    switch _chartTf
+        "1"   => ["15","60","240"]
+        "3"   => ["15","60","240"]
+        "5"   => ["30","60","240"]
+        "15"  => ["60","240","D"]
+        "30"  => ["240","D","D"]
+        "60"  => ["240","D","D"]
+        "240" => ["D","W","M"]
+        "D"   => ["W","M","3M"]
+        "W"   => ["M","3M","3M"]
+        => [keytf1, keytf2, keytf3]
+
+keyAutoMap    = input.bool(defval=true, title="Auto", group=grpKey, inline="keymode")
+keyManualMode = input.string(defval="Mapping", title="Manual Options", options=["Mapping","Fixed TFs"], group=grpKey, inline="keymode")
+
+// Manual mapping for key levels
+f_key_manual_from_chart_tf(_chartTf) =>
+    _sec = timeframe.in_seconds(_chartTf)
+    _r1 = keytf1
+    _r2 = keytf2
+    _r3 = keytf3
+    if _sec <= timeframe.in_seconds("1")
+        _r1 := "15", _r2 := "60", _r3 := "240"
+    else if _sec <= timeframe.in_seconds("5")
+        _r1 := "30", _r2 := "60", _r3 := "240"
+    else if _sec <= timeframe.in_seconds("15")
+        _r1 := "60", _r2 := "240", _r3 := "D"
+    else if _sec <= timeframe.in_seconds("30")
+        _r1 := "240", _r2 := "D", _r3 := "D"
+    else if _sec <= timeframe.in_seconds("60")
+        _r1 := "240", _r2 := "D", _r3 := "D"
+    else if _sec <= timeframe.in_seconds("D")
+        _r1 := "D", _r2 := "W", _r3 := "M"
+    else
+        _r1 := keytf1, _r2 := keytf2, _r3 := keytf3
+    [_r1, _r2, _r3]
+
+[auto_k1, auto_k2, auto_k3] = f_key_auto_from_chart_tf(tf)
+[map_k1,  map_k2,  map_k3]  = f_key_manual_from_chart_tf(tf)
+
+key1_used = keyAutoMap ? auto_k1 : keyManualMode == "Fixed TFs" ? keytf1 : map_k1
+key2_used = keyAutoMap ? auto_k2 : keyManualMode == "Fixed TFs" ? keytf2 : map_k2
+key3_used = keyAutoMap ? auto_k3 : keyManualMode == "Fixed TFs" ? keytf3 : map_k3
+
+[TF1H1, TF1L1, TF1C1, TF1O1, TF1T1, T1H0, T1L0, T1C0, T1O0, T1T0, _, _, _, _] = f_live_mini(key1_used)
+[TF2H1, TF2L1, TF2C1, TF2O1, TF2T1, T2H0, T2L0, T2C0, T2O0, T2T0, _, _, _, _] = f_live_mini(key2_used)
+[TF3H1, TF3L1, TF3C1, TF3O1, TF3T1, T3H0, T3L0, T3C0, T3O0, T3T0, _, _, _, _] = f_live_mini(key3_used)
+
+nx_proj = 8
+if show_htf_module and show_keylvl and barstate.islast
+    if showkeytf1
+        wbox1 = box.new(left=MT0, top=TF1H1, right=time + nx_proj * dt, bottom=TF1H1, xloc=xloc.bar_time, border_color=keytf1_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key1_used) + " h", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        wbox2 = box.new(left=MT0, top=TF1L1, right=time + nx_proj * dt, bottom=TF1L1, xloc=xloc.bar_time, border_color=keytf1_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key1_used) + " l", text_color=color.new(color.red,0), text_valign=text.align_top, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        wbox3 = box.new(left=MT0, top=T1O0,   right=time + nx_proj * dt, bottom=T1O0,   xloc=xloc.bar_time, border_color=keytf1_clr, bgcolor=color.new(color.gray,100), text=f_text(key1_used) + " open ", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        box.delete(wbox1[1]), box.delete(wbox2[1]), box.delete(wbox3[1])
+    if showkeytf2
+        dbox1 = box.new(left=MT0, top=TF2H1, right=time + nx_proj * dt, bottom=TF2H1, xloc=xloc.bar_time, border_color=keytf2_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key2_used) + " h", text_color=color.new(color.red,0), text_valign=text.align_top, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        dbox2 = box.new(left=MT0, top=TF2L1, right=time + nx_proj * dt, bottom=TF2L1, xloc=xloc.bar_time, border_color=keytf2_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key2_used) + " l", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        dbox3 = box.new(left=MT0, top=T2O0,   right=time + nx_proj * dt, bottom=T2O0,   xloc=xloc.bar_time, border_color=keytf2_clr, bgcolor=color.new(color.gray,100), text=f_text(key2_used) + " open ", text_color=color.new(color.red,0), text_valign=text.align_top, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        box.delete(dbox1[1]), box.delete(dbox2[1]), box.delete(dbox3[1])
+    if showkeytf3
+        h4box1 = box.new(left=MT0, top=TF3H1, right=time + nx_proj * dt, bottom=TF3H1, xloc=xloc.bar_time, border_color=keytf3_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key3_used) + " h", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        h4box2 = box.new(left=MT0, top=TF3L1, right=time + nx_proj * dt, bottom=TF3L1, xloc=xloc.bar_time, border_color=keytf3_clr, bgcolor=color.new(color.gray,100), text="p " + f_text(key3_used) + " l", text_color=color.new(color.red,0), text_valign=text.align_top, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        h4box3 = box.new(left=MT0, top=T3O0,   right=time + nx_proj * dt, bottom=T3O0,   xloc=xloc.bar_time, border_color=keytf3_clr, bgcolor=color.new(color.gray,100), text=f_text(key3_used) + " open ", text_color=color.new(color.red,0), text_valign=text.align_bottom, text_halign=text.align_right, text_size=size.tiny, border_style=style_box)
+        box.delete(h4box1[1]), box.delete(h4box2[1]), box.delete(h4box3[1])
