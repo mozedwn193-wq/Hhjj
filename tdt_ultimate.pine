@@ -125,6 +125,87 @@ f_getCurrentSequence() =>
 f_inSequence(val, sequence) =>
     array.includes(sequence, float(val))
 
+// ===== FRACTAL ANALYSIS (From Transcript) =====
+f_detectFractal() =>
+    if not enableFractalAnalysis
+        false
+    else
+        // Transcript: Fractals are self-similar patterns at different scales
+        // Look for fractal patterns in price action
+        
+        // Micro fractal (5-bar pattern)
+        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        
+        // Medium fractal (10-bar pattern)
+        mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4] and
+                          high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+        mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4] and
+                            low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+        
+        // Macro fractal (20-bar pattern)
+        macroFractalUp = true
+        macroFractalDown = true
+        for i = 1 to 19
+            if high <= high[i]
+                macroFractalUp := false
+            if low >= low[i]
+                macroFractalDown := false
+        
+        // Return true if any fractal pattern is detected
+        microFractalUp or microFractalDown or mediumFractalUp or mediumFractalDown or macroFractalUp or macroFractalDown
+
+// ===== FRACTAL SCALE DETECTION =====
+f_getFractalScale() =>
+    if not enableFractalAnalysis
+        "None"
+    else
+        // Check which fractal scale is active
+        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        
+        if microFractalUp or microFractalDown
+            "Micro"
+        else
+            // Check medium fractal
+            mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4] and
+                              high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+            mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4] and
+                                low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+            
+            if mediumFractalUp or mediumFractalDown
+                "Medium"
+            else
+                "Macro"
+
+// ===== CYCLE MOMENTUM CALCULATION =====
+f_calculateCycleMomentum() =>
+    // Calculate momentum based on current cycle state
+    momentum = 0.0
+    
+    // Base momentum from sequence position
+    if f_inSequence(currentCountNumber, currentSequenceStr)
+        momentum := momentum + 1.0
+    
+    // Add momentum from time states
+    if f_isTimeContracted()
+        momentum := momentum + 0.5
+    else if f_isTimeExpanded()
+        momentum := momentum - 0.3
+    
+    // Add momentum from fractal alignment
+    if f_detectFractal()
+        momentum := momentum + 0.3
+    
+    // Add momentum from market cycle
+    cycleType = f_detectMarketCycle()
+    if cycleType == "Expansion"
+        momentum := momentum + 0.4
+    else if cycleType == "Time Distortion"
+        momentum := momentum - 0.2
+    
+    momentum
+
 // Get label size
 f_getLabelSize() =>
     switch labelSize
@@ -437,87 +518,6 @@ f_detectHarmonyChaos() =>
             "Balance"  // Neutral state
         else
             "Transition"  // Changing state
-
-// ===== CYCLE MOMENTUM CALCULATION =====
-f_calculateCycleMomentum() =>
-    // Calculate momentum based on current cycle state
-    momentum = 0.0
-    
-    // Base momentum from sequence position
-    if f_inSequence(currentCountNumber, currentSequenceStr)
-        momentum := momentum + 1.0
-    
-    // Add momentum from time states
-    if f_isTimeContracted()
-        momentum := momentum + 0.5
-    else if f_isTimeExpanded()
-        momentum := momentum - 0.3
-    
-    // Add momentum from fractal alignment
-    if f_detectFractal()
-        momentum := momentum + 0.3
-    
-    // Add momentum from market cycle
-    cycleType = f_detectMarketCycle()
-    if cycleType == "Expansion"
-        momentum := momentum + 0.4
-    else if cycleType == "Time Distortion"
-        momentum := momentum - 0.2
-    
-    momentum
-
-// ===== FRACTAL ANALYSIS (From Transcript) =====
-f_detectFractal() =>
-    if not enableFractalAnalysis
-        false
-    else
-        // Transcript: Fractals are self-similar patterns at different scales
-        // Look for fractal patterns in price action
-        
-        // Micro fractal (5-bar pattern)
-        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
-        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
-        
-        // Medium fractal (10-bar pattern)
-        mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4] and
-                          high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
-        mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4] and
-                            low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
-        
-        // Macro fractal (20-bar pattern)
-        macroFractalUp = true
-        macroFractalDown = true
-        for i = 1 to 19
-            if high <= high[i]
-                macroFractalUp := false
-            if low >= low[i]
-                macroFractalDown := false
-        
-        // Return true if any fractal pattern is detected
-        microFractalUp or microFractalDown or mediumFractalUp or mediumFractalDown or macroFractalUp or macroFractalDown
-
-// ===== FRACTAL SCALE DETECTION =====
-f_getFractalScale() =>
-    if not enableFractalAnalysis
-        "None"
-    else
-        // Check which fractal scale is active
-        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
-        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
-        
-        if microFractalUp or microFractalDown
-            "Micro"
-        else
-            // Check medium fractal
-            mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4] and
-                              high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
-            mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4] and
-                                low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
-            
-            if mediumFractalUp or mediumFractalDown
-                "Medium"
-            else
-                "Macro"
 
 // ===== SESSION FILTER (From Transcript) =====
 f_inSession() =>
