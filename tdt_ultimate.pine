@@ -232,15 +232,15 @@ f_detectMarketCycle() =>
         recentRange = high - low
         avgRange = ta.sma(high - low, 20)
         
-        // Transcript logic: Consolidations are chaos, expansions/reversals are harmony
+        // Transcript logic: Consolidation IS time distortion
         if recentRange < avgRange * 0.5
-            "Consolidation"  // Time distortion - chaos
+            "Time Distortion"  // Transcript: Consolidation IS time distortion
         else if recentRange > avgRange * 1.5
-            "Expansion"      // Time expansion - harmony
+            "Expansion"         // Time expansion - harmony
         else if close < close[1] and close[1] < close[2]
-            "Retracement"    // Time contraction
+            "Retracement"       // Time contraction
         else if close > close[1] and close[1] > close[2]
-            "Reversal"       // Time expansion - harmony
+            "Reversal"          // Time expansion - harmony
         else
             "Unknown"
 
@@ -289,7 +289,7 @@ f_getTradingSignal(cycleCount, cycleType) =>
         "WAIT"  // Transcript: avoid trades in time distortion
     else if f_inSequence(cycleCount, currentSequenceStr)
         switch cycleType
-            "Consolidation" => "WAIT"  // Transcript: avoid trades in time distortion
+            "Time Distortion" => "WAIT"  // Transcript: avoid trades in time distortion
             "Expansion" => "LONG"       // Transcript: expansions are harmony
             "Reversal" => "REVERSE"     // Transcript: reversals are harmony
             "Retracement" => "SHORT"    // Transcript: retracements are contraction
@@ -361,7 +361,7 @@ f_detectCycleOverlap() =>
         shortAvgRange = ta.sma(high - low, 10)
         
         if shortRange < shortAvgRange * 0.3
-            array.push(cycles, "Micro-Consolidation")
+            array.push(cycles, "Micro-Time Distortion")
         else if shortRange > shortAvgRange * 2.0
             array.push(cycles, "Micro-Expansion")
         
@@ -370,7 +370,7 @@ f_detectCycleOverlap() =>
         microAvgRange = ta.sma(high - low, 5)
         
         if microRange < microAvgRange * 0.2
-            array.push(cycles, "Nano-Consolidation")
+            array.push(cycles, "Nano-Time Distortion")
         else if microRange > microAvgRange * 3.0
             array.push(cycles, "Nano-Expansion")
         
@@ -379,9 +379,9 @@ f_detectCycleOverlap() =>
 // ===== CYCLE COUNTING WITHIN CYCLES =====
 f_countCycleNumbers(cycleType) =>
     switch cycleType
-        "Consolidation" => 
-            consolidationLevels = f_parseSequence(consolidationLength)
-            consolidationLevels
+        "Time Distortion" => 
+            timeDistortionLevels = f_parseSequence(consolidationLength)
+            timeDistortionLevels
         "Expansion" => 
             expansionLevels = f_parseSequence(expansionLength)
             expansionLevels
@@ -391,11 +391,11 @@ f_countCycleNumbers(cycleType) =>
         "Reversal" => 
             reversalLevels = f_parseSequence(reversalLength)
             reversalLevels
-        "Micro-Consolidation" => 
+        "Micro-Time Distortion" => 
             array.from(1.0, 2.0, 3.0, 5.0, 8.0)
         "Micro-Expansion" => 
             array.from(1.0, 2.0, 3.0, 5.0, 8.0)
-        "Nano-Consolidation" => 
+        "Nano-Time Distortion" => 
             array.from(1.0, 2.0, 3.0)
         "Nano-Expansion" => 
             array.from(1.0, 2.0, 3.0)
@@ -648,13 +648,13 @@ var array<int> cycleStartPoints = array.new<int>()
 var array<int> cycleCounts = array.new<int>()
 
 // ===== CYCLE COUNTING VARIABLES =====
-var int consolidationCount = 0
+var int timeDistortionCount = 0
 var int expansionCount = 0
 var int retracementCount = 0
 var int reversalCount = 0
-var int microConsolidationCount = 0
+var int microTimeDistortionCount = 0
 var int microExpansionCount = 0
-var int nanoConsolidationCount = 0
+var int nanoTimeDistortionCount = 0
 var int nanoExpansionCount = 0
 var string lastCycleType = "Unknown"
 var int cycleStartBar = na
@@ -909,12 +909,12 @@ if countingStarted and enableCycleDetection
         
         // Increment appropriate counter
         switch cycleType
-            "Consolidation" => 
-                consolidationCount := consolidationCount + 1
-                if f_trackCycleState(cycleType, consolidationCount)
+            "Time Distortion" => 
+                timeDistortionCount := timeDistortionCount + 1
+                if f_trackCycleState(cycleType, timeDistortionCount)
                     cycleOffset = (high - low) * 0.08
                     cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
-                    cycleText = "C" + str.tostring(consolidationCount)
+                    cycleText = "TD" + str.tostring(timeDistortionCount)
                     label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#0000FF, 0), size=f_getLabelSize())
             "Expansion" => 
                 expansionCount := expansionCount + 1
@@ -937,12 +937,12 @@ if countingStarted and enableCycleDetection
                     cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
                     cycleText = "V" + str.tostring(reversalCount)
                     label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#00FFFF, 0), size=f_getLabelSize())
-            "Micro-Consolidation" => 
-                microConsolidationCount := microConsolidationCount + 1
-                if f_trackCycleState(cycleType, microConsolidationCount)
+            "Micro-Time Distortion" => 
+                microTimeDistortionCount := microTimeDistortionCount + 1
+                if f_trackCycleState(cycleType, microTimeDistortionCount)
                     cycleOffset = (high - low) * 0.05
                     cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
-                    cycleText = "mC" + str.tostring(microConsolidationCount)
+                    cycleText = "mTD" + str.tostring(microTimeDistortionCount)
                     label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#000080, 0), size=size.tiny)
             "Micro-Expansion" => 
                 microExpansionCount := microExpansionCount + 1
@@ -951,12 +951,12 @@ if countingStarted and enableCycleDetection
                     cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
                     cycleText = "mE" + str.tostring(microExpansionCount)
                     label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#008000, 0), size=size.tiny)
-            "Nano-Consolidation" => 
-                nanoConsolidationCount := nanoConsolidationCount + 1
-                if f_trackCycleState(cycleType, nanoConsolidationCount)
+            "Nano-Time Distortion" => 
+                nanoTimeDistortionCount := nanoTimeDistortionCount + 1
+                if f_trackCycleState(cycleType, nanoTimeDistortionCount)
                     cycleOffset = (high - low) * 0.03
                     cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
-                    cycleText = "nC" + str.tostring(nanoConsolidationCount)
+                    cycleText = "nTD" + str.tostring(nanoTimeDistortionCount)
                     label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#000040, 0), size=size.tiny)
             "Nano-Expansion" => 
                 nanoExpansionCount := nanoExpansionCount + 1
@@ -1057,8 +1057,8 @@ if barstate.islast
     table.cell(statusTable, 0, 14, "Multi Inside", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 14, multipleInsideCandles ? "ON" : "OFF", text_color=#000000, text_size=size.tiny)
     
-    table.cell(statusTable, 0, 15, "Consolidation", text_color=#000000, text_size=size.tiny)
-    table.cell(statusTable, 1, 15, str.tostring(consolidationCount), text_color=#0000FF, text_size=size.tiny)
+    table.cell(statusTable, 0, 15, "Time Distortion", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 15, str.tostring(timeDistortionCount), text_color=#0000FF, text_size=size.tiny)
     
     table.cell(statusTable, 0, 16, "Expansion", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 16, str.tostring(expansionCount), text_color=#00FF00, text_size=size.tiny)
@@ -1069,14 +1069,14 @@ if barstate.islast
     table.cell(statusTable, 0, 18, "Reversal", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 18, str.tostring(reversalCount), text_color=#00FFFF, text_size=size.tiny)
     
-    table.cell(statusTable, 0, 19, "Micro-C", text_color=#000000, text_size=size.tiny)
-    table.cell(statusTable, 1, 19, str.tostring(microConsolidationCount), text_color=#000080, text_size=size.tiny)
+    table.cell(statusTable, 0, 19, "Micro-TD", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 19, str.tostring(microTimeDistortionCount), text_color=#000080, text_size=size.tiny)
     
     table.cell(statusTable, 0, 20, "Micro-E", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 20, str.tostring(microExpansionCount), text_color=#008000, text_size=size.tiny)
     
-    table.cell(statusTable, 0, 21, "Nano-C", text_color=#000000, text_size=size.tiny)
-    table.cell(statusTable, 1, 21, str.tostring(nanoConsolidationCount), text_color=#000040, text_size=size.tiny)
+    table.cell(statusTable, 0, 21, "Nano-TD", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 21, str.tostring(nanoTimeDistortionCount), text_color=#000040, text_size=size.tiny)
     
     table.cell(statusTable, 0, 22, "Nano-E", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 22, str.tostring(nanoExpansionCount), text_color=#004000, text_size=size.tiny)
