@@ -413,7 +413,4 @@ if barstate.islast
 
 // ===== CSV EXPORT =====
 if barstate.islast
-    csvData = "Bar Index,Time,Count,Strategy,Sequence Type,Entry Hit,Exit Hit,Position Size,Equity,Net Profit,Time State,Market Cycle,Harmony Chaos,Filters OK\n"
-    csvData += str.tostring(bar_index) + "," + str.tostring(time) + "," + str.tostring(count) + "," + entryStrategy + "," + sequenceType + "," + str.tostring(hitEntryLevel) + "," + str.tostring(hitExitLevel) + "," + str.tostring(positionSize) + "," + str.tostring(strategy.equity) + "," + str.tostring(strategy.netprofit) + "," + timeState + "," + f_detectMarketCycle() + "," + f_detectHarmonyChaos() + "," + str.tostring(allFiltersOK)
-    
-    log.info("TDT Complete Backtest CSV Data:\n" + csvData)
+    log.info("TDT Complete Backtest CSV Data:\nBar Index: " + str.tostring(bar_index) + "\nTime: " + str.tostring(time) + "\nCount: " + str.tostring(count) + "\nStrategy: " + entryStrategy + "\nSequence Type: " + sequenceType + "\nEntry Hit: " + str.tostring(hitEntryLevel) + "\nExit Hit: " + str.tostring(hitExitLevel) + "\nPosition Size: " + str.tostring(positionSize) + "\nEquity: " + str.tostring(strategy.equity) + "\nNet Profit: " + str.tostring(strategy.netprofit) + "\nTime State: " + timeState + "\nMarket Cycle: " + f_detectMarketCycle() + "\nHarmony Chaos: " + f_detectHarmonyChaos() + "\nFilters OK: " + str.tostring(allFiltersOK))

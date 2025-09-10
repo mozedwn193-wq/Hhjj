@@ -135,19 +135,7 @@ if barstate.islast
     table.cell(filterTable, 1, 9, canTradeBearish ? "✓" : "✗", text_color=canTradeBearish ? color.green : color.red, text_size=size.small)
 
 // ===== EXPORT FUNCTIONS =====
-// Function to get current filter state as string
-f_getFilterState() =>
-    state = "Session1:" + str.tostring(inSession1) + ","
-    state += "Session2:" + str.tostring(inSession2) + ","
-    state += "Session3:" + str.tostring(inSession3) + ","
-    state += "HighVol:" + str.tostring(isHighVolatility) + ","
-    state += "LowVol:" + str.tostring(isLowVolatility) + ","
-    state += "BullTrend:" + str.tostring(isBullishTrend) + ","
-    state += "BearTrend:" + str.tostring(isBearishTrend) + ","
-    state += "CanTradeBull:" + str.tostring(canTradeBullish) + ","
-    state += "CanTradeBear:" + str.tostring(canTradeBearish)
-    state
 
 // Export filter state on last bar
 if barstate.islast
-    log.info("TDT Filter State: " + f_getFilterState())
+    log.info("TDT Filter State:\nSession1: " + str.tostring(inSession1) + "\nSession2: " + str.tostring(inSession2) + "\nSession3: " + str.tostring(inSession3) + "\nHighVol: " + str.tostring(isHighVolatility) + "\nLowVol: " + str.tostring(isLowVolatility) + "\nBullTrend: " + str.tostring(isBullishTrend) + "\nBearTrend: " + str.tostring(isBearishTrend) + "\nCanTradeBull: " + str.tostring(canTradeBullish) + "\nCanTradeBear: " + str.tostring(canTradeBearish))

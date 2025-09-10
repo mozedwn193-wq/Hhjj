@@ -341,18 +341,15 @@ plotshape(showCycleMarkers and currentCycle == "Reversal", title="Reversal",
 // HTF markers
 plotshape(htf1HitLevel and showMTFOverlay, title="HTF1 Levels", 
     style=shape.triangledown, color=color.new(color.aqua, 0), 
-    location=location.abovebar, size=markerSizeEnum, 
-    text="HTF1 " + str.tostring(htf1Count))
+    location=location.abovebar, size=markerSizeEnum)
 
 plotshape(htf2HitLevel and showMTFOverlay, title="HTF2 Levels", 
     style=shape.triangleup, color=color.new(color.lime, 0), 
-    location=location.belowbar, size=markerSizeEnum, 
-    text="HTF2 " + str.tostring(htf2Count))
+    location=location.belowbar, size=markerSizeEnum)
 
 plotshape(htf3HitLevel and showMTFOverlay, title="HTF3 Levels", 
     style=shape.diamond, color=color.new(color.purple, 0), 
-    location=location.abovebar, size=markerSizeEnum, 
-    text="HTF3 " + str.tostring(htf3Count))
+    location=location.abovebar, size=markerSizeEnum)
 
 // Count series line
 plotchar(canCount and showCountSeries ? count : na, title="Count Series", 
@@ -427,7 +424,4 @@ if barstate.islast
 
 // ===== CSV EXPORT =====
 if barstate.islast
-    csvData = "Bar Index,Time,Count,Sequence Type,Time State,Market Cycle,Harmony Chaos,HTF1 Count,HTF2 Count,HTF3 Count,Time Distorted,Time Contracted,Time Expanded,Fractal Detected\n"
-    csvData += str.tostring(bar_index) + "," + str.tostring(time) + "," + str.tostring(count) + "," + sequenceType + "," + currentTimeState + "," + currentCycle + "," + currentHarmonyChaos + "," + str.tostring(htf1Count) + "," + str.tostring(htf2Count) + "," + str.tostring(htf3Count) + "," + str.tostring(f_isTimeDistorted()) + "," + str.tostring(f_isTimeContracted()) + "," + str.tostring(f_isTimeExpanded()) + "," + str.tostring(f_detectFractal())
-    
-    log.info("TDT Complete CSV Data:\n" + csvData)
+    log.info("TDT Complete CSV Data:\nBar Index: " + str.tostring(bar_index) + "\nTime: " + str.tostring(time) + "\nCount: " + str.tostring(count) + "\nSequence Type: " + sequenceType + "\nTime State: " + currentTimeState + "\nMarket Cycle: " + currentCycle + "\nHarmony Chaos: " + currentHarmonyChaos + "\nHTF1 Count: " + str.tostring(htf1Count) + "\nHTF2 Count: " + str.tostring(htf2Count) + "\nHTF3 Count: " + str.tostring(htf3Count) + "\nTime Distorted: " + str.tostring(f_isTimeDistorted()) + "\nTime Contracted: " + str.tostring(f_isTimeContracted()) + "\nTime Expanded: " + str.tostring(f_isTimeExpanded()) + "\nFractal Detected: " + str.tostring(f_detectFractal()))
