@@ -75,6 +75,18 @@ timeDistortionColor = input.color(#FFA500, "Time Distortion Color", group="Displ
 displayOnlySequence = input.bool(true, "Display Only Sequence Numbers", group="Display")
 
 // ===== HELPER FUNCTIONS =====
+// ===== TRANSCRIPT SEQUENCE CALCULATION =====
+// Formula: n² - n + 1 (exactly as transcript)
+f_calculateTranscriptSequence(n) =>
+    n * n - n + 1
+
+// Generate transcript sequence: 1, 3, 7, 13, 21, 31, 43
+f_getTranscriptSequence() =>
+    transcriptSeq = array.new<float>()
+    for i = 1 to 7
+        array.push(transcriptSeq, f_calculateTranscriptSequence(i))
+    transcriptSeq
+
 // Parse sequence from comma-separated string
 f_parseSequence(string seq_str) =>
     sequence = array.new<float>()
@@ -90,12 +102,12 @@ f_parseSequence(string seq_str) =>
 // Get current sequence based on type
 f_getCurrentSequence() =>
     switch sequenceType
-        "Standard" => f_parseSequence(standardSequence)
-        "Contraction" => f_parseSequence(contractionSequence)
-        "Expansion" => f_parseSequence(standardSequence)
-        "Rare" => f_parseSequence(rareSequence)
+        "Standard" => f_getTranscriptSequence()  // Use transcript sequence: 1,3,7,13,21,31,43
+        "Contraction" => f_parseSequence("1,5,9,17,25")  // Second sequence from transcript
+        "Expansion" => f_parseSequence("1,3,6,9,15,24")  // Perfect sequence from transcript
+        "Rare" => f_parseSequence("1,3,6,9,15,24")       // Perfect sequence from transcript
         "Custom" => f_parseSequence(customSequence)
-        => f_parseSequence(standardSequence)
+        => f_getTranscriptSequence()  // Default to transcript sequence
 
 // Check if value is in sequence array
 f_inSequence(val, sequence) =>
@@ -516,9 +528,9 @@ if countingStarted and bar_index >= anchorBarIndex
             // Increment this cycle's count
             newCycleCount = cycleCount + countIncrement
             
-            // CYCLE RESTART LOGIC: End at 31 or 33, then restart from 1
-            if newCycleCount >= 31 and newCycleCount <= 33
-                // End current cycle and start new one
+            // TRANSCRIPT CYCLE RESTART LOGIC: End at 31, then restart from 1
+            if newCycleCount == 31
+                // End current cycle and start new one (exactly as transcript)
                 array.set(cycleCounts, i, 1)
                 // Update start point to current bar for new cycle
                 array.set(cycleStartPoints, i, bar_index)
@@ -552,8 +564,8 @@ if countingStarted and bar_index >= anchorBarIndex
                     
                     // If both 7 and 1 are present, apply transcript sequence logic
                     if hasSeven and hasOne
-                        // Apply the sequence: 1, 3, 7, 13, 21, 31, 33
-                        transcriptSequence = array.from(1, 3, 7, 13, 21, 31, 33)
+                        // Apply the transcript sequence: 1, 3, 7, 13, 21, 31, 43
+                        transcriptSequence = f_getTranscriptSequence()
                         // This triggers the main sequence counting from transcript
                 
                 // Check if this number overlaps with other cycles
