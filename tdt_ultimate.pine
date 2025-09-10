@@ -65,6 +65,14 @@ enableFractalAnalysis = input.bool(true, "Enable Fractal Analysis", group="Advan
 enableHarmonyChaos = input.bool(true, "Enable Harmony/Chaos Detection", group="Advanced")
 countOutsideDouble = input.bool(false, "Count Outside Candles Double", group="Advanced")
 
+// Enhanced Time Distortion Detection (From IPDA Analyzer)
+// These options provide advanced TD detection capabilities for auto anchor mode
+freezeOnTD = input.bool(true, "Freeze Count on TD", group="Advanced")
+enableAdvancedTD = input.bool(true, "Enhanced TD Detection", group="Advanced")
+insideMethod = input.string("High/Low", "Inside Detection Method", options=["High/Low", "Open/Close"], group="Advanced")
+insideComparison = input.string("<=", "Inside Comparison", options=["<=", "<"], group="Advanced")
+multipleInsideCandles = input.bool(false, "Multiple Inside Candles (vs Last One Only)", group="Advanced")
+
 // Display Settings
 displayPosition = input.string("above_candle", "Display Position", options=["above_candle","below_candle"], group="Display")
 verticalShift = input.int(0, "Vertical Shift", group="Display")
@@ -861,7 +869,7 @@ if enableCasting and forwardCastActive
 
 // ===== STATUS TABLE =====
 if barstate.islast
-    var table statusTable = table.new(position.top_right, 2, 32, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    var table statusTable = table.new(position.top_right, 2, 37, bgcolor=color.new(#FFFFFF, 80), border_width=1)
     
     table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
@@ -957,5 +965,17 @@ if barstate.islast
     table.cell(statusTable, 0, 30, "Distortion", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 30, f_detectTimeDistortion(), text_color=#800080, text_size=size.tiny)
     
-    table.cell(statusTable, 0, 31, "Trading Rule", text_color=#000000, text_size=size.tiny)
-    table.cell(statusTable, 1, 31, f_getTranscriptTradingRule(currentCountNumber), text_color=#0080FF, text_size=size.tiny)
+    table.cell(statusTable, 0, 32, "Freeze on TD", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 32, freezeOnTD ? "ON" : "OFF", text_color=#FF8000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 33, "Enhanced TD", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 33, enableAdvancedTD ? "ON" : "OFF", text_color=#FF8000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 34, "TD Method", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 34, insideMethod, text_color=#FF8000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 35, "TD Comparison", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 35, insideComparison, text_color=#FF8000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 36, "Multi Inside", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 36, multipleInsideCandles ? "ON" : "OFF", text_color=#FF8000, text_size=size.tiny)
