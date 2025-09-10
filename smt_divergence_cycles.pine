@@ -1,0 +1,317 @@
+//@version=5
+indicator("SMT Divergence – 90m/30m/10m (anchored 18:00)", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// =============================
+// ========== INPUTS ==========
+// =============================
+symB                 = input.symbol("ES1!", "Comparison Symbol B")
+tz                   = input.string("America/New_York", "Anchor timezone (all cycles start 18:00)")
+detect90             = input.bool(true,  "Detect 90m cycle")
+detect30             = input.bool(true,  "Detect 30m macro cycle")
+detect10             = input.bool(true,  "Detect 10m nano cycle")
+validateCandle       = input.bool(true,  "Validate candle direction on leader bar")
+deleteOnInvalid      = input.bool(true,  "Delete SMT when invalidated")
+alertsEnabled        = input.bool(true,  "Enable alerts (formed/invalidated)")
+
+// Per-TF styling
+// 90m
+clr90_bull           = input.color(color.black, "90m Bullish color")
+clr90_bear           = input.color(color.black, "90m Bearish color")
+width90              = input.int(1, "90m Width", minval=1)
+style90              = input.string("solid", "90m Style", options=["solid","dotted","dashed"]) 
+showText90           = input.bool(true,  "90m: Show text label")
+// 30m macro
+clr30_bull           = input.color(color.black, "30m Bullish color")
+clr30_bear           = input.color(color.black, "30m Bearish color")
+width30              = input.int(1, "30m Width", minval=1)
+style30              = input.string("solid", "30m Style", options=["solid","dotted","dashed"]) 
+showText30           = input.bool(true,  "30m: Show text label")
+// 10m nano
+clr10_bull           = input.color(color.black, "10m Bullish color")
+clr10_bear           = input.color(color.black, "10m Bearish color")
+width10              = input.int(1, "10m Width", minval=1)
+style10              = input.string("dotted", "10m Style", options=["solid","dotted","dashed"]) 
+showText10           = input.bool(true,  "10m: Show text label")
+
+// Text options
+txtColor             = input.color(color.black, "Text color")
+txtSize              = input.string("small", "Text size", options=["tiny","small","normal","large"])
+txtYOffset           = input.float(0.0, "Text Y offset")
+
+// =============================
+// ======== DATA SOURCES =======
+// =============================
+// Series for Symbol B (comparison). Primary A is the chart symbol.
+float bHigh = request.security(symB, timeframe.period, high)
+float bLow  = request.security(symB, timeframe.period, low)
+float bOpen = request.security(symB, timeframe.period, open)
+float bClose= request.security(symB, timeframe.period, close)
+
+// =============================
+// ========= HELPERS ===========
+// =============================
+line_style_from(s) => s == "solid" ? line.style_solid : s == "dashed" ? line.style_dashed : line.style_dotted
+
+// Cycle index anchored to 18:00 in tz, with cycle length in minutes
+get_cycle_index(string tzIn, int lenMin) =>
+    int anchor = timestamp(tzIn, year, month, dayofmonth, 18, 0)
+    int start  = time >= anchor ? anchor : anchor - 24 * 60 * 60 * 1000
+    int idx    = int(math.floor((time - start) / (lenMin * 60 * 1000)))
+    idx
+
+// Structure-less state per cycle
+cycle_block_update(lenMin, var int lastIdx, 
+                   var float prevHiA, var float prevLoA, var float prevHiB, var float prevLoB,
+                   var float curHiA,  var float curLoA,  var float curHiB,  var float curLoB,
+                   var int   prevHiA_bar, var int prevLoA_bar, var int curHiA_bar, var int curLoA_bar,
+                   var int   prevHiB_bar, var int prevLoB_bar, var int curHiB_bar, var int curLoB_bar,
+                   string tzIn) =>
+    int cIdx = get_cycle_index(tzIn, lenMin)
+    bool newBlock = na(lastIdx) or cIdx != lastIdx
+    if newBlock
+        // Shift current -> previous
+        prevHiA := curHiA
+        prevLoA := curLoA
+        prevHiB := curHiB
+        prevLoB := curLoB
+        prevHiA_bar := curHiA_bar
+        prevLoA_bar := curLoA_bar
+        prevHiB_bar := curHiB_bar
+        prevLoB_bar := curLoB_bar
+        // Reset current with this bar
+        curHiA := high
+        curLoA := low
+        curHiB := bHigh
+        curLoB := bLow
+        curHiA_bar := bar_index
+        curLoA_bar := bar_index
+        curHiB_bar := bar_index
+        curLoB_bar := bar_index
+        lastIdx := cIdx
+    else
+        if high > nz(curHiA, high)
+            curHiA := high
+            curHiA_bar := bar_index
+        if low < nz(curLoA, low)
+            curLoA := low
+            curLoA_bar := bar_index
+        if bHigh > nz(curHiB, bHigh)
+            curHiB := bHigh
+            curHiB_bar := bar_index
+        if bLow < nz(curLoB, bLow)
+            curLoB := bLow
+            curLoB_bar := bar_index
+    [newBlock, cIdx]
+
+// Validate candle direction on the bar that currently set the extreme
+valid_hh_close(isA) =>
+    validateCandle ? (isA ? close < open : bClose < bOpen) : true
+valid_ll_close(isA) =>
+    validateCandle ? (isA ? close > open : bClose > bOpen) : true
+
+// ============ CORE SMT CHECK (A-led only line drawing) ============
+// Maintains one active line+label per TF per polarity. If B leads, we drop a small label only.
+process_cycle(tfName, lenMin,
+              var int lastIdx,
+              var float prevHiA, var float prevLoA, var float prevHiB, var float prevLoB,
+              var float curHiA,  var float curLoA,  var float curHiB,  var float curLoB,
+              var int   prevHiA_bar, var int prevLoA_bar, var int curHiA_bar, var int curLoA_bar,
+              var int   prevHiB_bar, var int prevLoB_bar, var int curHiB_bar, var int curLoB_bar,
+              color bullColor, color bearColor, int w, string stl, bool showText,
+              var line actBullLine, var label actBullLbl, var bool bullActive, var float bullInvalidLevel,
+              var line actBearLine, var label actBearLbl, var bool bearActive, var float bearInvalidLevel) =>
+
+    // Update blocks/extremes
+    [bool newBlock, int cIdx] = cycle_block_update(lenMin, lastIdx,
+        prevHiA, prevLoA, prevHiB, prevLoB,
+        curHiA,  curLoA,  curHiB,  curLoB,
+        prevHiA_bar, prevLoA_bar, curHiA_bar, curLoA_bar,
+        prevHiB_bar, prevLoB_bar, curHiB_bar, curLoB_bar,
+        tz)
+
+    // Reset state on new cycle
+    if newBlock
+        if bullActive
+            bullActive := false
+            if deleteOnInvalid
+                if actBullLbl
+                    label.delete(actBullLbl)
+                if actBullLine
+                    line.delete(actBullLine)
+        if bearActive
+            bearActive := false
+            if deleteOnInvalid
+                if actBearLbl
+                    label.delete(actBearLbl)
+                if actBearLine
+                    line.delete(actBearLine)
+
+    // Current vs previous cycle checks
+    bool aHH = not na(prevHiA) and curHiA > prevHiA
+    bool bHH = not na(prevHiB) and curHiB > prevHiB
+    bool aLL = not na(prevLoA) and curLoA < prevLoA
+    bool bLL = not na(prevLoB) and curLoB < prevLoB
+
+    // Bearish SMT: HH vs no HH
+    // A-led
+    bool bearish_A_led = aHH and not bHH and valid_hh_close(true)
+    // B-led (label only)
+    bool bearish_B_led = bHH and not aHH and valid_hh_close(false)
+
+    // Bullish SMT: LL vs no LL
+    bool bullish_A_led = aLL and not bLL and valid_ll_close(true)
+    bool bullish_B_led = bLL and not aLL and valid_ll_close(false)
+
+    // Invalidation checks (if lagger later breaks the level it failed to)
+    if bearActive and deleteOnInvalid
+        // Lagger was B failing to make HH; invalidate when B finally makes HH
+        if bHH
+            if alertsEnabled
+                alert(tfName + " bearish SMT invalidated (B made HH)")
+            if actBearLbl
+                label.delete(actBearLbl)
+            if actBearLine
+                line.delete(actBearLine)
+            bearActive := false
+    if bullActive and deleteOnInvalid
+        // Lagger was B failing to make LL; invalidate when B finally makes LL
+        if bLL
+            if alertsEnabled
+                alert(tfName + " bullish SMT invalidated (B made LL)")
+            if actBullLbl
+                label.delete(actBullLbl)
+            if actBullLine
+                line.delete(actBullLine)
+            bullActive := false
+
+    // Form/maintain A-led bearish
+    if bearish_A_led
+        // Create or update
+        if not bearActive
+            actBearLine := line.new(prevHiA_bar, prevHiA, bar_index, curHiA, color=bearColor, width=w, style=line_style_from(stl))
+            if showText
+                actBearLbl := label.new(bar_index, curHiA + txtYOffset, tfName + " SMT", style=label.style_label_down, color=bearColor, textcolor=txtColor, size=txtSize == "tiny" ? size.tiny : txtSize == "small" ? size.small : txtSize == "normal" ? size.normal : size.large)
+            bearActive := true
+            bearInvalidLevel := prevHiB
+            if alertsEnabled
+                alert(tfName + " bearish SMT formed (A led)")
+        else
+            // Trail line to new extreme
+            if actBearLine
+                line.set_xy2(actBearLine, bar_index, curHiA)
+            if actBearLbl and showText
+                label.set_x(actBearLbl, bar_index)
+                label.set_y(actBearLbl, curHiA + txtYOffset)
+
+    // Form/maintain A-led bullish
+    if bullish_A_led
+        if not bullActive
+            actBullLine := line.new(prevLoA_bar, prevLoA, bar_index, curLoA, color=bullColor, width=w, style=line_style_from(stl))
+            if showText
+                actBullLbl := label.new(bar_index, curLoA - txtYOffset, tfName + " SMT", style=label.style_label_up, color=bullColor, textcolor=txtColor, size=txtSize == "tiny" ? size.tiny : txtSize == "small" ? size.small : txtSize == "normal" ? size.normal : size.large)
+            bullActive := true
+            bullInvalidLevel := prevLoB
+            if alertsEnabled
+                alert(tfName + " bullish SMT formed (A led)")
+        else
+            if actBullLine
+                line.set_xy2(actBullLine, bar_index, curLoA)
+            if actBullLbl and showText
+                label.set_x(actBullLbl, bar_index)
+                label.set_y(actBullLbl, curLoA - txtYOffset)
+
+    // B-led: show small markers so user knows a divergence exists (no lines due to different price scales)
+    if bearish_B_led
+        plotshape(true, title=tfName + " SMT (B led, bearish)", style=shape.triangledown, color=color.new(bearColor, 0), location=location.abovebar, size=size.tiny, text=tfName + " SMT B-led")
+        if alertsEnabled
+            alert(tfName + " bearish SMT formed (B led)")
+    if bullish_B_led
+        plotshape(true, title=tfName + " SMT (B led, bullish)", style=shape.triangleup, color=color.new(bullColor, 0), location=location.belowbar, size=size.tiny, text=tfName + " SMT B-led")
+        if alertsEnabled
+            alert(tfName + " bullish SMT formed (B led)")
+
+// =============================
+// ======== STATE VARS =========
+// =============================
+// 90m
+var int   lastIdx90     = na
+var float prevHiA90     = na, prevLoA90 = na, prevHiB90 = na, prevLoB90 = na
+var float curHiA90      = na, curLoA90  = na, curHiB90  = na, curLoB90  = na
+var int   prevHiA90_bar = na, prevLoA90_bar = na, curHiA90_bar = na, curLoA90_bar = na
+var int   prevHiB90_bar = na, prevLoB90_bar = na, curHiB90_bar = na, curLoB90_bar = na
+var line  lineBull90    = na, lineBear90 = na
+var label lblBull90     = na, lblBear90 = na
+var bool  bullAct90     = false, bearAct90 = false
+var float bullInv90     = na,     bearInv90 = na
+
+// 30m
+var int   lastIdx30     = na
+var float prevHiA30     = na, prevLoA30 = na, prevHiB30 = na, prevLoB30 = na
+var float curHiA30      = na, curLoA30  = na, curHiB30  = na, curLoB30  = na
+var int   prevHiA30_bar = na, prevLoA30_bar = na, curHiA30_bar = na, curLoA30_bar = na
+var int   prevHiB30_bar = na, prevLoB30_bar = na, curHiB30_bar = na, curLoB30_bar = na
+var line  lineBull30    = na, lineBear30 = na
+var label lblBull30     = na, lblBear30 = na
+var bool  bullAct30     = false, bearAct30 = false
+var float bullInv30     = na,     bearInv30 = na
+
+// 10m
+var int   lastIdx10     = na
+var float prevHiA10     = na, prevLoA10 = na, prevHiB10 = na, prevLoB10 = na
+var float curHiA10      = na, curLoA10  = na, curHiB10  = na, curLoB10  = na
+var int   prevHiA10_bar = na, prevLoA10_bar = na, curHiA10_bar = na, curLoA10_bar = na
+var int   prevHiB10_bar = na, prevLoB10_bar = na, curHiB10_bar = na, curLoB10_bar = na
+var line  lineBull10    = na, lineBear10 = na
+var label lblBull10     = na, lblBear10 = na
+var bool  bullAct10     = false, bearAct10 = false
+var float bullInv10     = na,     bearInv10 = na
+
+// =============================
+// ============ RUN ============
+// =============================
+if detect90
+    process_cycle("90m", 90,
+        lastIdx90,
+        prevHiA90, prevLoA90, prevHiB90, prevLoB90,
+        curHiA90,  curLoA90,  curHiB90,  curLoB90,
+        prevHiA90_bar, prevLoA90_bar, curHiA90_bar, curLoA90_bar,
+        prevHiB90_bar, prevLoB90_bar, curHiB90_bar, curLoB90_bar,
+        clr90_bull, clr90_bear, width90, style90, showText90,
+        lineBull90, lblBull90, bullAct90, bullInv90,
+        lineBear90, lblBear90, bearAct90, bearInv90)
+
+if detect30
+    process_cycle("30m", 30,
+        lastIdx30,
+        prevHiA30, prevLoA30, prevHiB30, prevLoB30,
+        curHiA30,  curLoA30,  curHiB30,  curLoB30,
+        prevHiA30_bar, prevLoA30_bar, curHiA30_bar, curLoA30_bar,
+        prevHiB30_bar, prevLoB30_bar, curHiB30_bar, curLoB30_bar,
+        clr30_bull, clr30_bear, width30, style30, showText30,
+        lineBull30, lblBull30, bullAct30, bullInv30,
+        lineBear30, lblBear30, bearAct30, bearInv30)
+
+if detect10
+    process_cycle("10m", 10,
+        lastIdx10,
+        prevHiA10, prevLoA10, prevHiB10, prevLoB10,
+        curHiA10,  curLoA10,  curHiB10,  curLoB10,
+        prevHiA10_bar, prevLoA10_bar, curHiA10_bar, curLoA10_bar,
+        prevHiB10_bar, prevLoB10_bar, curHiB10_bar, curLoB10_bar,
+        clr10_bull, clr10_bear, width10, style10, showText10,
+        lineBull10, lblBull10, bullAct10, bullInv10,
+        lineBear10, lblBear10, bearAct10, bearInv10)
+
+// =============================
+// =========== INFO ============
+// =============================
+// Helpful session verticals at 18:00 anchor for visual reference
+int today1800 = timestamp(tz, year, month, dayofmonth, 18, 0)
+var int lastDayV = na
+if time >= today1800 and (na(lastDayV) or dayofmonth != dayofmonth[1])
+    line.new(bar_index, low, bar_index, high, extend=extend.none, color=color.new(color.gray, 85), width=1)
+    lastDayV := bar_index
+
+// Alerts are fired from process_cycle() via alert()
+// To use, choose "Any alert() function call" when adding the alert in TradingView.
+

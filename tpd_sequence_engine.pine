@@ -1,0 +1,349 @@
+//@version=5
+indicator("TPD + SMT Sequences (Default + Skip) — anchored 18:00", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// =============================
+// ========== INPUTS ==========
+// =============================
+comp_sym            = input.symbol("ES1!", "Comparison Symbol (B)")
+session_tz          = input.string("America/New_York", "Anchor TZ (all cycles start 18:00)")
+show_labels         = input.bool(true, "Show sequence labels")
+show_tpd_tags       = input.bool(false, "Show raw TPD tags")
+cisdtf              = input.string("1", "CiSD timeframe", options=["1","2","3","5","10","15"])
+cisdbodyFrac        = input.float(0.6, "CiSD min body % of range", minval=0.0, maxval=1.0)
+
+// Enable sequences
+use_default_seq     = input.bool(true,  "Enable Default TPD Sequence")
+use_skip_seq        = input.bool(true,  "Enable SMT Skip Sequence")
+
+// Second-stage timing windows (approx)
+ms_minute = 60 * 1000
+ms_hour   = 60 * ms_minute
+ms_day    = 24 * ms_hour
+win_3m    = input.int(90,  "2nd Stage: within N days after M1 TPD (Y->W1)") * ms_day
+win_1m    = input.int(30,  "2nd Stage: within N days after W1 TPD (Q->D1)") * ms_day
+win_1w    = input.int(7,   "2nd Stage: within N days after D1 TPD (M->H4/H6)") * ms_day
+win_24h   = input.int(24,  "2nd Stage: within N hours after H4/H6 TPD (W->H1/90)") * ms_hour
+win_6h    = input.int(6,   "2nd Stage: within N hours after H1/90m TPD (D->15/22)") * ms_hour
+win_90m   = input.int(90,  "2nd Stage: within N minutes after 15/22 TPD (90c->5m)") * ms_minute
+win_22m   = input.int(22,  "2nd Stage: within N minutes after 5m TPD (nano)") * ms_minute
+
+// Label colors
+col_ok   = color.new(color.green, 0)
+col_skip = color.new(color.orange, 0)
+col_txt  = color.white
+
+// =============================
+// ======== DATA SOURCES =======
+// =============================
+// Helper to fetch OHLC for a timeframe
+get_ohlc(sym, tf) => [request.security(sym, tf, open), request.security(sym, tf, high), request.security(sym, tf, low), request.security(sym, tf, close)]
+
+// Primary (A) and Compare (B) per needed TFs
+[yO,yH,yL,yC]   = get_ohlc(syminfo.tickerid, "12M")
+[yOb,yHb,yLb,yCb]= get_ohlc(comp_sym,        "12M")
+[qO,qH,qL,qC]   = get_ohlc(syminfo.tickerid, "3M")
+[qOb,qHb,qLb,qCb]= get_ohlc(comp_sym,        "3M")
+[mO,mH,mL,mC]   = get_ohlc(syminfo.tickerid, "M")
+[mOb,mHb,mLb,mCb]= get_ohlc(comp_sym,        "M")
+[wO,wH,wL,wC]   = get_ohlc(syminfo.tickerid, "W")
+[wOb,wHb,wLb,wCb]= get_ohlc(comp_sym,        "W")
+[dO,dH,dL,dC]   = get_ohlc(syminfo.tickerid, "D")
+[dOb,dHb,dLb,dCb]= get_ohlc(comp_sym,        "D")
+
+[h6O,h6H,h6L,h6C] = get_ohlc(syminfo.tickerid, "360")
+[h4O,h4H,h4L,h4C] = get_ohlc(syminfo.tickerid, "240")
+[h1O,h1H,h1L,h1C] = get_ohlc(syminfo.tickerid, "60")
+[h1Ob,_,_,h1Cb]   = get_ohlc(comp_sym,        "60")
+
+[m3O,m3H,m3L,m3C] = get_ohlc(syminfo.tickerid, "3M")
+[m1O2,m1H2,m1L2,m1C2] = get_ohlc(syminfo.tickerid, "M")
+[w1O2,w1H2,w1L2,w1C2] = get_ohlc(syminfo.tickerid, "W")
+[d1O2,d1H2,d1L2,d1C2] = get_ohlc(syminfo.tickerid, "D")
+
+[m22O,m22H,m22L,m22C] = get_ohlc(syminfo.tickerid, "22")
+[m15O,m15H,m15L,m15C] = get_ohlc(syminfo.tickerid, "15")
+[m5O,m5H,m5L,m5C]     = get_ohlc(syminfo.tickerid, "5")
+
+// Compare instrument opens/closes for TPD function
+[m3Ob,_,_,m3Cb]   = get_ohlc(comp_sym, "3M")
+[m1Ob,_,_,m1Cb]   = get_ohlc(comp_sym, "M")
+[w1Ob,_,_,w1Cb]   = get_ohlc(comp_sym, "W")
+[d1Ob,_,_,d1Cb]   = get_ohlc(comp_sym, "D")
+[h6Ob,_,_,h6Cb]   = get_ohlc(comp_sym, "360")
+[h4Ob,_,_,h4Cb]   = get_ohlc(comp_sym, "240")
+[m90Ob,_,_,m90Cb] = get_ohlc(comp_sym, "90")
+[m22Ob,_,_,m22Cb] = get_ohlc(comp_sym, "22")
+[m15Ob,_,_,m15Cb] = get_ohlc(comp_sym, "15")
+[m5Ob,_,_,m5Cb]   = get_ohlc(comp_sym, "5")
+
+// Current-bar extremes for compare at chart tf
+compHigh_cur = request.security(comp_sym, timeframe.period, high)
+compLow_cur  = request.security(comp_sym, timeframe.period, low)
+
+// =============================
+// ======= CORE FUNCTIONS ======
+// =============================
+smt_dir(float hA, float lA, float hB, float lB) =>
+    bool bull = (hA > hA[1]) and (hB <= hB[1])
+    bool bear = (lA < lA[1]) and (lB >= lB[1])
+    bull ? 1 : bear ? -1 : 0
+
+// TPD placeholder detector (simple internal expansion + cross-market context)
+tpd_detect(float oA, float cA, float hA, float lA, float oB, float cB, bool tag) =>
+    int hit = 0
+    bool bullCond   = (oA < cA[2]) and (oB > cB[2])
+    bool bearCond   = (oA > cA[2]) and (oB < cB[2])
+    bool bullExpand = bullCond and (lA < lA[1])
+    bool bearExpand = bearCond and (hA > hA[1])
+    hit := bullExpand or bearExpand ? 1 : 0
+    if tag and hit == 1
+        label.new(bar_index, cA, "TPD", color=color.purple, textcolor=color.white, style=label.style_label_up, size=size.tiny)
+    hit
+
+// CiSD & Displacement on chosen timeframe
+cisdo   = request.security(syminfo.tickerid, cisdtf, open)
+cisdh   = request.security(syminfo.tickerid, cisdtf, high)
+cisdlo  = request.security(syminfo.tickerid, cisdtf, low)
+cisdcl  = request.security(syminfo.tickerid, cisdtf, close)
+cisd_ok = math.abs(cisdcl - cisdo) > (cisdh - cisdlo) * cisdbodyFrac
+
+// =============================
+// ====== CYCLES ANCHORED 18 ===
+// =============================
+get_anchor_start(tz, hh) =>
+    int a = timestamp(tz, year, month, dayofmonth, hh, 0)
+    time >= a ? a : a - 24 * ms_day
+
+var int anchor18 = na
+anchor18 := get_anchor_start(session_tz, 18)
+
+// -------- 90-minute cycle (independent state) --------
+int idx90 = int(math.floor((time - anchor18) / (90 * ms_minute)))
+var int   lastIdx90 = na
+var float pHiA90 = na
+var float pLoA90 = na
+var float cHiA90 = na
+var float cLoA90 = na
+var float pHiB90 = na
+var float pLoB90 = na
+var float cHiB90 = na
+var float cLoB90 = na
+var int   smt90c  = 0
+bool nb90 = na(lastIdx90) or idx90 != lastIdx90
+if nb90
+    pHiA90 := cHiA90
+    pLoA90 := cLoA90
+    pHiB90 := cHiB90
+    pLoB90 := cLoB90
+    cHiA90 := high
+    cLoA90 := low
+    cHiB90 := compHigh_cur
+    cLoB90 := compLow_cur
+    lastIdx90 := idx90
+    if not na(pHiA90)
+        bool bull90 = (cHiA90 > pHiA90) and (cHiB90 <= pHiB90)
+        bool bear90 = (cLoA90 < pLoA90) and (cLoB90 >= pLoB90)
+        smt90c := bull90 ? 1 : bear90 ? -1 : 0
+else
+    cHiA90 := math.max(nz(cHiA90, high), high)
+    cLoA90 := math.min(nz(cLoA90, low),  low)
+    cHiB90 := math.max(nz(cHiB90, compHigh_cur), compHigh_cur)
+    cLoB90 := math.min(nz(cLoB90, compLow_cur),  compLow_cur)
+
+// -------- Micro cycle (alternating 23/22 minutes anchored 18:00) --------
+int pairLenMs = (23 + 22) * ms_minute
+int elapsedMs = int(time - anchor18)
+int pairIdx   = elapsedMs >= 0 ? int(math.floor(elapsedMs / pairLenMs)) : -1
+int remMs     = elapsedMs - pairIdx * pairLenMs
+bool inFirst  = remMs < 23 * ms_minute
+int microIdx  = pairIdx * 2 + (inFirst ? 0 : 1)
+
+var int   lastMicroIdx = na
+var float pHiAm = na
+var float pLoAm = na
+var float cHiAm = na
+var float cLoAm = na
+var float pHiBm = na
+var float pLoBm = na
+var float cHiBm = na
+var float cLoBm = na
+var int   smtMicro = 0
+bool nbMicro = na(lastMicroIdx) or microIdx != lastMicroIdx
+if nbMicro
+    pHiAm := cHiAm
+    pLoAm := cLoAm
+    pHiBm := cHiBm
+    pLoBm := cLoBm
+    cHiAm := high
+    cLoAm := low
+    cHiBm := compHigh_cur
+    cLoBm := compLow_cur
+    lastMicroIdx := microIdx
+    if not na(pHiAm)
+        bool bullm = (cHiAm > pHiAm) and (cHiBm <= pHiBm)
+        bool bearm = (cLoAm < pLoAm) and (cLoBm >= pLoBm)
+        smtMicro := bullm ? 1 : bearm ? -1 : 0
+else
+    cHiAm := math.max(nz(cHiAm, high), high)
+    cLoAm := math.min(nz(cLoAm, low),  low)
+    cHiBm := math.max(nz(cHiBm, compHigh_cur), compHigh_cur)
+    cLoBm := math.min(nz(cLoBm, compLow_cur),  compLow_cur)
+
+// -------- Nano cycle (10 minutes, independent state) --------
+int idx10 = int(math.floor((time - anchor18) / (10 * ms_minute)))
+var int   lastIdx10 = na
+var float pHiA10 = na
+var float pLoA10 = na
+var float cHiA10 = na
+var float cLoA10 = na
+var float pHiB10 = na
+var float pLoB10 = na
+var float cHiB10 = na
+var float cLoB10 = na
+var int   smtNano = 0
+bool nb10 = na(lastIdx10) or idx10 != lastIdx10
+if nb10
+    pHiA10 := cHiA10
+    pLoA10 := cLoA10
+    pHiB10 := cHiB10
+    pLoB10 := cLoB10
+    cHiA10 := high
+    cLoA10 := low
+    cHiB10 := compHigh_cur
+    cLoB10 := compLow_cur
+    lastIdx10 := idx10
+    if not na(pHiA10)
+        bool bull10 = (cHiA10 > pHiA10) and (cHiB10 <= pHiB10)
+        bool bear10 = (cLoA10 < pLoA10) and (cLoB10 >= pLoB10)
+        smtNano := bull10 ? 1 : bear10 ? -1 : 0
+else
+    cHiA10 := math.max(nz(cHiA10, high), high)
+    cLoA10 := math.min(nz(cLoA10, low),  low)
+    cHiB10 := math.max(nz(cHiB10, compHigh_cur), compHigh_cur)
+    cLoB10 := math.min(nz(cLoB10, compLow_cur),  compLow_cur)
+
+// =============================
+// ======= HTF sSMT (prev) =====
+// =============================
+int smtY = smt_dir(yH, yL, yHb, yLb)
+int smtQ = smt_dir(qH, qL, qHb, qLb)
+int smtM = smt_dir(mH, mL, mHb, mLb)
+int smtW = smt_dir(wH, wL, wHb, wLb)
+int smtD = smt_dir(dH, dL, dHb, dLb)
+
+// =============================
+// ========= TPD FLAGS =========
+// =============================
+int tpdM3 = tpd_detect(m3O, m3C, m3H, m3L, m3Ob, m3Cb, show_tpd_tags)
+int tpdM1 = tpd_detect(m1O2, m1C2, m1H2, m1L2, m1Ob, m1Cb, show_tpd_tags)
+int tpdW1 = tpd_detect(w1O2, w1C2, w1H2, w1L2, w1Ob, w1Cb, show_tpd_tags)
+int tpdD1 = tpd_detect(d1O2, d1C2, d1H2, d1L2, d1Ob, d1Cb, show_tpd_tags)
+int tpdH6 = tpd_detect(h6O, h6C, h6H, h6L, h6Ob, h6Cb, show_tpd_tags)
+int tpdH4 = tpd_detect(h4O, h4C, h4H, h4L, h4Ob, h4Cb, show_tpd_tags)
+// 90m/H1/22/15/5m use chart-sourced highs/lows but timeframe aggregated series
+[m90O,m90H,m90L,m90C] = get_ohlc(syminfo.tickerid, "90")
+int tpdH1  = tpd_detect(h1O, h1C, h1H, h1L, h1Ob, h1Cb, show_tpd_tags)
+int tpd90  = tpd_detect(m90O, m90C, m90H, m90L, m90Ob, m90Cb, show_tpd_tags)
+int tpd22  = tpd_detect(m22O, m22C, m22H, m22L, m22Ob, m22Cb, show_tpd_tags)
+int tpd15  = tpd_detect(m15O, m15C, m15H, m15L, m15Ob, m15Cb, show_tpd_tags)
+int tpd5   = tpd_detect(m5O,  m5C,  m5H,  m5L,  m5Ob,  m5Cb,  show_tpd_tags)
+
+// =============================
+// ===== DEFAULT SEQUENCE ======
+// =============================
+// Mapping (subset, practical):
+// M.C sSMT -> D1 TPD with W.C sSMT
+bool def_m_to_d = use_default_seq and (smtM != 0) and (smtW == smtM) and (tpdD1 == 1)
+// W.C sSMT -> H6/H4 TPD with D.C sSMT
+bool def_w_to_h = use_default_seq and (smtW != 0) and (smtD == smtW) and ((tpdH6 == 1) or (tpdH4 == 1))
+// D.C sSMT -> 90m/H1 TPD with 90mC sSMT
+bool def_d_to_90 = use_default_seq and (smtD != 0) and (smt90c == smtD) and ((tpd90 == 1) or (tpdH1 == 1))
+// 90mC sSMT -> 22m/15m TPD with Micro sSMT
+bool def_90_to_micro = use_default_seq and (smt90c != 0) and (smtMicro == smt90c) and ((tpd22 == 1) or (tpd15 == 1))
+
+if show_labels and def_m_to_d
+    label.new(bar_index, smtM == 1 ? low : high, "Default: M→D1 TPD (W sSMT)", color=col_ok, textcolor=col_txt, style=smtM==1?label.style_label_up:label.style_label_down)
+if show_labels and def_w_to_h
+    label.new(bar_index, smtW == 1 ? low : high, "Default: W→H6/H4 TPD (D sSMT)", color=col_ok, textcolor=col_txt, style=smtW==1?label.style_label_up:label.style_label_down)
+if show_labels and def_d_to_90
+    label.new(bar_index, smtD == 1 ? low : high, "Default: D→90/H1 TPD (90c sSMT)", color=col_ok, textcolor=col_txt, style=smtD==1?label.style_label_up:label.style_label_down)
+if show_labels and def_90_to_micro
+    label.new(bar_index, smt90c == 1 ? low : high, "Default: 90c→22/15 TPD (Micro sSMT)", color=col_ok, textcolor=col_txt, style=smt90c==1?label.style_label_up:label.style_label_down)
+
+// =============================
+// ======= SKIP SEQUENCE =======
+// =============================
+// Generic: X sSMT -> X TPD with CiSD -> X-2 sSMT (within time window)
+var int tpdTime_Y_to_W1 = na
+var int tpdTime_Q_to_D1 = na
+var int tpdTime_M_to_H  = na
+var int tpdTime_W_to_90 = na
+var int tpdTime_D_to_m  = na
+var int tpdTime_90_to_5 = na
+
+// Y.C sSMT —> W1 TPD with CiSD —> M.C sSMT (within ~3M)
+bool skip_y_to_w1 = use_skip_seq and (smtY != 0) and (tpdW1 == 1) and cisd_ok
+if skip_y_to_w1
+    tpdTime_Y_to_W1 := time
+    if show_labels
+        label.new(bar_index, smtY==1?low:high, "Skip: Y→W1 TPD (CiSD)", color=col_skip, textcolor=col_txt, style=smtY==1?label.style_label_up:label.style_label_down)
+// stage 2
+if use_skip_seq and not na(tpdTime_Y_to_W1) and time - tpdTime_Y_to_W1 <= win_3m and (smtM == smtY) and show_labels
+    label.new(bar_index, smtM==1?low:high, "Skip 2nd: M sSMT (≤3M)", color=col_skip, textcolor=col_txt, style=smtM==1?label.style_label_up:label.style_label_down)
+
+// Q.C sSMT —> D1 TPD with CiSD —> W.C sSMT (within ~1M)
+bool skip_q_to_d1 = use_skip_seq and (smtQ != 0) and (tpdD1 == 1) and cisd_ok
+if skip_q_to_d1
+    tpdTime_Q_to_D1 := time
+    if show_labels
+        label.new(bar_index, smtQ==1?low:high, "Skip: Q→D1 TPD (CiSD)", color=col_skip, textcolor=col_txt, style=smtQ==1?label.style_label_up:label.style_label_down)
+if use_skip_seq and not na(tpdTime_Q_to_D1) and time - tpdTime_Q_to_D1 <= win_1m and (smtW == smtQ) and show_labels
+    label.new(bar_index, smtW==1?low:high, "Skip 2nd: W sSMT (≤1M)", color=col_skip, textcolor=col_txt, style=smtW==1?label.style_label_up:label.style_label_down)
+
+// M.C sSMT —> H4/H6 TPD with CiSD —> D.C sSMT (≤1W)
+bool skip_m_to_h = use_skip_seq and (smtM != 0) and ((tpdH4 == 1) or (tpdH6 == 1)) and cisd_ok
+if skip_m_to_h
+    tpdTime_M_to_H := time
+    if show_labels
+        label.new(bar_index, smtM==1?low:high, "Skip: M→H4/H6 TPD (CiSD)", color=col_skip, textcolor=col_txt, style=smtM==1?label.style_label_up:label.style_label_down)
+if use_skip_seq and not na(tpdTime_M_to_H) and time - tpdTime_M_to_H <= win_1w and (smtD == smtM) and show_labels
+    label.new(bar_index, smtD==1?low:high, "Skip 2nd: D sSMT (≤1W)", color=col_skip, textcolor=col_txt, style=smtD==1?label.style_label_up:label.style_label_down)
+
+// W.C sSMT —> H1/90m TPD with CiSD —> 90m.C sSMT (≤24H)
+bool skip_w_to_90 = use_skip_seq and (smtW != 0) and ((tpdH1 == 1) or (tpd90 == 1)) and cisd_ok
+if skip_w_to_90
+    tpdTime_W_to_90 := time
+    if show_labels
+        label.new(bar_index, smtW==1?low:high, "Skip: W→H1/90 TPD (CiSD)", color=col_skip, textcolor=col_txt, style=smtW==1?label.style_label_up:label.style_label_down)
+if use_skip_seq and not na(tpdTime_W_to_90) and time - tpdTime_W_to_90 <= win_24h and (smt90c == smtW) and show_labels
+    label.new(bar_index, smt90c==1?low:high, "Skip 2nd: 90c sSMT (≤24H)", color=col_skip, textcolor=col_txt, style=smt90c==1?label.style_label_up:label.style_label_down)
+
+// D.C sSMT —> 15m/22m TPD with CiSD —> Micro sSMT (≤6H)
+bool skip_d_to_micro = use_skip_seq and (smtD != 0) and ((tpd15 == 1) or (tpd22 == 1)) and cisd_ok
+if skip_d_to_micro
+    tpdTime_D_to_m := time
+    if show_labels
+        label.new(bar_index, smtD==1?low:high, "Skip: D→15/22 TPD (CiSD)", color=col_skip, textcolor=col_txt, style=smtD==1?label.style_label_up:label.style_label_down)
+if use_skip_seq and not na(tpdTime_D_to_m) and time - tpdTime_D_to_m <= win_6h and (smtMicro == smtD) and show_labels
+    label.new(bar_index, smtMicro==1?low:high, "Skip 2nd: Micro sSMT (≤6H)", color=col_skip, textcolor=col_txt, style=smtMicro==1?label.style_label_up:label.style_label_down)
+
+// 90m.C sSMT —> 5m TPD with CiSD —> Nano sSMT (≤90m→≤22m)
+bool skip_90_to_5 = use_skip_seq and (smt90c != 0) and (tpd5 == 1) and cisd_ok
+if skip_90_to_5
+    tpdTime_90_to_5 := time
+    if show_labels
+        label.new(bar_index, smt90c==1?low:high, "Skip: 90c→5m TPD (CiSD)", color=col_skip, textcolor=col_txt, style=smt90c==1?label.style_label_up:label.style_label_down)
+if use_skip_seq and not na(tpdTime_90_to_5) and time - tpdTime_90_to_5 <= win_22m and (smtNano == smt90c) and show_labels
+    label.new(bar_index, smtNano==1?low:high, "Skip 2nd: Nano sSMT (≤22m)", color=col_skip, textcolor=col_txt, style=smtNano==1?label.style_label_up:label.style_label_down)
+
+// =============================
+// ======== VISUAL AIDES =======
+// =============================
+// 18:00 anchor vertical marks
+var int today1800 = na
+today1800 := timestamp(session_tz, year, month, dayofmonth, 18, 0)
+var int lastV = na
+if time >= today1800 and (na(lastV) or dayofmonth != dayofmonth[1])
+    line.new(bar_index, low, bar_index, high, color=color.new(color.gray, 85), width=1)
+    lastV := bar_index
+
