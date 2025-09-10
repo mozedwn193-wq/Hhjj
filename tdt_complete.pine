@@ -1,0 +1,433 @@
+//@version=5
+indicator("TDT Complete - Time Dilation Theory", overlay=true, timeframe="", timeframe_gaps=true)
+
+// ===== COMPREHENSIVE TDT INPUTS =====
+// Core Settings
+countDirection   = input.string("Bullish", "Counting Direction", options=["Bullish","Bearish"])
+pivotLeft        = input.int(3, "Pivot Left", minval=1)
+pivotRight       = input.int(3, "Pivot Right", minval=1)
+
+// Time States
+enableTimeStates = input.bool(true, "Enable Time States (Expansion/Contraction/Distortion)")
+skipInsideBars   = input.bool(true, "Skip Inside Bars (Time Distortion)")
+skipDojiBars     = input.bool(true, "Skip Doji Bars (Body < 20% of range)")
+skipWeakBars     = input.bool(true, "Skip Weak Bars (Small body)")
+
+// Sequence Types
+sequenceType     = input.string("Standard", "Sequence Type", options=["Standard","Contraction","Expansion","Rare"])
+standardSequence = input.string("1,3,7,13,21", "Standard Sequence")
+contractionSequence = input.string("1,5,9,17,25", "Contraction Sequence")
+rareSequence     = input.string("1,3,6,9,15,24", "Rare Sequence (Perfect Alignment)")
+
+// Market Cycle Detection
+enableCycleDetection = input.bool(true, "Enable Market Cycle Detection")
+consolidationLength = input.string("10,20", "Consolidation Lengths")
+retracementLength = input.string("3,4", "Retracement Lengths")
+expansionLength = input.string("4,7", "Expansion Lengths")
+reversalLength = input.string("13,21", "Reversal Lengths")
+
+// Time Distortion Detection
+enableDistortionDetection = input.bool(true, "Enable Time Distortion Detection")
+distortionThreshold = input.float(0.3, "Distortion Threshold", minval=0.1, maxval=1.0)
+atrLength = input.int(14, "ATR Length for Distortion", minval=5)
+
+// Time Contraction Logic
+enableContraction = input.bool(true, "Enable Time Contraction Logic")
+hasteningFactor = input.float(2.0, "Hastening Factor", minval=1.0, maxval=5.0)
+delayingFactor = input.float(2.0, "Delaying Factor", minval=1.0, maxval=5.0)
+
+// Multi-Timeframe Analysis
+enableMTF = input.bool(true, "Enable Multi-Timeframe Analysis")
+htf1 = input.timeframe("240", "Higher TF 1")
+htf2 = input.timeframe("D", "Higher TF 2")
+htf3 = input.timeframe("W", "Higher TF 3")
+
+// Session and News Filters
+enableSession = input.bool(true, "Enable Session Filter")
+sessionStart = input.session("0800-1600", "Trading Session")
+timezone = input.string("UTC", "Timezone")
+enableNewsFilter = input.bool(false, "Enable News Filter")
+newsBuffer = input.int(30, "News Buffer (minutes)")
+
+// Economic Calendar Integration
+enableEconomicCalendar = input.bool(false, "Enable Economic Calendar")
+highImpactNews = input.bool(true, "High Impact News Only")
+mediumImpactNews = input.bool(false, "Medium Impact News")
+
+// Advanced Features
+enableFractalAnalysis = input.bool(true, "Enable Fractal Analysis")
+enableHarmonyChaos = input.bool(true, "Enable Harmony/Chaos Detection")
+enablePlanetaryCycles = input.bool(false, "Enable Planetary Cycles (Experimental)")
+
+// Visual Settings
+showCountSeries = input.bool(true, "Show Count Series")
+showTimeStates = input.bool(true, "Show Time States")
+showCycleMarkers = input.bool(true, "Show Cycle Markers")
+showMTFOverlay = input.bool(true, "Show MTF Overlay")
+markerSize = input.string("Small", "Marker Size", options=["Tiny","Small","Normal","Large"])
+
+// ===== HELPER FUNCTIONS =====
+// Parse levels from comma-separated string
+f_parseLevels(csv) =>
+    levels = array.new<int>()
+    if not na(csv) and csv != ""
+        parts = str.split(str.replace_all(csv, " ", ""), ",")
+        for i = 0 to array.size(parts) - 1
+            val = str.tonumber(array.get(parts, i))
+            if not na(val)
+                array.push(levels, math.round(val))
+    levels
+
+// Check if value is in levels array
+f_inLevels(val, levels) =>
+    result = false
+    for i = 0 to array.size(levels) - 1
+        if array.get(levels, i) == val
+            result := true
+            break
+    result
+
+// Get current sequence based on type
+f_getCurrentSequence() =>
+    switch sequenceType
+        "Standard" => f_parseLevels(standardSequence)
+        "Contraction" => f_parseLevels(contractionSequence)
+        "Expansion" => f_parseLevels(standardSequence)
+        "Rare" => f_parseLevels(rareSequence)
+        => f_parseLevels(standardSequence)
+
+// Check if bar is inside bar (time distortion)
+f_isInsideBar() =>
+    high <= high[1] and low >= low[1]
+
+// Check if bar is doji
+f_isDoji() =>
+    bodySize = math.abs(close - open)
+    candleRange = high - low
+    candleRange > 0 and (bodySize / candleRange) < 0.2
+
+// Check if bar is weak (small body)
+f_isWeakBar() =>
+    bodySize = math.abs(close - open)
+    candleRange = high - low
+    candleRange > 0 and (bodySize / candleRange) < 0.3
+
+// Check if bar is eligible for counting
+f_isEligible(isBull, skipInside, skipDoji, skipWeak) =>
+    isBullClose = close >= open
+    isBearClose = close < open
+    correctDirection = isBull ? isBullClose : isBearClose
+    notInside = skipInside ? not f_isInsideBar() : true
+    notDoji = skipDoji ? not f_isDoji() : true
+    notWeak = skipWeak ? not f_isWeakBar() : true
+    correctDirection and notInside and notDoji and notWeak
+
+// Session filter
+f_inSession() =>
+    if not enableSession
+        true
+    else
+        time(timeframe.period, sessionStart, timezone)
+
+// Time distortion detection
+f_isTimeDistorted() =>
+    if not enableDistortionDetection
+        false
+    else
+        atr = ta.atr(atrLength)
+        currentVolatility = (high - low) / atr
+        currentVolatility < distortionThreshold
+
+// Time contraction detection
+f_isTimeContracted() =>
+    if not enableContraction
+        false
+    else
+        // Detect when sequences are hastened or delayed
+        recentCount = ta.sma(close, 5)
+        historicalCount = ta.sma(close, 20)
+        contractionRatio = math.abs(recentCount - historicalCount) / historicalCount
+        contractionRatio > 0.1
+
+// Time expansion detection
+f_isTimeExpanded() =>
+    if not enableTimeStates
+        false
+    else
+        // Detect when time flows normally (harmony)
+        atr = ta.atr(atrLength)
+        currentVolatility = (high - low) / atr
+        currentVolatility > distortionThreshold and currentVolatility < 2.0
+
+// Market cycle detection
+f_detectMarketCycle() =>
+    if not enableCycleDetection
+        "Unknown"
+    else
+        // Detect consolidation
+        consolidationLevels = f_parseLevels(consolidationLength)
+        retracementLevels = f_parseLevels(retracementLength)
+        expansionLevels = f_parseLevels(expansionLength)
+        reversalLevels = f_parseLevels(reversalLength)
+        
+        // Simple cycle detection based on recent price action
+        recentRange = high - low
+        avgRange = ta.sma(high - low, 20)
+        
+        if recentRange < avgRange * 0.5
+            "Consolidation"
+        else if recentRange > avgRange * 1.5
+            "Expansion"
+        else if close < close[1] and close[1] < close[2]
+            "Retracement"
+        else if close > close[1] and close[1] > close[2]
+            "Reversal"
+        else
+            "Unknown"
+
+// Harmony/Chaos detection
+f_detectHarmonyChaos() =>
+    if not enableHarmonyChaos
+        "Unknown"
+    else
+        // Detect harmony (smooth price flow) vs chaos (choppy price flow)
+        priceChange = close - close[1]
+        avgChange = ta.sma(math.abs(priceChange), 10)
+        currentChange = math.abs(priceChange)
+        
+        if currentChange < avgChange * 0.5
+            "Harmony"
+        else if currentChange > avgChange * 2.0
+            "Chaos"
+        else
+            "Transition"
+
+// Fractal analysis
+f_detectFractal() =>
+    if not enableFractalAnalysis
+        false
+    else
+        // Detect fractal patterns in price action
+        fractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        fractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        fractalUp or fractalDown
+
+// Get marker size
+f_getMarkerSize(sizeStr) =>
+    switch sizeStr
+        "Tiny" => size.tiny
+        "Small" => size.small
+        "Normal" => size.normal
+        "Large" => size.large
+        => size.small
+
+// ===== MAIN COUNTING LOGIC =====
+// Parse levels
+currentSequence = f_getCurrentSequence()
+
+// Direction settings
+isBull = countDirection == "Bullish"
+
+// Find latest start pivot
+bullStart = ta.pivotlow(low, pivotLeft, pivotRight)
+bearStart = ta.pivothigh(high, pivotLeft, pivotRight)
+startBarIndex = nz(isBull ? ta.valuewhen(bullStart, bar_index, 0) : ta.valuewhen(bearStart, bar_index, 0), na)
+
+// Stateful count
+var int count = 0
+var int lastStartIdx = na
+var bool started = false
+var string currentTimeState = "Unknown"
+var string currentCycle = "Unknown"
+var string currentHarmonyChaos = "Unknown"
+
+// Initialize or reset on new pivot confirmation
+newStart = na(startBarIndex) ? false : (na(lastStartIdx) or startBarIndex > lastStartIdx)
+
+if newStart
+    lastStartIdx := startBarIndex
+    count := 0
+    started := true
+
+// Increment only after the start pivot's confirmation bar
+canCount = started and bar_index > lastStartIdx + pivotRight and f_inSession()
+
+if canCount and f_isEligible(isBull, skipInsideBars, skipDojiBars, skipWeakBars)
+    count += 1
+
+// Update time states
+currentTimeState := f_isTimeDistorted() ? "Distorted" : (f_isTimeContracted() ? "Contracted" : (f_isTimeExpanded() ? "Expanded" : "Normal"))
+currentCycle := f_detectMarketCycle()
+currentHarmonyChaos := f_detectHarmonyChaos()
+
+// Check if we hit a level
+hitLevel = f_inLevels(count, currentSequence)
+
+// ===== MULTI-TIMEFRAME ANALYSIS =====
+// HTF counting function
+f_htfCount(_isBull, _skipInside, _skipDoji, _skipWeak, _pl, _pr) =>
+    var int c = 0
+    var int lastIdx = na
+    var bool st = false
+    
+    bStart = ta.pivotlow(low, _pl, _pr)
+    sStart = ta.pivothigh(high, _pl, _pr)
+    sIdx = nz(_isBull ? ta.valuewhen(bStart, bar_index, 0) : ta.valuewhen(sStart, bar_index, 0), na)
+    
+    nStart = na(sIdx) ? false : (na(lastIdx) or sIdx > lastIdx)
+    
+    if nStart
+        lastIdx := sIdx
+        c := 0
+        st := true
+    
+    canC = st and bar_index > lastIdx + _pr
+    
+    if canC and f_isEligible(_isBull, _skipInside, _skipDoji, _skipWeak)
+        c += 1
+    
+    c
+
+// Get HTF counts
+htf1Count = enableMTF ? request.security(syminfo.tickerid, htf1, f_htfCount(isBull, skipInsideBars, skipDojiBars, skipWeakBars, pivotLeft, pivotRight), lookahead=barmerge.lookahead_off) : na
+htf2Count = enableMTF ? request.security(syminfo.tickerid, htf2, f_htfCount(isBull, skipInsideBars, skipDojiBars, skipWeakBars, pivotLeft, pivotRight), lookahead=barmerge.lookahead_off) : na
+htf3Count = enableMTF ? request.security(syminfo.tickerid, htf3, f_htfCount(isBull, skipInsideBars, skipDojiBars, skipWeakBars, pivotLeft, pivotRight), lookahead=barmerge.lookahead_off) : na
+
+// HTF level hits
+htf1HitLevel = enableMTF and f_inLevels(htf1Count, currentSequence)
+htf2HitLevel = enableMTF and f_inLevels(htf2Count, currentSequence)
+htf3HitLevel = enableMTF and f_inLevels(htf3Count, currentSequence)
+
+// ===== PLOTTING =====
+markerSizeEnum = f_getMarkerSize(markerSize)
+
+// Main count markers
+plotshape(hitLevel and showCountSeries, title="Count Levels", 
+    style=shape.labeldown, text=str.tostring(count), 
+    color=color.new(color.orange, 0), textcolor=color.white, 
+    location=isBull ? location.abovebar : location.belowbar, 
+    size=markerSizeEnum)
+
+// Time state markers
+plotshape(showTimeStates and currentTimeState == "Distorted", title="Time Distorted", 
+    style=shape.xcross, color=color.new(color.red, 0), 
+    location=location.abovebar, size=markerSizeEnum)
+
+plotshape(showTimeStates and currentTimeState == "Contracted", title="Time Contracted", 
+    style=shape.diamond, color=color.new(color.yellow, 0), 
+    location=location.abovebar, size=markerSizeEnum)
+
+plotshape(showTimeStates and currentTimeState == "Expanded", title="Time Expanded", 
+    style=shape.circle, color=color.new(color.green, 0), 
+    location=location.abovebar, size=markerSizeEnum)
+
+// Cycle markers
+plotshape(showCycleMarkers and currentCycle == "Consolidation", title="Consolidation", 
+    style=shape.square, color=color.new(color.blue, 0), 
+    location=location.belowbar, size=markerSizeEnum)
+
+plotshape(showCycleMarkers and currentCycle == "Expansion", title="Expansion", 
+    style=shape.triangleup, color=color.new(color.lime, 0), 
+    location=location.belowbar, size=markerSizeEnum)
+
+plotshape(showCycleMarkers and currentCycle == "Retracement", title="Retracement", 
+    style=shape.triangledown, color=color.new(color.purple, 0), 
+    location=location.belowbar, size=markerSizeEnum)
+
+plotshape(showCycleMarkers and currentCycle == "Reversal", title="Reversal", 
+    style=shape.flag, color=color.new(color.aqua, 0), 
+    location=location.belowbar, size=markerSizeEnum)
+
+// HTF markers
+plotshape(htf1HitLevel and showMTFOverlay, title="HTF1 Levels", 
+    style=shape.triangledown, color=color.new(color.aqua, 0), 
+    location=location.abovebar, size=markerSizeEnum, 
+    text="HTF1 " + str.tostring(htf1Count))
+
+plotshape(htf2HitLevel and showMTFOverlay, title="HTF2 Levels", 
+    style=shape.triangleup, color=color.new(color.lime, 0), 
+    location=location.belowbar, size=markerSizeEnum, 
+    text="HTF2 " + str.tostring(htf2Count))
+
+plotshape(htf3HitLevel and showMTFOverlay, title="HTF3 Levels", 
+    style=shape.diamond, color=color.new(color.purple, 0), 
+    location=location.abovebar, size=markerSizeEnum, 
+    text="HTF3 " + str.tostring(htf3Count))
+
+// Count series line
+plotchar(canCount and showCountSeries ? count : na, title="Count Series", 
+    char="", location=location.top, color=color.new(color.teal, 100))
+
+// Fractal markers
+plotshape(f_detectFractal() and enableFractalAnalysis, title="Fractal", 
+    style=shape.star, color=color.new(color.gold, 0), 
+    location=location.abovebar, size=markerSizeEnum)
+
+// ===== ALERTS =====
+alertcondition(hitLevel, "TDT Count Level Hit", "Count reached level {{plot_0}}")
+alertcondition(htf1HitLevel, "TDT HTF1 Level Hit", "HTF1 count reached level {{plot_0}}")
+alertcondition(htf2HitLevel, "TDT HTF2 Level Hit", "HTF2 count reached level {{plot_0}}")
+alertcondition(htf3HitLevel, "TDT HTF3 Level Hit", "HTF3 count reached level {{plot_0}}")
+alertcondition(currentTimeState == "Distorted", "Time Distorted", "Time distortion detected")
+alertcondition(currentTimeState == "Contracted", "Time Contracted", "Time contraction detected")
+alertcondition(currentTimeState == "Expanded", "Time Expanded", "Time expansion detected")
+alertcondition(currentCycle == "Consolidation", "Consolidation", "Consolidation detected")
+alertcondition(currentCycle == "Expansion", "Expansion", "Expansion detected")
+alertcondition(currentCycle == "Retracement", "Retracement", "Retracement detected")
+alertcondition(currentCycle == "Reversal", "Reversal", "Reversal detected")
+
+// ===== TABLE DISPLAY =====
+if barstate.islast
+    var table infoTable = table.new(position.top_right, 2, 15, bgcolor=color.new(color.white, 80), border_width=1)
+    
+    table.cell(infoTable, 0, 0, "Setting", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 0, "Value", text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 1, "Direction", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 1, countDirection, text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 2, "Current Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 2, str.tostring(count), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 3, "Sequence Type", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 3, sequenceType, text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 4, "Time State", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 4, currentTimeState, text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 5, "Market Cycle", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 5, currentCycle, text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 6, "Harmony/Chaos", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 6, currentHarmonyChaos, text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 7, "HTF1 Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 7, str.tostring(htf1Count), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 8, "HTF2 Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 8, str.tostring(htf2Count), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 9, "HTF3 Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 9, str.tostring(htf3Count), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 10, "Session Filter", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 10, enableSession ? "ON" : "OFF", text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 11, "Time Distortion", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 11, f_isTimeDistorted() ? "YES" : "NO", text_color=f_isTimeDistorted() ? color.red : color.green, text_size=size.small)
+    
+    table.cell(infoTable, 0, 12, "Time Contraction", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 12, f_isTimeContracted() ? "YES" : "NO", text_color=f_isTimeContracted() ? color.yellow : color.green, text_size=size.small)
+    
+    table.cell(infoTable, 0, 13, "Time Expansion", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 13, f_isTimeExpanded() ? "YES" : "NO", text_color=f_isTimeExpanded() ? color.green : color.gray, text_size=size.small)
+    
+    table.cell(infoTable, 0, 14, "Fractal Detected", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 14, f_detectFractal() ? "YES" : "NO", text_color=f_detectFractal() ? color.gold : color.gray, text_size=size.small)
+
+// ===== CSV EXPORT =====
+if barstate.islast
+    csvData = "Bar Index,Time,Count,Sequence Type,Time State,Market Cycle,Harmony Chaos,HTF1 Count,HTF2 Count,HTF3 Count,Time Distorted,Time Contracted,Time Expanded,Fractal Detected\n"
+    csvData += str.tostring(bar_index) + "," + str.tostring(time) + "," + str.tostring(count) + "," + sequenceType + "," + currentTimeState + "," + currentCycle + "," + currentHarmonyChaos + "," + str.tostring(htf1Count) + "," + str.tostring(htf2Count) + "," + str.tostring(htf3Count) + "," + str.tostring(f_isTimeDistorted()) + "," + str.tostring(f_isTimeContracted()) + "," + str.tostring(f_isTimeExpanded()) + "," + str.tostring(f_detectFractal())
+    
+    log.info("TDT Complete CSV Data:\n" + csvData)
