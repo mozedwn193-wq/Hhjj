@@ -114,7 +114,8 @@ get_anchor_start(tz, hh) =>
     int a = timestamp(tz, year, month, dayofmonth, hh, 0)
     time >= a ? a : a - 24 * ms_day
 
-int anchor18 = get_anchor_start(session_tz, 18)
+var int anchor18 = na
+anchor18 := get_anchor_start(session_tz, 18)
 
 // -------- 90-minute cycle (independent state) --------
 int idx90 = int(math.floor((time - anchor18) / (90 * ms_minute)))
@@ -321,7 +322,8 @@ if use_skip_seq and not na(tpdTime_90_to_5) and time - tpdTime_90_to_5 <= win_22
 // ======== VISUAL AIDES =======
 // =============================
 // 18:00 anchor vertical marks
-int today1800 = timestamp(session_tz, year, month, dayofmonth, 18, 0)
+var int today1800 = na
+today1800 := timestamp(session_tz, year, month, dayofmonth, 18, 0)
 var int lastV = na
 if time >= today1800 and (na(lastV) or dayofmonth != dayofmonth[1])
     line.new(bar_index, low, bar_index, high, color=color.new(color.gray, 85), width=1)
