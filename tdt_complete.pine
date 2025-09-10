@@ -302,63 +302,36 @@ htf3HitLevel = enableMTF and f_inLevels(htf3Count, currentSequence)
 markerSizeEnum = f_getMarkerSize(markerSize)
 
 // Main count markers
-plotshape(hitLevel and showCountSeries, title="Count Levels", 
-    style=shape.labeldown, text=str.tostring(count), 
-    color=color.new(color.orange, 0), textcolor=color.white, 
-    location=isBull ? location.abovebar : location.belowbar, 
-    size=markerSizeEnum)
+plotshape(hitLevel and showCountSeries, title="Count Levels", style=shape.labeldown, text=str.tostring(count), color=color.new(color.orange, 0), textcolor=color.white, location=isBull ? location.abovebar : location.belowbar, size=markerSizeEnum)
 
 // Time state markers
-plotshape(showTimeStates and currentTimeState == "Distorted", title="Time Distorted", 
-    style=shape.xcross, color=color.new(color.red, 0), 
-    location=location.abovebar, size=markerSizeEnum)
+plotshape(showTimeStates and currentTimeState == "Distorted", title="Time Distorted", style=shape.xcross, color=color.new(color.red, 0), location=location.abovebar, size=markerSizeEnum)
 
-plotshape(showTimeStates and currentTimeState == "Contracted", title="Time Contracted", 
-    style=shape.diamond, color=color.new(color.yellow, 0), 
-    location=location.abovebar, size=markerSizeEnum)
+plotshape(showTimeStates and currentTimeState == "Contracted", title="Time Contracted", style=shape.diamond, color=color.new(color.yellow, 0), location=location.abovebar, size=markerSizeEnum)
 
-plotshape(showTimeStates and currentTimeState == "Expanded", title="Time Expanded", 
-    style=shape.circle, color=color.new(color.green, 0), 
-    location=location.abovebar, size=markerSizeEnum)
+plotshape(showTimeStates and currentTimeState == "Expanded", title="Time Expanded", style=shape.circle, color=color.new(color.green, 0), location=location.abovebar, size=markerSizeEnum)
 
 // Cycle markers
-plotshape(showCycleMarkers and currentCycle == "Consolidation", title="Consolidation", 
-    style=shape.square, color=color.new(color.blue, 0), 
-    location=location.belowbar, size=markerSizeEnum)
+plotshape(showCycleMarkers and currentCycle == "Consolidation", title="Consolidation", style=shape.square, color=color.new(color.blue, 0), location=location.belowbar, size=markerSizeEnum)
 
-plotshape(showCycleMarkers and currentCycle == "Expansion", title="Expansion", 
-    style=shape.triangleup, color=color.new(color.lime, 0), 
-    location=location.belowbar, size=markerSizeEnum)
+plotshape(showCycleMarkers and currentCycle == "Expansion", title="Expansion", style=shape.triangleup, color=color.new(color.lime, 0), location=location.belowbar, size=markerSizeEnum)
 
-plotshape(showCycleMarkers and currentCycle == "Retracement", title="Retracement", 
-    style=shape.triangledown, color=color.new(color.purple, 0), 
-    location=location.belowbar, size=markerSizeEnum)
+plotshape(showCycleMarkers and currentCycle == "Retracement", title="Retracement", style=shape.triangledown, color=color.new(color.purple, 0), location=location.belowbar, size=markerSizeEnum)
 
-plotshape(showCycleMarkers and currentCycle == "Reversal", title="Reversal", 
-    style=shape.flag, color=color.new(color.aqua, 0), 
-    location=location.belowbar, size=markerSizeEnum)
+plotshape(showCycleMarkers and currentCycle == "Reversal", title="Reversal", style=shape.flag, color=color.new(color.aqua, 0), location=location.belowbar, size=markerSizeEnum)
 
 // HTF markers
-plotshape(htf1HitLevel and showMTFOverlay, title="HTF1 Levels", 
-    style=shape.triangledown, color=color.new(color.aqua, 0), 
-    location=location.abovebar, size=markerSizeEnum)
+plotshape(htf1HitLevel and showMTFOverlay, title="HTF1 Levels", style=shape.triangledown, color=color.new(color.aqua, 0), location=location.abovebar, size=markerSizeEnum)
 
-plotshape(htf2HitLevel and showMTFOverlay, title="HTF2 Levels", 
-    style=shape.triangleup, color=color.new(color.lime, 0), 
-    location=location.belowbar, size=markerSizeEnum)
+plotshape(htf2HitLevel and showMTFOverlay, title="HTF2 Levels", style=shape.triangleup, color=color.new(color.lime, 0), location=location.belowbar, size=markerSizeEnum)
 
-plotshape(htf3HitLevel and showMTFOverlay, title="HTF3 Levels", 
-    style=shape.diamond, color=color.new(color.purple, 0), 
-    location=location.abovebar, size=markerSizeEnum)
+plotshape(htf3HitLevel and showMTFOverlay, title="HTF3 Levels", style=shape.diamond, color=color.new(color.purple, 0), location=location.abovebar, size=markerSizeEnum)
 
 // Count series line
-plotchar(canCount and showCountSeries ? count : na, title="Count Series", 
-    char="", location=location.top, color=color.new(color.teal, 100))
+plotchar(canCount and showCountSeries ? count : na, title="Count Series", char="", location=location.top, color=color.new(color.teal, 100))
 
 // Fractal markers
-plotshape(f_detectFractal() and enableFractalAnalysis, title="Fractal", 
-    style=shape.star, color=color.new(color.gold, 0), 
-    location=location.abovebar, size=markerSizeEnum)
+plotshape(f_detectFractal() and enableFractalAnalysis, title="Fractal", style=shape.star, color=color.new(color.gold, 0), location=location.abovebar, size=markerSizeEnum)
 
 // ===== ALERTS =====
 alertcondition(hitLevel, "TDT Count Level Hit", "Count reached level {{plot_0}}")

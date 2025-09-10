@@ -1,0 +1,80 @@
+//@version=5
+indicator("TDT Simple Test", overlay=true)
+
+// Basic inputs
+countDirection = input.string("Bullish", "Counting Direction", options=["Bullish","Bearish"])
+pivotLeft = input.int(3, "Pivot Left", minval=1)
+pivotRight = input.int(3, "Pivot Right", minval=1)
+
+// Helper functions
+f_isInsideBar() =>
+    high <= high[1] and low >= low[1]
+
+f_isDoji() =>
+    bodySize = math.abs(close - open)
+    candleRange = high - low
+    candleRange > 0 and (bodySize / candleRange) < 0.2
+
+f_isEligible(isBull) =>
+    isBullClose = close >= open
+    isBearClose = close < open
+    correctDirection = isBull ? isBullClose : isBearClose
+    notInside = not f_isInsideBar()
+    notDoji = not f_isDoji()
+    correctDirection and notInside and notDoji
+
+// Main counting logic
+isBull = countDirection == "Bullish"
+bullStart = ta.pivotlow(low, pivotLeft, pivotRight)
+bearStart = ta.pivothigh(high, pivotLeft, pivotRight)
+startBarIndex = nz(isBull ? ta.valuewhen(bullStart, bar_index, 0) : ta.valuewhen(bearStart, bar_index, 0), na)
+
+var int count = 0
+var int lastStartIdx = na
+var bool started = false
+
+newStart = na(startBarIndex) ? false : (na(lastStartIdx) or startBarIndex > lastStartIdx)
+
+if newStart
+    lastStartIdx := startBarIndex
+    count := 0
+    started := true
+
+canCount = started and bar_index > lastStartIdx + pivotRight
+
+if canCount and f_isEligible(isBull)
+    count += 1
+
+// Check levels
+hitLevel7 = count == 7
+hitLevel13 = count == 13
+hitLevel21 = count == 21
+
+// Plot markers
+plotshape(hitLevel7, "Level 7", style=shape.labeldown, text="7", color=color.new(color.orange, 0), textcolor=color.white, location=location.abovebar, size=size.small)
+plotshape(hitLevel13, "Level 13", style=shape.labeldown, text="13", color=color.new(color.red, 0), textcolor=color.white, location=location.abovebar, size=size.small)
+plotshape(hitLevel21, "Level 21", style=shape.labeldown, text="21", color=color.new(color.purple, 0), textcolor=color.white, location=location.abovebar, size=size.small)
+
+// Count series
+plotchar(canCount ? count : na, "Count", "", location=location.top, color=color.teal, size=size.tiny)
+
+// Alerts
+alertcondition(hitLevel7, "TDT Level 7", "Count reached level 7")
+alertcondition(hitLevel13, "TDT Level 13", "Count reached level 13")
+alertcondition(hitLevel21, "TDT Level 21", "Count reached level 21")
+
+// Table display
+if barstate.islast
+    var table infoTable = table.new(position.top_right, 2, 4, bgcolor=color.new(color.white, 80), border_width=1)
+    
+    table.cell(infoTable, 0, 0, "Setting", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 0, "Value", text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 1, "Direction", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 1, countDirection, text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 2, "Current Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 2, str.tostring(count), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 3, "Can Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 3, canCount ? "YES" : "NO", text_color=canCount ? color.green : color.red, text_size=size.small)
