@@ -455,10 +455,11 @@ f_detectMultipleCycles() =>
     secondaryBull = ta.pivotlow(low, 2, 2)
     secondaryBear = ta.pivothigh(high, 2, 2)
     
+    var int secStart = na
     if countDirection == "Bullish"
-        secStart = ta.valuewhen(secondaryBull, bar_index, 0)
+        secStart := ta.valuewhen(secondaryBull, bar_index, 0)
     else
-        secStart = ta.valuewhen(secondaryBear, bar_index, 0)
+        secStart := ta.valuewhen(secondaryBear, bar_index, 0)
     
     if not na(secStart) and secStart != primaryStart
         array.push(cycles, secStart)
@@ -467,10 +468,11 @@ f_detectMultipleCycles() =>
     tertiaryBull = ta.pivotlow(low, 1, 1)
     tertiaryBear = ta.pivothigh(high, 1, 1)
     
+    var int tertStart = na
     if countDirection == "Bullish"
-        tertStart = ta.valuewhen(tertiaryBull, bar_index, 0)
+        tertStart := ta.valuewhen(tertiaryBull, bar_index, 0)
     else
-        tertStart = ta.valuewhen(tertiaryBear, bar_index, 0)
+        tertStart := ta.valuewhen(tertiaryBear, bar_index, 0)
     
     if not na(tertStart) and tertStart != primaryStart and tertStart != secStart
         array.push(cycles, tertStart)
@@ -515,11 +517,23 @@ var int castForwardCount = 0
 var bool castingInitialized = false
 var bool onCycleCandle = false
 
-// Sequence arrays
-currentSequenceStr = f_getCurrentSequence()
-selectedBackwardSequence = f_getSelectedBackwardSequence()
-castingSeqArray = f_parseSequence(selectedBackwardSequence)
-forwardCastSeqArray = f_parseSequence(forwardCastingSequence)
+// Sequence arrays (will be initialized in main logic)
+var array<float> currentSequenceStr = array.new<float>()
+var string selectedBackwardSequence = ""
+var array<float> castingSeqArray = array.new<float>()
+var array<float> forwardCastSeqArray = array.new<float>()
+
+// ===== INITIALIZE SEQUENCE ARRAYS =====
+if barstate.isconfirmed
+    array.clear(currentSequenceStr)
+    array.clear(castingSeqArray)
+    array.clear(forwardCastSeqArray)
+    
+    // Initialize sequence arrays
+    currentSequenceStr := f_getCurrentSequence()
+    selectedBackwardSequence := f_getSelectedBackwardSequence()
+    castingSeqArray := f_parseSequence(selectedBackwardSequence)
+    forwardCastSeqArray := f_parseSequence(forwardCastingSequence)
 
 // ===== AUTO ANCHOR POINT LOGIC (From Transcript) =====
 if time >= startDate and not countingStarted
