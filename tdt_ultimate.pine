@@ -1,0 +1,470 @@
+//@version=5
+indicator("TDT Ultimate - Complete Time Dilation Theory", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ===== COMPREHENSIVE TDT INPUTS =====
+// Core Settings
+countDirection = input.string("Bullish", "Counting Direction", options=["Bullish","Bearish"], group="Core Settings")
+pivotLeft = input.int(3, "Pivot Left", minval=1, group="Core Settings")
+pivotRight = input.int(3, "Pivot Right", minval=1, group="Core Settings")
+startDate = input.time(timestamp("2025-01-15 09:30"), "Start Date", group="Core Settings")
+maxCandles = input.int(100, "Max Candles", minval=1, maxval=500, group="Core Settings")
+
+// Sequence Types (From Transcript)
+sequenceType = input.string("Standard", "Sequence Type", options=["Standard","Contraction","Expansion","Rare","Custom"], group="Sequences")
+standardSequence = input.string("1,3,7,13,21", "Standard Sequence (n²-n+1)", group="Sequences")
+contractionSequence = input.string("1,5,9,17,25", "Contraction Sequence", group="Sequences")
+rareSequence = input.string("1,3,6,9,15,24", "Rare Sequence (Perfect Alignment)", group="Sequences")
+customSequence = input.string("7,13,21,31,42", "Custom Sequence", group="Sequences")
+
+// TDT Casting (Backward-to-Forward)
+enableCasting = input.bool(false, "Enable TDT Casting", group="TDT Casting")
+castingSequenceType = input.string("A", "Backward Sequence Type", options=["A","B"], group="TDT Casting")
+backwardSequenceA = input.string("33,27,21,13,7,3,1", "Backward Sequence A", group="TDT Casting")
+backwardSequenceB = input.string("37,25,17,11,9,5,1", "Backward Sequence B", group="TDT Casting")
+forwardCastingSequence = input.string("1,3,7,13,21,27,33", "Forward Casting Sequence", group="TDT Casting")
+enableShiftMode = input.bool(false, "Enable Shift Mode", group="TDT Casting")
+shiftSeed = input.int(7, "Shift Seed", minval=-100, maxval=100, group="TDT Casting")
+sameCandleTransition = input.bool(true, "Shared -1 Candle (Backward End = Forward Start)", group="TDT Casting")
+
+// Time Distortion (From Transcript)
+freezeOnTD = input.bool(true, "Freeze Count on Time Distortion", group="Time Distortion")
+enableAdvancedTD = input.bool(true, "Enhanced TD Detection", group="Time Distortion")
+insideMethod = input.string("High/Low", "Inside Detection Method", options=["High/Low","Open/Close"], group="Time Distortion")
+insideComparison = input.string("<=", "Inside Comparison", options=["<=","<"], group="Time Distortion")
+multipleInsideCandles = input.bool(false, "Multiple Inside Candles", group="Time Distortion")
+
+// Market Cycle Detection (From Transcript)
+enableCycleDetection = input.bool(true, "Enable Market Cycle Detection", group="Market Cycles")
+consolidationLength = input.string("10,20", "Consolidation Lengths", group="Market Cycles")
+retracementLength = input.string("3,4", "Retracement Lengths", group="Market Cycles")
+expansionLength = input.string("4,7", "Expansion Lengths", group="Market Cycles")
+reversalLength = input.string("13,21", "Reversal Lengths", group="Market Cycles")
+
+// Time States (From Transcript)
+enableTimeStates = input.bool(true, "Enable Time States", group="Time States")
+enableContraction = input.bool(true, "Enable Time Contraction", group="Time States")
+enableExpansion = input.bool(true, "Enable Time Expansion", group="Time States")
+distortionThreshold = input.float(0.3, "Distortion Threshold", minval=0.1, maxval=1.0, group="Time States")
+atrLength = input.int(14, "ATR Length", minval=5, group="Time States")
+
+// Multi-Timeframe Analysis (From Transcript)
+enableMTF = input.bool(true, "Enable Multi-Timeframe Analysis", group="Multi-Timeframe")
+htf1 = input.timeframe("240", "Higher TF 1", group="Multi-Timeframe")
+htf2 = input.timeframe("D", "Higher TF 2", group="Multi-Timeframe")
+htf3 = input.timeframe("W", "Higher TF 3", group="Multi-Timeframe")
+
+// Session and News Filters (From Transcript)
+enableSession = input.bool(true, "Enable Session Filter", group="Session Filter")
+sessionStart = input.session("0800-1600", "Trading Session", group="Session Filter")
+timezone = input.string("UTC", "Timezone", group="Session Filter")
+enableNewsFilter = input.bool(false, "Enable News Filter", group="Session Filter")
+
+// Advanced Features (From Transcript)
+enableFractalAnalysis = input.bool(true, "Enable Fractal Analysis", group="Advanced")
+enableHarmonyChaos = input.bool(true, "Enable Harmony/Chaos Detection", group="Advanced")
+countOutsideDouble = input.bool(false, "Count Outside Candles Double", group="Advanced")
+
+// Display Settings
+displayPosition = input.string("above_candle", "Display Position", options=["above_candle","below_candle"], group="Display")
+verticalShift = input.int(0, "Vertical Shift", group="Display")
+labelSize = input.string("normal", "Label Size", options=["tiny","small","normal","large","huge"], group="Display")
+sequenceColor = input.color(#FF0000, "Sequence Number Color", group="Display")
+castingColor = input.color(#FF00FF, "Casting Color", group="Display")
+timeDistortionColor = input.color(#FFA500, "Time Distortion Color", group="Display")
+displayOnlySequence = input.bool(true, "Display Only Sequence Numbers", group="Display")
+
+// ===== HELPER FUNCTIONS =====
+// Parse sequence from comma-separated string
+f_parseSequence(string seq_str) =>
+    sequence = array.new<float>()
+    parts = str.split(seq_str, ",")
+    for part in parts
+        trimmed_part = str.trim(part)
+        if str.length(trimmed_part) > 0
+            num_value = str.tonumber(trimmed_part)
+            if not na(num_value)
+                array.push(sequence, num_value)
+    sequence
+
+// Get current sequence based on type
+f_getCurrentSequence() =>
+    switch sequenceType
+        "Standard" => f_parseSequence(standardSequence)
+        "Contraction" => f_parseSequence(contractionSequence)
+        "Expansion" => f_parseSequence(standardSequence)
+        "Rare" => f_parseSequence(rareSequence)
+        "Custom" => f_parseSequence(customSequence)
+        => f_parseSequence(standardSequence)
+
+// Check if value is in sequence array
+f_inSequence(val, sequence) =>
+    array.includes(sequence, float(val))
+
+// Get label size
+f_getLabelSize() =>
+    switch labelSize
+        "tiny" => size.tiny
+        "small" => size.small
+        "large" => size.large
+        "huge" => size.huge
+        => size.normal
+
+// ===== CANDLE TYPE DETECTION (Enhanced from Script) =====
+f_isInsideCandle(int index) =>
+    if not enableAdvancedTD
+        false
+    else
+        c_high = high[index]
+        c_low = low[index]
+        c_open = open[index]
+        c_close = close[index]
+        
+        prev_high = high[index + 1]
+        prev_low = low[index + 1]
+        prev_open = open[index + 1]
+        prev_close = close[index + 1]
+        
+        // Inside candle detection
+        is_inside = if insideMethod == "High/Low"
+            if insideComparison == "<="
+                c_high <= prev_high and c_low >= prev_low
+            else
+                c_high < prev_high and c_low > prev_low
+        else
+            bodyMax = math.max(c_open, c_close)
+            bodyMin = math.min(c_open, c_close)
+            prevBodyMax = math.max(prev_open, prev_close)
+            prevBodyMin = math.min(prev_open, prev_close)
+            
+            if insideComparison == "<="
+                bodyMax <= prevBodyMax and bodyMin >= prevBodyMin
+            else
+                bodyMax < prevBodyMax and bodyMin > prevBodyMin
+        
+        is_inside
+
+f_isOutsideCandle(int index) =>
+    if not enableAdvancedTD
+        false
+    else
+        c_high = high[index]
+        c_low = low[index]
+        prev_high = high[index + 1]
+        prev_low = low[index + 1]
+        
+        // Outside candle: high > prev_high AND low < prev_low
+        c_high > prev_high and c_low < prev_low
+
+f_isDojiCandle(int index) =>
+    bodySize = math.abs(close[index] - open[index])
+    candleRange = high[index] - low[index]
+    candleRange > 0 and (bodySize / candleRange) < 0.2
+
+f_isWeakCandle(int index) =>
+    bodySize = math.abs(close[index] - open[index])
+    candleRange = high[index] - low[index]
+    candleRange > 0 and (bodySize / candleRange) < 0.3
+
+// ===== TIME STATE DETECTION (From Transcript) =====
+f_isTimeDistorted() =>
+    if not enableTimeStates
+        false
+    else
+        atr = ta.atr(atrLength)
+        currentVolatility = (high - low) / atr
+        currentVolatility < distortionThreshold
+
+f_isTimeContracted() =>
+    if not enableContraction
+        false
+    else
+        recentCount = ta.sma(close, 5)
+        historicalCount = ta.sma(close, 20)
+        contractionRatio = math.abs(recentCount - historicalCount) / historicalCount
+        contractionRatio > 0.1
+
+f_isTimeExpanded() =>
+    if not enableExpansion
+        false
+    else
+        atr = ta.atr(atrLength)
+        currentVolatility = (high - low) / atr
+        currentVolatility > distortionThreshold and currentVolatility < 2.0
+
+// ===== MARKET CYCLE DETECTION (From Transcript) =====
+f_detectMarketCycle() =>
+    if not enableCycleDetection
+        "Unknown"
+    else
+        recentRange = high - low
+        avgRange = ta.sma(high - low, 20)
+        
+        if recentRange < avgRange * 0.5
+            "Consolidation"
+        else if recentRange > avgRange * 1.5
+            "Expansion"
+        else if close < close[1] and close[1] < close[2]
+            "Retracement"
+        else if close > close[1] and close[1] > close[2]
+            "Reversal"
+        else
+            "Unknown"
+
+// ===== HARMONY/CHAOS DETECTION (From Transcript) =====
+f_detectHarmonyChaos() =>
+    if not enableHarmonyChaos
+        "Unknown"
+    else
+        priceChange = close - close[1]
+        avgChange = ta.sma(math.abs(priceChange), 10)
+        currentChange = math.abs(priceChange)
+        
+        if currentChange < avgChange * 0.5
+            "Harmony"
+        else if currentChange > avgChange * 2.0
+            "Chaos"
+        else
+            "Transition"
+
+// ===== FRACTAL ANALYSIS (From Transcript) =====
+f_detectFractal() =>
+    if not enableFractalAnalysis
+        false
+    else
+        fractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        fractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        fractalUp or fractalDown
+
+// ===== SESSION FILTER (From Transcript) =====
+f_inSession() =>
+    if not enableSession
+        true
+    else
+        time(timeframe.period, sessionStart, timezone)
+
+// ===== TDT CASTING FUNCTIONS (From Script) =====
+f_getSelectedBackwardSequence() =>
+    castingSequenceType == "A" ? backwardSequenceA : backwardSequenceB
+
+f_getHighestBackwardNumber(string seq_str) =>
+    seq_array = f_parseSequence(seq_str)
+    highest = 0.0
+    for i = 0 to array.size(seq_array) - 1
+        num = array.get(seq_array, i)
+        if num > highest
+            highest := num
+    highest
+
+// ===== MAIN VARIABLES =====
+var int anchorBarIndex = na
+var bool countingStarted = false
+var int currentCountNumber = 1
+var bool inTimeDistortion = false
+var int tdCount = 0
+var bool prevWasInside = false
+var int insideCandleStreak = 0
+
+// TDT Casting variables
+var bool castingActive = false
+var bool forwardCastActive = false
+var int backwardCastCount = 0
+var bool castingPhaseNegative = true
+var int castForwardCount = 0
+var bool castingInitialized = false
+var bool onCycleCandle = false
+
+// Sequence arrays
+currentSequenceStr = f_getCurrentSequence()
+selectedBackwardSequence = f_getSelectedBackwardSequence()
+castingSeqArray = f_parseSequence(selectedBackwardSequence)
+forwardCastSeqArray = f_parseSequence(forwardCastingSequence)
+
+// ===== ANCHOR POINT LOGIC =====
+if time >= startDate and not countingStarted
+    anchorBarIndex := bar_index
+    countingStarted := true
+    currentCountNumber := enableShiftMode ? (shiftSeed - 1) : 0
+    inTimeDistortion := false
+
+// ===== CANDLE ANALYSIS FOR CURRENT BAR =====
+currentIsInside = f_isInsideCandle(0)
+currentIsOutside = f_isOutsideCandle(0)
+currentIsTD = currentIsInside
+currentIsDoji = f_isDojiCandle(0)
+currentIsWeak = f_isWeakCandle(0)
+
+// ===== INSIDE CANDLE STREAK TRACKING =====
+if currentIsInside
+    if not prevWasInside
+        insideCandleStreak := 1
+    else
+        insideCandleStreak := insideCandleStreak + 1
+    prevWasInside := true
+else
+    prevWasInside := false
+    insideCandleStreak := 0
+
+// ===== TDT BACKWARD CASTING LOGIC (From Script) =====
+if enableCasting and countingStarted
+    if not castingInitialized and bar_index == anchorBarIndex
+        highestNum = f_getHighestBackwardNumber(selectedBackwardSequence)
+        backwardCastCount := -int(highestNum)
+        castingInitialized := true
+    
+    if castingInitialized and not (currentIsTD and freezeOnTD)
+        if castingPhaseNegative
+            if backwardCastCount == -1
+                // Transition from -1 (backward end) to forward start
+                castingPhaseNegative := false
+                castingActive := true
+                forwardCastActive := true
+                if sameCandleTransition
+                    // TOGGLE ON: -1 candle IS the 1 candle - next candle becomes 3 (shift left by 2)
+                    castForwardCount := 2  // This -1 candle represents 1, next will be 3
+                    onCycleCandle := false
+                else
+                    // TOGGLE OFF: -1 ends, next candle becomes 2 (shift left by 1)
+                    castForwardCount := 1  // Will become 2 on next candle
+                    onCycleCandle := false
+                    backwardCastCount := backwardCastCount + 1
+            else
+                backwardCastCount := backwardCastCount + 1
+        else
+            if forwardCastActive
+                // Normal candle counting - increment by 1 each candle
+                castForwardCount := castForwardCount + 1
+
+// ===== MAIN COUNTING LOGIC (Enhanced) =====
+if countingStarted and currentCountNumber <= maxCandles and bar_index >= anchorBarIndex
+    
+    countIncrement = 1
+    
+    // Double count for outside candles if enabled
+    if countOutsideDouble and currentIsOutside
+        countIncrement := 2
+    
+    // Time distortion handling
+    shouldFreezeOnInside = false
+    if currentIsTD and freezeOnTD
+        if multipleInsideCandles
+            shouldFreezeOnInside := false
+        else
+            shouldFreezeOnInside := true
+    
+    if shouldFreezeOnInside
+        inTimeDistortion := true
+        tdCount := tdCount + 1
+    else
+        if inTimeDistortion and freezeOnTD and not currentIsTD
+            currentCountNumber := currentCountNumber + countIncrement
+            inTimeDistortion := false
+            tdCount := 0
+        else
+            currentCountNumber := currentCountNumber + countIncrement
+            tdCount := 0
+    
+    // ===== SEQUENCE DETECTION =====
+    isMainSequence = f_inSequence(currentCountNumber, currentSequenceStr)
+    
+    rangeMult = (high - low) * 0.1
+    yBase = displayPosition == "above_candle" ? high + rangeMult + verticalShift : low - rangeMult - verticalShift
+    
+    // ===== MAIN SEQUENCE LABELS =====
+    showMain = not enableCasting or not castingInitialized
+    if showMain and (not displayOnlySequence or isMainSequence)
+        labelText = currentIsTD and freezeOnTD ? str.tostring(currentCountNumber) + "×" : str.tostring(currentCountNumber)
+        mainColor = currentIsTD and freezeOnTD ? color.new(sequenceColor, 50) : sequenceColor
+        
+        if not displayOnlySequence or isMainSequence
+            label.new(bar_index, yBase, labelText, color=color.new(#FFFFFF, 100), textcolor=mainColor, size=f_getLabelSize())
+
+// ===== TDT CASTING DISPLAY (From Script) =====
+if enableCasting and countingStarted and castingInitialized
+    // Display backward sequence numbers (negative phase)
+    if castingPhaseNegative
+        negativeHit = f_inSequence(math.abs(backwardCastCount), castingSeqArray)
+        if negativeHit
+            castingOffset = (high - low) * 0.12
+            castingY = displayPosition == "above_candle" ? high + castingOffset + verticalShift : low - castingOffset - verticalShift
+            castingText = str.tostring(backwardCastCount)
+            label.new(bar_index, castingY, castingText, color=color.new(#FFFFFF, 100), textcolor=castingColor, size=f_getLabelSize())
+    
+    // FORWARD CASTING DISPLAY
+    if not castingPhaseNegative and forwardCastActive
+        forwardCastHit = f_inSequence(castForwardCount, forwardCastSeqArray)
+        if forwardCastHit and castForwardCount > 0
+            forwardOffset = (high - low) * 0.15
+            forwardY = displayPosition == "above_candle" ? high + forwardOffset + verticalShift : low - forwardOffset - verticalShift
+            forwardText = str.tostring(castForwardCount)
+            label.new(bar_index, forwardY, forwardText, color=color.new(#FFFFFF, 100), textcolor=castingColor, size=f_getLabelSize())
+
+// ===== TIME STATE MARKERS =====
+if enableTimeStates
+    if f_isTimeDistorted()
+        tdOffset = (high - low) * 0.18
+        tdY = displayPosition == "above_candle" ? high + tdOffset + verticalShift : low - tdOffset - verticalShift
+        label.new(bar_index, tdY, "TD", color=color.new(#FFFFFF, 100), textcolor=timeDistortionColor, size=f_getLabelSize())
+
+// ===== ALERTS =====
+if countingStarted and not inTimeDistortion
+    currentCountFloat = float(currentCountNumber)
+    if f_inSequence(currentCountNumber, currentSequenceStr)
+        alert("TDT Sequence Number Reached: " + str.tostring(currentCountFloat), alert.freq_once_per_bar)
+
+if enableCasting and castingActive and not castingActive[1]
+    alert("TDT Casting Activated - Forward Count Started", alert.freq_once_per_bar)
+
+if enableCasting and forwardCastActive
+    forwardCastHit = f_inSequence(castForwardCount, forwardCastSeqArray)
+    if forwardCastHit
+        alert("TDT Forward Cast Hit: " + str.tostring(castForwardCount), alert.freq_once_per_bar)
+
+// ===== STATUS TABLE =====
+if barstate.islast
+    var table statusTable = table.new(position.top_right, 2, 15, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    
+    table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 1, "Counting", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 1, str.tostring(countingStarted), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 2, "Count", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 2, str.tostring(currentCountNumber), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 3, "Sequence Type", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 3, sequenceType, text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 4, "Time State", text_color=#000000, text_size=size.tiny)
+    timeState = f_isTimeDistorted() ? "Distorted" : (f_isTimeContracted() ? "Contracted" : (f_isTimeExpanded() ? "Expanded" : "Normal"))
+    table.cell(statusTable, 1, 4, timeState, text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 5, "Market Cycle", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 5, f_detectMarketCycle(), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 6, "Harmony/Chaos", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 6, f_detectHarmonyChaos(), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 7, "Cast Phase", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 7, enableCasting ? (castingPhaseNegative ? "NEG" : "POS") : "OFF", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 8, "Cast Count", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 8, enableCasting ? (castingPhaseNegative ? str.tostring(backwardCastCount) : str.tostring(castForwardCount)) : "OFF", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 9, "TD Active", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 9, inTimeDistortion ? "YES" : "NO", text_color=inTimeDistortion ? #FF0000 : #00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 10, "Inside Streak", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 10, str.tostring(insideCandleStreak), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 11, "Fractal", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 11, f_detectFractal() ? "YES" : "NO", text_color=f_detectFractal() ? #FFA500 : #808080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 12, "Session", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 12, f_inSession() ? "ACTIVE" : "INACTIVE", text_color=f_inSession() ? #00FF00 : #FF0000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 13, "Outside 2x", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 13, countOutsideDouble ? "ON" : "OFF", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 14, "Multi Inside", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 14, multipleInsideCandles ? "ON" : "OFF", text_color=#000000, text_size=size.tiny)
