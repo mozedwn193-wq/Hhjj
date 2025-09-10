@@ -686,15 +686,10 @@ else if not enableAutoAnchor and time >= manualStartDate and not countingStarted
     countingStarted := true
     currentCountNumber := enableShiftMode ? (shiftSeed - 1) : 0
     inTimeDistortion := false
-        
-        // Initialize cycle start points and counts
-        array.clear(cycleStartPoints)
-        array.clear(cycleCounts)
-        
-        for i = 0 to array.size(detectedCycles) - 1
-            startPoint = array.get(detectedCycles, i)
-            array.push(cycleStartPoints, startPoint)
-            array.push(cycleCounts, 0)
+    
+    // Initialize cycle start points and counts
+    array.clear(cycleStartPoints)
+    array.clear(cycleCounts)
 
 // ===== HTF/LTF SEQUENCE INITIALIZATION =====
 // HTF sequence cycles work independently and are plotted on LTF
