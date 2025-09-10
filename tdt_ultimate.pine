@@ -289,8 +289,9 @@ var array<int> htf2Counts = array.new<int>()
 var array<int> htf3Counts = array.new<int>()
 
 // Multi-timeframe counting function
+// HTF cycles work independently and are plotted on LTF
 f_countMultiTimeframe() =>
-    // Count on higher timeframes
+    // Count on higher timeframes (independent cycle logic)
     htf1Count = request.security(syminfo.tickerid, htf1, currentCountNumber)
     htf2Count = request.security(syminfo.tickerid, htf2, currentCountNumber)
     htf3Count = request.security(syminfo.tickerid, htf3, currentCountNumber)
@@ -517,23 +518,11 @@ var int castForwardCount = 0
 var bool castingInitialized = false
 var bool onCycleCandle = false
 
-// Sequence arrays (will be initialized in main logic)
+// Sequence arrays for HTF/LTF logic
 var array<float> currentSequenceStr = array.new<float>()
 var string selectedBackwardSequence = ""
 var array<float> castingSeqArray = array.new<float>()
 var array<float> forwardCastSeqArray = array.new<float>()
-
-// ===== INITIALIZE SEQUENCE ARRAYS =====
-if barstate.isconfirmed
-    array.clear(currentSequenceStr)
-    array.clear(castingSeqArray)
-    array.clear(forwardCastSeqArray)
-    
-    // Initialize sequence arrays
-    currentSequenceStr := f_getCurrentSequence()
-    selectedBackwardSequence := f_getSelectedBackwardSequence()
-    castingSeqArray := f_parseSequence(selectedBackwardSequence)
-    forwardCastSeqArray := f_parseSequence(forwardCastingSequence)
 
 // ===== AUTO ANCHOR POINT LOGIC (From Transcript) =====
 if time >= startDate and not countingStarted
@@ -555,6 +544,21 @@ if time >= startDate and not countingStarted
             startPoint = array.get(detectedCycles, i)
             array.push(cycleStartPoints, startPoint)
             array.push(cycleCounts, 0)
+
+// ===== HTF/LTF SEQUENCE INITIALIZATION =====
+// HTF sequence cycles work independently and are plotted on LTF
+// This allows HTF cycles to maintain their own counting logic
+// while being displayed on the current timeframe
+if barstate.isconfirmed
+    array.clear(currentSequenceStr)
+    array.clear(castingSeqArray)
+    array.clear(forwardCastSeqArray)
+    
+    // Get current sequence from HTF logic (independent cycle counting)
+    currentSequenceStr := f_getCurrentSequence()
+    selectedBackwardSequence := f_getSelectedBackwardSequence()
+    castingSeqArray := f_parseSequence(selectedBackwardSequence)
+    forwardCastSeqArray := f_parseSequence(forwardCastingSequence)
 
 // ===== CANDLE ANALYSIS FOR CURRENT BAR =====
 currentIsInside = f_isInsideCandle(0)
