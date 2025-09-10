@@ -316,6 +316,52 @@ f_getHighestBackwardNumber(string seq_str) =>
             highest := num
     highest
 
+// ===== AUTO PIVOT DETECTION (From Transcript) =====
+f_findAutoPivot() =>
+    // Find latest pivot based on direction
+    bullStart = ta.pivotlow(low, pivotLeft, pivotRight)
+    bearStart = ta.pivothigh(high, pivotLeft, pivotRight)
+    
+    if countDirection == "Bullish"
+        ta.valuewhen(bullStart, bar_index, 0)
+    else
+        ta.valuewhen(bearStart, bar_index, 0)
+
+// ===== MULTIPLE CYCLE START POINTS =====
+f_detectMultipleCycles() =>
+    cycles = array.new<int>()
+    
+    // Primary cycle start (main pivot)
+    primaryStart = f_findAutoPivot()
+    if not na(primaryStart)
+        array.push(cycles, primaryStart)
+    
+    // Secondary cycle starts (smaller pivots)
+    secondaryBull = ta.pivotlow(low, 2, 2)
+    secondaryBear = ta.pivothigh(high, 2, 2)
+    
+    if countDirection == "Bullish"
+        secStart = ta.valuewhen(secondaryBull, bar_index, 0)
+    else
+        secStart = ta.valuewhen(secondaryBear, bar_index, 0)
+    
+    if not na(secStart) and secStart != primaryStart
+        array.push(cycles, secStart)
+    
+    // Tertiary cycle starts (even smaller pivots)
+    tertiaryBull = ta.pivotlow(low, 1, 1)
+    tertiaryBear = ta.pivothigh(high, 1, 1)
+    
+    if countDirection == "Bullish"
+        tertStart = ta.valuewhen(tertiaryBull, bar_index, 0)
+    else
+        tertStart = ta.valuewhen(tertiaryBear, bar_index, 0)
+    
+    if not na(tertStart) and tertStart != primaryStart and tertStart != secStart
+        array.push(cycles, tertStart)
+    
+    cycles
+
 // ===== MAIN VARIABLES =====
 var int anchorBarIndex = na
 var bool countingStarted = false
@@ -324,6 +370,14 @@ var bool inTimeDistortion = false
 var int tdCount = 0
 var bool prevWasInside = false
 var int insideCandleStreak = 0
+
+// ===== MULTIPLE CYCLE COUNTING VARIABLES =====
+var int cycle1Count = 0
+var int cycle2Count = 0
+var int cycle3Count = 0
+var int cycle4Count = 0
+var array<int> cycleStartPoints = array.new<int>()
+var array<int> cycleCounts = array.new<int>()
 
 // ===== CYCLE COUNTING VARIABLES =====
 var int consolidationCount = 0
@@ -352,12 +406,26 @@ selectedBackwardSequence = f_getSelectedBackwardSequence()
 castingSeqArray = f_parseSequence(selectedBackwardSequence)
 forwardCastSeqArray = f_parseSequence(forwardCastingSequence)
 
-// ===== ANCHOR POINT LOGIC =====
+// ===== AUTO ANCHOR POINT LOGIC (From Transcript) =====
 if time >= startDate and not countingStarted
-    anchorBarIndex := bar_index
-    countingStarted := true
-    currentCountNumber := enableShiftMode ? (shiftSeed - 1) : 0
-    inTimeDistortion := false
+    // Auto-detect multiple cycle start points
+    detectedCycles = f_detectMultipleCycles()
+    
+    if array.size(detectedCycles) > 0
+        // Use the most recent pivot as main anchor
+        anchorBarIndex := array.get(detectedCycles, 0)
+        countingStarted := true
+        currentCountNumber := enableShiftMode ? (shiftSeed - 1) : 0
+        inTimeDistortion := false
+        
+        // Initialize cycle start points and counts
+        array.clear(cycleStartPoints)
+        array.clear(cycleCounts)
+        
+        for i = 0 to array.size(detectedCycles) - 1
+            startPoint = array.get(detectedCycles, i)
+            array.push(cycleStartPoints, startPoint)
+            array.push(cycleCounts, 0)
 
 // ===== CANDLE ANALYSIS FOR CURRENT BAR =====
 currentIsInside = f_isInsideCandle(0)
@@ -407,7 +475,7 @@ if enableCasting and countingStarted
                 // Normal candle counting - increment by 1 each candle
                 castForwardCount := castForwardCount + 1
 
-// ===== MAIN COUNTING LOGIC (Enhanced) =====
+// ===== MULTIPLE CYCLE COUNTING LOGIC (From Transcript) =====
 if countingStarted and currentCountNumber <= maxCandles and bar_index >= anchorBarIndex
     
     countIncrement = 1
@@ -436,20 +504,48 @@ if countingStarted and currentCountNumber <= maxCandles and bar_index >= anchorB
             currentCountNumber := currentCountNumber + countIncrement
             tdCount := 0
     
-    // ===== SEQUENCE DETECTION =====
-    isMainSequence = f_inSequence(currentCountNumber, currentSequenceStr)
-    
-    rangeMult = (high - low) * 0.1
-    yBase = displayPosition == "above_candle" ? high + rangeMult + verticalShift : low - rangeMult - verticalShift
-    
-    // ===== MAIN SEQUENCE LABELS =====
-    showMain = not enableCasting or not castingInitialized
-    if showMain and (not displayOnlySequence or isMainSequence)
-        labelText = currentIsTD and freezeOnTD ? str.tostring(currentCountNumber) + "×" : str.tostring(currentCountNumber)
-        mainColor = currentIsTD and freezeOnTD ? color.new(sequenceColor, 50) : sequenceColor
+    // ===== MULTIPLE CYCLE COUNTING =====
+    for i = 0 to array.size(cycleStartPoints) - 1
+        cycleStart = array.get(cycleStartPoints, i)
+        cycleCount = array.get(cycleCounts, i)
         
-        if not displayOnlySequence or isMainSequence
-            label.new(bar_index, yBase, labelText, color=color.new(#FFFFFF, 100), textcolor=mainColor, size=f_getLabelSize())
+        // Only count if current bar is after this cycle's start
+        if bar_index >= cycleStart
+            // Increment this cycle's count
+            newCycleCount = cycleCount + countIncrement
+            array.set(cycleCounts, i, newCycleCount)
+            
+            // Check for sequence hits in this cycle
+            if f_inSequence(newCycleCount, currentSequenceStr)
+                // Calculate overlap detection
+                overlapText = ""
+                overlapCount = 0
+                
+                // Check if this number overlaps with other cycles
+                for j = 0 to array.size(cycleCounts) - 1
+                    if j != i
+                        otherCount = array.get(cycleCounts, j)
+                        if otherCount == newCycleCount
+                            overlapCount := overlapCount + 1
+                            overlapText := overlapText + "C" + str.tostring(j + 1) + ":" + str.tostring(otherCount) + " "
+                
+                // Display the count with overlap info
+                rangeMult = (high - low) * (0.1 + i * 0.05)
+                yBase = displayPosition == "above_candle" ? high + rangeMult + verticalShift : low - rangeMult - verticalShift
+                
+                labelText = str.tostring(newCycleCount)
+                if overlapCount > 0
+                    labelText := labelText + " (" + overlapText + ")"
+                
+                // Color based on cycle number
+                cycleColor = switch i
+                    0 => color.new(#FF0000, 0)  // Red for cycle 1
+                    1 => color.new(#00FF00, 0)  // Green for cycle 2
+                    2 => color.new(#0000FF, 0)  // Blue for cycle 3
+                    3 => color.new(#FF00FF, 0)  // Magenta for cycle 4
+                    => color.new(#808080, 0)   // Gray for others
+                
+                label.new(bar_index, yBase, labelText, color=color.new(#FFFFFF, 100), textcolor=cycleColor, size=f_getLabelSize())
 
 // ===== CYCLE WITHIN CYCLE COUNTING LOGIC =====
 if countingStarted and enableCycleDetection
@@ -567,7 +663,7 @@ if enableCasting and forwardCastActive
 
 // ===== STATUS TABLE =====
 if barstate.islast
-    var table statusTable = table.new(position.top_right, 2, 23, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    var table statusTable = table.new(position.top_right, 2, 27, bgcolor=color.new(#FFFFFF, 80), border_width=1)
     
     table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
@@ -638,3 +734,15 @@ if barstate.islast
     
     table.cell(statusTable, 0, 22, "Nano-E", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 22, str.tostring(nanoExpansionCount), text_color=#004000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 23, "Cycle 1", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 23, array.size(cycleCounts) > 0 ? str.tostring(array.get(cycleCounts, 0)) : "0", text_color=#FF0000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 24, "Cycle 2", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 24, array.size(cycleCounts) > 1 ? str.tostring(array.get(cycleCounts, 1)) : "0", text_color=#00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 25, "Cycle 3", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 25, array.size(cycleCounts) > 2 ? str.tostring(array.get(cycleCounts, 2)) : "0", text_color=#0000FF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 26, "Cycle 4", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 26, array.size(cycleCounts) > 3 ? str.tostring(array.get(cycleCounts, 3)) : "0", text_color=#FF00FF, text_size=size.tiny)
