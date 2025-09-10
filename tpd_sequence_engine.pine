@@ -120,8 +120,14 @@ anchor18 := get_anchor_start(session_tz, 18)
 // -------- 90-minute cycle (independent state) --------
 int idx90 = int(math.floor((time - anchor18) / (90 * ms_minute)))
 var int   lastIdx90 = na
-var float pHiA90 = na, pLoA90 = na, cHiA90 = na, cLoA90 = na
-var float pHiB90 = na, pLoB90 = na, cHiB90 = na, cLoB90 = na
+var float pHiA90 = na
+var float pLoA90 = na
+var float cHiA90 = na
+var float cLoA90 = na
+var float pHiB90 = na
+var float pLoB90 = na
+var float cHiB90 = na
+var float cLoB90 = na
 var int   smt90c  = 0
 bool nb90 = na(lastIdx90) or idx90 != lastIdx90
 if nb90
@@ -153,8 +159,14 @@ bool inFirst  = remMs < 23 * ms_minute
 int microIdx  = pairIdx * 2 + (inFirst ? 0 : 1)
 
 var int   lastMicroIdx = na
-var float pHiAm = na, pLoAm = na, cHiAm = na, cLoAm = na
-var float pHiBm = na, pLoBm = na, cHiBm = na, cLoBm = na
+var float pHiAm = na
+var float pLoAm = na
+var float cHiAm = na
+var float cLoAm = na
+var float pHiBm = na
+var float pLoBm = na
+var float cHiBm = na
+var float cLoBm = na
 var int   smtMicro = 0
 bool nbMicro = na(lastMicroIdx) or microIdx != lastMicroIdx
 if nbMicro
@@ -180,8 +192,14 @@ else
 // -------- Nano cycle (10 minutes, independent state) --------
 int idx10 = int(math.floor((time - anchor18) / (10 * ms_minute)))
 var int   lastIdx10 = na
-var float pHiA10 = na, pLoA10 = na, cHiA10 = na, cLoA10 = na
-var float pHiB10 = na, pLoB10 = na, cHiB10 = na, cLoB10 = na
+var float pHiA10 = na
+var float pLoA10 = na
+var float cHiA10 = na
+var float cLoA10 = na
+var float pHiB10 = na
+var float pLoB10 = na
+var float cHiB10 = na
+var float cLoB10 = na
 var int   smtNano = 0
 bool nb10 = na(lastIdx10) or idx10 != lastIdx10
 if nb10
