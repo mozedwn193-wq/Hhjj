@@ -74,6 +74,17 @@ castingColor = input.color(#FF00FF, "Casting Color", group="Display")
 timeDistortionColor = input.color(#FFA500, "Time Distortion Color", group="Display")
 displayOnlySequence = input.bool(true, "Display Only Sequence Numbers", group="Display")
 
+// ===== MAIN VARIABLES (DECLARED EARLY FOR FUNCTION ACCESS) =====
+var int currentCountNumber = 1
+var array<float> currentSequenceStr = array.new<float>()
+var string selectedBackwardSequence = ""
+var array<float> castingSeqArray = array.new<float>()
+var array<float> forwardCastSeqArray = array.new<float>()
+var int anchorBarIndex = na
+var bool countingStarted = false
+var bool inTimeDistortion = false
+var int tdCount = 0
+
 // ===== HELPER FUNCTIONS =====
 // ===== TRANSCRIPT SEQUENCE CALCULATION =====
 // Formula: n² - n + 1 (exactly as transcript)
@@ -480,12 +491,7 @@ f_detectMultipleCycles() =>
     
     cycles
 
-// ===== MAIN VARIABLES =====
-var int anchorBarIndex = na
-var bool countingStarted = false
-var int currentCountNumber = 1
-var bool inTimeDistortion = false
-var int tdCount = 0
+// ===== ADDITIONAL VARIABLES =====
 var bool prevWasInside = false
 var int insideCandleStreak = 0
 
@@ -518,11 +524,7 @@ var int castForwardCount = 0
 var bool castingInitialized = false
 var bool onCycleCandle = false
 
-// Sequence arrays for HTF/LTF logic
-var array<float> currentSequenceStr = array.new<float>()
-var string selectedBackwardSequence = ""
-var array<float> castingSeqArray = array.new<float>()
-var array<float> forwardCastSeqArray = array.new<float>()
+// Additional casting variables
 
 // ===== AUTO ANCHOR POINT LOGIC (From Transcript) =====
 if time >= startDate and not countingStarted
