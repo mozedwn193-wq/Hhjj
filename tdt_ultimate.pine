@@ -1,13 +1,14 @@
 //@version=5
-indicator("TDT Ultimate - Complete Time Dilation Theory", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("TDT Ultimate - Complete Time Dilation Theory (Endless Cycles)", overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ===== COMPREHENSIVE TDT INPUTS =====
+// NOTE: Cycles run ENDLESSLY - no maximum candle limit
 // Core Settings
 countDirection = input.string("Bullish", "Counting Direction", options=["Bullish","Bearish"], group="Core Settings")
 pivotLeft = input.int(3, "Pivot Left", minval=1, group="Core Settings")
 pivotRight = input.int(3, "Pivot Right", minval=1, group="Core Settings")
 startDate = input.time(timestamp("2025-01-15 09:30"), "Start Date", group="Core Settings")
-maxCandles = input.int(100, "Max Candles", minval=1, maxval=500, group="Core Settings")
+// maxCandles removed - cycles now run endlessly
 
 // Sequence Types (From Transcript)
 sequenceType = input.string("Standard", "Sequence Type", options=["Standard","Contraction","Expansion","Rare","Custom"], group="Sequences")
@@ -476,7 +477,8 @@ if enableCasting and countingStarted
                 castForwardCount := castForwardCount + 1
 
 // ===== MULTIPLE CYCLE COUNTING LOGIC (From Transcript) =====
-if countingStarted and currentCountNumber <= maxCandles and bar_index >= anchorBarIndex
+// Cycles run ENDLESSLY until manually stopped - no maxCandles limit
+if countingStarted and bar_index >= anchorBarIndex
     
     countIncrement = 1
     
