@@ -422,10 +422,11 @@ f_detectHarmonyChaos() =>
         cycleMomentum = f_calculateCycleMomentum()
         
         // Calculate harmony/chaos ratio
+        var float harmonyRatio = 0.0
         if avgChange > 0
-            harmonyRatio = cycleMomentum / avgChange
+            harmonyRatio := cycleMomentum / avgChange
         else
-            harmonyRatio = 0
+            harmonyRatio := 0
         
         // Determine state based on transcript rules
         if harmonyRatio > 1.5
@@ -460,7 +461,7 @@ f_calculateCycleMomentum() =>
     cycleType = f_detectMarketCycle()
     if cycleType == "Expansion"
         momentum := momentum + 0.4
-    else if cycleType == "Consolidation"
+    else if cycleType == "Time Distortion"
         momentum := momentum - 0.2
     
     momentum
