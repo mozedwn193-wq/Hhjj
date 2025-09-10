@@ -114,43 +114,94 @@ get_anchor_start(tz, hh) =>
     int a = timestamp(tz, year, month, dayofmonth, hh, 0)
     time >= a ? a : a - 24 * ms_day
 
-// Generic anchored cycle SMT engine (prev vs current blocks)
-anchored_cycle_smt(lenMin) =>
-    int start  = get_anchor_start(session_tz, 18)
-    int idx    = int(math.floor((time - start) / (lenMin * ms_minute)))
-    var int   lastIdx = na
-    var float pHiA = na, pLoA = na, cHiA = na, cLoA = na
-    var float pHiB = na, pLoB = na, cHiB = na, cLoB = na
-    var int   dir  = 0
-    bool nb = na(lastIdx) or idx != lastIdx
-    if nb
-        pHiA := cHiA
-        pLoA := cLoA
-        pHiB := cHiB
-        pLoB := cLoB
-        cHiA := high
-        cLoA := low
-        cHiB := compHigh_cur
-        cLoB := compLow_cur
-        lastIdx := idx
-        if not na(pHiA)
-            bool bull = (cHiA > pHiA) and (cHiB <= pHiB)
-            bool bear = (cLoA < pLoA) and (cLoB >= pLoB)
-            dir := bull ? 1 : bear ? -1 : 0
-    else
-        cHiA := math.max(nz(cHiA, high), high)
-        cLoA := math.min(nz(cLoA, low),  low)
-        cHiB := math.max(nz(cHiB, compHigh_cur), compHigh_cur)
-        cLoB := math.min(nz(cLoB, compLow_cur),  compLow_cur)
-    dir
+int anchor18 = get_anchor_start(session_tz, 18)
 
-// 90m cycle SMT
-int smt90c = anchored_cycle_smt(90)
-// Micro cycle SMT (alternating 22/15, but treat as 22/15 windows rolled together by choosing 22 as base granularity)
-// We approximate: compute SMT on 22m windows; many micro SMTs will still be caught
-int smtMicro = anchored_cycle_smt(22)
-// Nano cycle SMT (10m)
-int smtNano = anchored_cycle_smt(10)
+// -------- 90-minute cycle (independent state) --------
+int idx90 = int(math.floor((time - anchor18) / (90 * ms_minute)))
+var int   lastIdx90 = na
+var float pHiA90 = na, pLoA90 = na, cHiA90 = na, cLoA90 = na
+var float pHiB90 = na, pLoB90 = na, cHiB90 = na, cLoB90 = na
+var int   smt90c  = 0
+bool nb90 = na(lastIdx90) or idx90 != lastIdx90
+if nb90
+    pHiA90 := cHiA90
+    pLoA90 := cLoA90
+    pHiB90 := cHiB90
+    pLoB90 := cLoB90
+    cHiA90 := high
+    cLoA90 := low
+    cHiB90 := compHigh_cur
+    cLoB90 := compLow_cur
+    lastIdx90 := idx90
+    if not na(pHiA90)
+        bool bull90 = (cHiA90 > pHiA90) and (cHiB90 <= pHiB90)
+        bool bear90 = (cLoA90 < pLoA90) and (cLoB90 >= pLoB90)
+        smt90c := bull90 ? 1 : bear90 ? -1 : 0
+else
+    cHiA90 := math.max(nz(cHiA90, high), high)
+    cLoA90 := math.min(nz(cLoA90, low),  low)
+    cHiB90 := math.max(nz(cHiB90, compHigh_cur), compHigh_cur)
+    cLoB90 := math.min(nz(cLoB90, compLow_cur),  compLow_cur)
+
+// -------- Micro cycle (alternating 23/22 minutes anchored 18:00) --------
+int pairLenMs = (23 + 22) * ms_minute
+int elapsedMs = int(time - anchor18)
+int pairIdx   = elapsedMs >= 0 ? int(math.floor(elapsedMs / pairLenMs)) : -1
+int remMs     = elapsedMs - pairIdx * pairLenMs
+bool inFirst  = remMs < 23 * ms_minute
+int microIdx  = pairIdx * 2 + (inFirst ? 0 : 1)
+
+var int   lastMicroIdx = na
+var float pHiAm = na, pLoAm = na, cHiAm = na, cLoAm = na
+var float pHiBm = na, pLoBm = na, cHiBm = na, cLoBm = na
+var int   smtMicro = 0
+bool nbMicro = na(lastMicroIdx) or microIdx != lastMicroIdx
+if nbMicro
+    pHiAm := cHiAm
+    pLoAm := cLoAm
+    pHiBm := cHiBm
+    pLoBm := cLoBm
+    cHiAm := high
+    cLoAm := low
+    cHiBm := compHigh_cur
+    cLoBm := compLow_cur
+    lastMicroIdx := microIdx
+    if not na(pHiAm)
+        bool bullm = (cHiAm > pHiAm) and (cHiBm <= pHiBm)
+        bool bearm = (cLoAm < pLoAm) and (cLoBm >= pLoBm)
+        smtMicro := bullm ? 1 : bearm ? -1 : 0
+else
+    cHiAm := math.max(nz(cHiAm, high), high)
+    cLoAm := math.min(nz(cLoAm, low),  low)
+    cHiBm := math.max(nz(cHiBm, compHigh_cur), compHigh_cur)
+    cLoBm := math.min(nz(cLoBm, compLow_cur),  compLow_cur)
+
+// -------- Nano cycle (10 minutes, independent state) --------
+int idx10 = int(math.floor((time - anchor18) / (10 * ms_minute)))
+var int   lastIdx10 = na
+var float pHiA10 = na, pLoA10 = na, cHiA10 = na, cLoA10 = na
+var float pHiB10 = na, pLoB10 = na, cHiB10 = na, cLoB10 = na
+var int   smtNano = 0
+bool nb10 = na(lastIdx10) or idx10 != lastIdx10
+if nb10
+    pHiA10 := cHiA10
+    pLoA10 := cLoA10
+    pHiB10 := cHiB10
+    pLoB10 := cLoB10
+    cHiA10 := high
+    cLoA10 := low
+    cHiB10 := compHigh_cur
+    cLoB10 := compLow_cur
+    lastIdx10 := idx10
+    if not na(pHiA10)
+        bool bull10 = (cHiA10 > pHiA10) and (cHiB10 <= pHiB10)
+        bool bear10 = (cLoA10 < pLoA10) and (cLoB10 >= pLoB10)
+        smtNano := bull10 ? 1 : bear10 ? -1 : 0
+else
+    cHiA10 := math.max(nz(cHiA10, high), high)
+    cLoA10 := math.min(nz(cLoA10, low),  low)
+    cHiB10 := math.max(nz(cHiB10, compHigh_cur), compHigh_cur)
+    cLoB10 := math.min(nz(cLoB10, compLow_cur),  compLow_cur)
 
 // =============================
 // ======= HTF sSMT (prev) =====
