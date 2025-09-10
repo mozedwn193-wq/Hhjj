@@ -138,10 +138,10 @@ f_detectFractal() =>
         microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
         
         // Medium fractal (10-bar pattern)
-        mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4] and \
-                          high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
-        mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4] and \
-                            low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+        mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        mediumFractalUp := mediumFractalUp and high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+        mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        mediumFractalDown := mediumFractalDown and low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
         
         // Macro fractal (20-bar pattern)
         macroFractalUp = true
@@ -168,10 +168,10 @@ f_getFractalScale() =>
             "Micro"
         else
             // Check medium fractal
-            mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4] and \
-                              high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
-            mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4] and \
-                                low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+            mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+            mediumFractalUp := mediumFractalUp and high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+            mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+            mediumFractalDown := mediumFractalDown and low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
             
             if mediumFractalUp or mediumFractalDown
                 "Medium"
