@@ -205,6 +205,7 @@ f_isTimeExpanded() =>
         currentVolatility > distortionThreshold and currentVolatility < 2.0
 
 // ===== MARKET CYCLE DETECTION (From Transcript) =====
+// ===== TRANSCRIPT MARKET CYCLE DETECTION =====
 f_detectMarketCycle() =>
     if not enableCycleDetection
         "Unknown"
@@ -212,16 +213,39 @@ f_detectMarketCycle() =>
         recentRange = high - low
         avgRange = ta.sma(high - low, 20)
         
+        // Transcript logic: Consolidations are chaos, expansions/reversals are harmony
         if recentRange < avgRange * 0.5
-            "Consolidation"
+            "Consolidation"  // Time distortion - chaos
         else if recentRange > avgRange * 1.5
-            "Expansion"
+            "Expansion"      // Time expansion - harmony
         else if close < close[1] and close[1] < close[2]
-            "Retracement"
+            "Retracement"    // Time contraction
         else if close > close[1] and close[1] > close[2]
-            "Reversal"
+            "Reversal"       // Time expansion - harmony
         else
             "Unknown"
+
+// ===== TRANSCRIPT TRADING SIGNALS =====
+f_getTradingSignal(cycleCount, cycleType) =>
+    // Based on transcript: sequence numbers provide optimal trade entry timing
+    if f_inSequence(cycleCount, currentSequenceStr)
+        switch cycleType
+            "Consolidation" => "WAIT"  // Transcript: avoid trades in time distortion
+            "Expansion" => "LONG"       // Transcript: expansions are harmony
+            "Reversal" => "REVERSE"     // Transcript: reversals are harmony
+            "Retracement" => "SHORT"    // Transcript: retracements are contraction
+            => "NEUTRAL"
+    else
+        "NEUTRAL"
+
+// ===== TRANSCRIPT TIME FRAME ALIGNMENT =====
+f_checkTimeFrameAlignment() =>
+    // Transcript: higher time frame affects lower time frame
+    // This is a simplified version - full implementation would need multiple timeframes
+    if currentCountNumber == 7 or currentCountNumber == 13 or currentCountNumber == 21
+        "ALIGNED"  // Key sequence numbers align timeframes
+    else
+        "MISALIGNED"
 
 // ===== CYCLE WITHIN CYCLE OVERLAP DETECTION =====
 f_detectCycleOverlap() =>
@@ -710,7 +734,7 @@ if enableCasting and forwardCastActive
 
 // ===== STATUS TABLE =====
 if barstate.islast
-    var table statusTable = table.new(position.top_right, 2, 27, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    var table statusTable = table.new(position.top_right, 2, 29, bgcolor=color.new(#FFFFFF, 80), border_width=1)
     
     table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
@@ -793,3 +817,9 @@ if barstate.islast
     
     table.cell(statusTable, 0, 26, "Cycle 4", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 26, array.size(cycleCounts) > 3 ? str.tostring(array.get(cycleCounts, 3)) : "0", text_color=#FF00FF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 27, "Signal", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 27, f_getTradingSignal(currentCountNumber, f_detectMarketCycle()), text_color=#FF0000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 28, "Time Align", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 28, f_checkTimeFrameAlignment(), text_color=#00FF00, text_size=size.tiny)
