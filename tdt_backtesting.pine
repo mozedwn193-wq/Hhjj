@@ -1,0 +1,200 @@
+//@version=5
+strategy("TDT Backtesting Utility", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// ===== STRATEGY INPUTS =====
+// TDT Settings
+countDirection = input.string("Bullish", "Counting Direction", options=["Bullish","Bearish"])
+pivotLeft = input.int(3, "Pivot Left", minval=1)
+pivotRight = input.int(3, "Pivot Right", minval=1)
+skipInsideBars = input.bool(true, "Skip Inside Bars")
+skipDojiBars = input.bool(true, "Skip Doji Bars")
+
+// Entry/Exit Levels
+entryLevels = input.string("7,13", "Entry Levels", tooltip="Comma-separated levels for entries")
+exitLevels = input.string("21", "Exit Levels", tooltip="Comma-separated levels for exits")
+stopLossPips = input.int(20, "Stop Loss (pips)", minval=1)
+takeProfitPips = input.int(40, "Take Profit (pips)", minval=1)
+
+// Risk Management
+riskPercent = input.float(2.0, "Risk Per Trade (%)", minval=0.1, maxval=10.0)
+maxTrades = input.int(3, "Max Concurrent Trades", minval=1, maxval=10)
+
+// Session Filter
+enableSession = input.bool(true, "Enable Session Filter")
+sessionStart = input.session("0800-1600", "Trading Session")
+timezone = input.string("UTC", "Timezone")
+
+// ===== HELPER FUNCTIONS =====
+// Parse levels from comma-separated string
+f_parseLevels(csv) =>
+    levels = array.new<int>()
+    if not na(csv) and csv != ""
+        parts = str.split(str.replace_all(csv, " ", ""), ",")
+        for i = 0 to array.size(parts) - 1
+            val = str.tonumber(array.get(parts, i))
+            if not na(val)
+                array.push(levels, math.round(val))
+    levels
+
+// Check if value is in levels array
+f_inLevels(val, levels) =>
+    result = false
+    for i = 0 to array.size(levels) - 1
+        if array.get(levels, i) == val
+            result := true
+            break
+    result
+
+// Check if bar is inside bar
+f_isInsideBar() =>
+    high <= high[1] and low >= low[1]
+
+// Check if bar is doji
+f_isDoji() =>
+    bodySize = math.abs(close - open)
+    range = high - low
+    range > 0 and (bodySize / range) < 0.2
+
+// Check if bar is eligible for counting
+f_isEligible(isBull, skipInside, skipDoji) =>
+    isBullClose = close >= open
+    isBearClose = close < open
+    correctDirection = isBull ? isBullClose : isBearClose
+    notInside = skipInside ? not f_isInsideBar() : true
+    notDoji = skipDoji ? not f_isDoji() : true
+    correctDirection and notInside and notDoji
+
+// Session filter
+f_inSession() =>
+    if not enableSession
+        true
+    else
+        time(timeframe.period, sessionStart, timezone)
+
+// ===== MAIN COUNTING LOGIC =====
+// Parse levels
+entryLevelsArray = f_parseLevels(entryLevels)
+exitLevelsArray = f_parseLevels(exitLevels)
+
+// Direction settings
+isBull = countDirection == "Bullish"
+
+// Find latest start pivot
+bullStart = ta.pivotlow(low, pivotLeft, pivotRight)
+bearStart = ta.pivothigh(high, pivotLeft, pivotRight)
+startBarIndex = nz(isBull ? ta.valuewhen(bullStart, bar_index, 0) : ta.valuewhen(bearStart, bar_index, 0), na)
+
+// Stateful count
+var int count = 0
+var int lastStartIdx = na
+var bool started = false
+
+// Initialize or reset on new pivot confirmation
+newStart = na(startBarIndex) ? false : (na(lastStartIdx) or startBarIndex > lastStartIdx)
+
+if newStart
+    lastStartIdx := startBarIndex
+    count := 0
+    started := true
+
+// Increment only after the start pivot's confirmation bar
+canCount = started and bar_index > lastStartIdx + pivotRight and f_inSession()
+
+if canCount and f_isEligible(isBull, skipInsideBars, skipDojiBars)
+    count += 1
+
+// Check if we hit entry/exit levels
+hitEntryLevel = f_inLevels(count, entryLevelsArray)
+hitExitLevel = f_inLevels(count, exitLevelsArray)
+
+// ===== STRATEGY LOGIC =====
+// Entry conditions
+longCondition = isBull and hitEntryLevel and strategy.position_size == 0 and strategy.opentrades < maxTrades
+shortCondition = not isBull and hitEntryLevel and strategy.position_size == 0 and strategy.opentrades < maxTrades
+
+// Exit conditions
+longExitCondition = isBull and (hitExitLevel or strategy.position_size < 0)
+shortExitCondition = not isBull and (hitExitLevel or strategy.position_size > 0)
+
+// Calculate position size based on risk
+pipValue = syminfo.mintick * 10
+riskAmount = strategy.equity * riskPercent / 100
+positionSize = riskAmount / (stopLossPips * pipValue)
+
+// Execute trades
+if longCondition
+    strategy.entry("Long", strategy.long, qty=positionSize)
+    strategy.exit("Long Exit", "Long", stop=close - stopLossPips * pipValue, limit=close + takeProfitPips * pipValue)
+
+if shortCondition
+    strategy.entry("Short", strategy.short, qty=positionSize)
+    strategy.exit("Short Exit", "Short", stop=close + stopLossPips * pipValue, limit=close - takeProfitPips * pipValue)
+
+// Close positions on exit levels
+if longExitCondition and strategy.position_size > 0
+    strategy.close("Long", comment="TDT Exit")
+
+if shortExitCondition and strategy.position_size < 0
+    strategy.close("Short", comment="TDT Exit")
+
+// ===== VISUAL INDICATORS =====
+// Plot entry/exit signals
+plotshape(longCondition, "Long Entry", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Short Entry", shape.triangledown, location.abovebar, color.red, size=size.small)
+plotshape(longExitCondition and strategy.position_size > 0, "Long Exit", shape.xcross, location.abovebar, color.blue, size=size.small)
+plotshape(shortExitCondition and strategy.position_size < 0, "Short Exit", shape.xcross, location.belowbar, color.blue, size=size.small)
+
+// Plot count levels
+plotchar(canCount ? count : na, "Count", "", location.top, color.teal, size=size.tiny)
+
+// ===== PERFORMANCE METRICS =====
+// Calculate key metrics
+totalTrades = strategy.closedtrades
+winningTrades = strategy.wintrades
+losingTrades = strategy.losstrades
+winRate = totalTrades > 0 ? winningTrades / totalTrades * 100 : 0
+profitFactor = strategy.grossloss != 0 ? strategy.grossprofit / math.abs(strategy.grossloss) : 0
+maxDrawdown = strategy.max_drawdown
+avgWin = winningTrades > 0 ? strategy.grossprofit / winningTrades : 0
+avgLoss = losingTrades > 0 ? math.abs(strategy.grossloss) / losingTrades : 0
+
+// ===== TABLE DISPLAY =====
+if barstate.islast
+    var table perfTable = table.new(position.top_left, 2, 10, bgcolor=color.new(color.white, 80), border_width=1)
+    
+    table.cell(perfTable, 0, 0, "Metric", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 0, "Value", text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 1, "Total Trades", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 1, str.tostring(totalTrades), text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 2, "Win Rate", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 2, str.tostring(winRate, "#.##") + "%", text_color=winRate > 50 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 3, "Profit Factor", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 3, str.tostring(profitFactor, "#.##"), text_color=profitFactor > 1 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 4, "Max Drawdown", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 4, str.tostring(maxDrawdown, "#.##") + "%", text_color=color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 5, "Avg Win", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 5, str.tostring(avgWin, "#.##"), text_color=color.green, text_size=size.small)
+    
+    table.cell(perfTable, 0, 6, "Avg Loss", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 6, str.tostring(avgLoss, "#.##"), text_color=color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 7, "Net Profit", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 7, str.tostring(strategy.netprofit, "#.##"), text_color=strategy.netprofit > 0 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 8, "Current Count", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 8, str.tostring(count), text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 9, "Position Size", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 9, str.tostring(positionSize, "#.##"), text_color=color.black, text_size=size.small)
+
+// ===== CSV EXPORT =====
+if barstate.islast
+    csvData = "Bar Index,Time,Count,Entry Hit,Exit Hit,Position Size,Equity,Net Profit\n"
+    csvData += str.tostring(bar_index) + "," + str.tostring(time) + "," + str.tostring(count) + "," + str.tostring(hitEntryLevel) + "," + str.tostring(hitExitLevel) + "," + str.tostring(positionSize) + "," + str.tostring(strategy.equity) + "," + str.tostring(strategy.netprofit)
+    
+    log.info("TDT Backtest CSV Data:\n" + csvData)

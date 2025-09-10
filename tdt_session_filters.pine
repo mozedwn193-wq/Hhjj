@@ -1,0 +1,153 @@
+//@version=5
+indicator("TDT Session Filters & Utilities", overlay=true)
+
+// ===== SESSION FILTERS =====
+// Enhanced session detection
+session1 = input.session("0800-1600", "Primary Session", group="Sessions")
+session2 = input.session("1600-2000", "Secondary Session", group="Sessions")
+session3 = input.session("2000-0800", "Overnight Session", group="Sessions")
+timezone = input.string("UTC", "Timezone", group="Sessions")
+
+// Session states
+inSession1 = time(timeframe.period, session1, timezone)
+inSession2 = time(timeframe.period, session2, timezone)
+inSession3 = time(timeframe.period, session3, timezone)
+
+// ===== VOLATILITY FILTERS =====
+// ATR-based volatility detection
+atrLength = input.int(14, "ATR Length", group="Volatility")
+atrMultiplier = input.float(1.5, "ATR Multiplier", group="Volatility")
+volatilityThreshold = input.float(0.5, "Volatility Threshold", group="Volatility")
+
+atr = ta.atr(atrLength)
+currentVolatility = (high - low) / atr
+isHighVolatility = currentVolatility > atrMultiplier
+isLowVolatility = currentVolatility < volatilityThreshold
+
+// ===== MARKET STRUCTURE FILTERS =====
+// Trend detection
+trendLength = input.int(20, "Trend Length", group="Structure")
+trendThreshold = input.float(0.6, "Trend Threshold", group="Structure")
+
+// Simple trend calculation
+priceChange = close - close[trendLength]
+rangeChange = high - low
+trendStrength = math.abs(priceChange) / (rangeChange * trendLength)
+isTrending = trendStrength > trendThreshold
+isBullishTrend = priceChange > 0 and isTrending
+isBearishTrend = priceChange < 0 and isTrending
+
+// ===== LIQUIDITY ZONES =====
+// Recent highs/lows for liquidity detection
+liquidityLookback = input.int(50, "Liquidity Lookback", group="Liquidity")
+liquidityTolerance = input.float(0.1, "Liquidity Tolerance %", group="Liquidity")
+
+recentHigh = ta.highest(high, liquidityLookback)
+recentLow = ta.lowest(low, liquidityLookback)
+nearRecentHigh = high >= recentHigh * (1 - liquidityTolerance / 100)
+nearRecentLow = low <= recentLow * (1 + liquidityTolerance / 100)
+
+// ===== TIME-BASED FILTERS =====
+// Day of week filters
+enableDayFilter = input.bool(false, "Enable Day Filter", group="Time")
+monday = input.bool(true, "Monday", group="Time")
+tuesday = input.bool(true, "Tuesday", group="Time")
+wednesday = input.bool(true, "Wednesday", group="Time")
+thursday = input.bool(true, "Thursday", group="Time")
+friday = input.bool(true, "Friday", group="Time")
+
+dayOfWeek = dayofweek(time)
+isAllowedDay = not enableDayFilter or (dayOfWeek == dayofweek.monday and monday) or (dayOfWeek == dayofweek.tuesday and tuesday) or (dayOfWeek == dayofweek.wednesday and wednesday) or (dayOfWeek == dayofweek.thursday and thursday) or (dayOfWeek == dayofweek.friday and friday)
+
+// ===== NEWS FILTER =====
+// Economic calendar integration (placeholder)
+enableNewsFilter = input.bool(false, "Enable News Filter", group="News")
+newsBuffer = input.int(30, "News Buffer (minutes)", group="News")
+
+// This would integrate with economic calendar data
+// For now, we'll use a simple time-based approach
+isNewsTime = false // Placeholder for actual news integration
+
+// ===== COMBINED FILTERS =====
+// Master filter combining all conditions
+masterFilter = inSession1 and isAllowedDay and not isNewsTime
+
+// Trading conditions
+canTradeBullish = masterFilter and (isBullishTrend or not isTrending) and not isLowVolatility
+canTradeBearish = masterFilter and (isBearishTrend or not isTrending) and not isLowVolatility
+
+// ===== VISUAL INDICATORS =====
+// Background colors for different sessions
+bgcolor(inSession1 ? color.new(color.blue, 95) : na, title="Session 1")
+bgcolor(inSession2 ? color.new(color.orange, 95) : na, title="Session 2")
+bgcolor(inSession3 ? color.new(color.purple, 95) : na, title="Session 3")
+
+// Volatility indicators
+plotchar(isHighVolatility, "High Vol", "H", location.top, color.red, size=size.tiny)
+plotchar(isLowVolatility, "Low Vol", "L", location.top, color.green, size=size.tiny)
+
+// Trend indicators
+plotchar(isBullishTrend, "Bull Trend", "↑", location.bottom, color.green, size=size.small)
+plotchar(isBearishTrend, "Bear Trend", "↓", location.bottom, color.red, size=size.small)
+
+// Liquidity zones
+plotshape(nearRecentHigh, "Near High", shape.triangledown, location.abovebar, color.yellow, size=size.tiny)
+plotshape(nearRecentLow, "Near Low", shape.triangleup, location.belowbar, color.yellow, size=size.tiny)
+
+// ===== ALERTS =====
+alertcondition(canTradeBullish, "Can Trade Bullish", "Conditions favorable for bullish trades")
+alertcondition(canTradeBearish, "Can Trade Bearish", "Conditions favorable for bearish trades")
+alertcondition(isHighVolatility, "High Volatility", "High volatility detected")
+alertcondition(isLowVolatility, "Low Volatility", "Low volatility detected")
+
+// ===== TABLE DISPLAY =====
+if barstate.islast
+    var table filterTable = table.new(position.bottom_right, 2, 10, bgcolor=color.new(color.white, 80), border_width=1)
+    
+    table.cell(filterTable, 0, 0, "Filter", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 0, "Status", text_color=color.black, text_size=size.small)
+    
+    table.cell(filterTable, 0, 1, "Session 1", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 1, inSession1 ? "✓" : "✗", text_color=inSession1 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(filterTable, 0, 2, "Session 2", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 2, inSession2 ? "✓" : "✗", text_color=inSession2 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(filterTable, 0, 3, "Session 3", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 3, inSession3 ? "✓" : "✗", text_color=inSession3 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(filterTable, 0, 4, "High Vol", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 4, isHighVolatility ? "✓" : "✗", text_color=isHighVolatility ? color.red : color.gray, text_size=size.small)
+    
+    table.cell(filterTable, 0, 5, "Low Vol", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 5, isLowVolatility ? "✓" : "✗", text_color=isLowVolatility ? color.green : color.gray, text_size=size.small)
+    
+    table.cell(filterTable, 0, 6, "Bull Trend", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 6, isBullishTrend ? "✓" : "✗", text_color=isBullishTrend ? color.green : color.gray, text_size=size.small)
+    
+    table.cell(filterTable, 0, 7, "Bear Trend", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 7, isBearishTrend ? "✓" : "✗", text_color=isBearishTrend ? color.red : color.gray, text_size=size.small)
+    
+    table.cell(filterTable, 0, 8, "Can Trade Bull", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 8, canTradeBullish ? "✓" : "✗", text_color=canTradeBullish ? color.green : color.red, text_size=size.small)
+    
+    table.cell(filterTable, 0, 9, "Can Trade Bear", text_color=color.black, text_size=size.small)
+    table.cell(filterTable, 1, 9, canTradeBearish ? "✓" : "✗", text_color=canTradeBearish ? color.green : color.red, text_size=size.small)
+
+// ===== EXPORT FUNCTIONS =====
+// Function to get current filter state as string
+f_getFilterState() =>
+    state = "Session1:" + str.tostring(inSession1) + ","
+    state += "Session2:" + str.tostring(inSession2) + ","
+    state += "Session3:" + str.tostring(inSession3) + ","
+    state += "HighVol:" + str.tostring(isHighVolatility) + ","
+    state += "LowVol:" + str.tostring(isLowVolatility) + ","
+    state += "BullTrend:" + str.tostring(isBullishTrend) + ","
+    state += "BearTrend:" + str.tostring(isBearishTrend) + ","
+    state += "CanTradeBull:" + str.tostring(canTradeBullish) + ","
+    state += "CanTradeBear:" + str.tostring(canTradeBearish)
+    state
+
+// Export filter state on last bar
+if barstate.islast
+    log.info("TDT Filter State: " + f_getFilterState())
