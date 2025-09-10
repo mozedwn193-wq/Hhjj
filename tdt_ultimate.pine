@@ -225,27 +225,105 @@ f_detectMarketCycle() =>
         else
             "Unknown"
 
+// ===== TIME CONTRACTION/DISTORTION DETECTION (From Transcript) =====
+f_detectTimeContraction(cycleCount) =>
+    // Transcript: sequences can be hastened or delayed
+    // Hastened: 3→4, 7→9, 13→11, 21→17
+    // Delayed: 3→5, 7→9, 13→15/17, 21→25
+    
+    if cycleCount == 4 and not f_inSequence(4, currentSequenceStr)
+        "HASTENED"  // 3 became 4
+    else if cycleCount == 5 and not f_inSequence(5, currentSequenceStr)
+        "DELAYED"   // 3 became 5
+    else if cycleCount == 9 and not f_inSequence(9, currentSequenceStr)
+        "HASTENED"  // 7 became 9
+    else if cycleCount == 11 and not f_inSequence(11, currentSequenceStr)
+        "HASTENED"  // 13 became 11
+    else if cycleCount == 15 and not f_inSequence(15, currentSequenceStr)
+        "DELAYED"   // 13 became 15
+    else if cycleCount == 17 and not f_inSequence(17, currentSequenceStr)
+        "DELAYED"   // 13 became 17 or 21 became 17
+    else if cycleCount == 25 and not f_inSequence(25, currentSequenceStr)
+        "DELAYED"   // 21 became 25
+    else
+        "NORMAL"
+
+f_detectTimeDistortion() =>
+    // Transcript: time distortion = gray shaded areas that don't exist
+    // Consolidations with no clear direction
+    recentRange = high - low
+    avgRange = ta.sma(high - low, 20)
+    
+    if recentRange < avgRange * 0.3 and 
+       math.abs(close - open) < (high - low) * 0.1
+        "DISTORTED"  // Very small range, small body = time distortion
+    else
+        "NORMAL"
+
 // ===== TRANSCRIPT TRADING SIGNALS =====
 f_getTradingSignal(cycleCount, cycleType) =>
     // Based on transcript: sequence numbers provide optimal trade entry timing
-    if f_inSequence(cycleCount, currentSequenceStr)
+    timeState = f_detectTimeContraction(cycleCount)
+    distortionState = f_detectTimeDistortion()
+    
+    if distortionState == "DISTORTED"
+        "WAIT"  // Transcript: avoid trades in time distortion
+    else if f_inSequence(cycleCount, currentSequenceStr)
         switch cycleType
             "Consolidation" => "WAIT"  // Transcript: avoid trades in time distortion
             "Expansion" => "LONG"       // Transcript: expansions are harmony
             "Reversal" => "REVERSE"     // Transcript: reversals are harmony
             "Retracement" => "SHORT"    // Transcript: retracements are contraction
             => "NEUTRAL"
+    else if timeState == "HASTENED"
+        "EARLY"  // Sequence hastened - early entry
+    else if timeState == "DELAYED"
+        "LATE"   // Sequence delayed - late entry
     else
         "NEUTRAL"
+
+// ===== MULTI-TIMEFRAME COUNTING SYSTEM (From Transcript) =====
+// Arrays to store counts for each timeframe
+var array<int> htf1Counts = array.new<int>()
+var array<int> htf2Counts = array.new<int>()
+var array<int> htf3Counts = array.new<int>()
+
+// Multi-timeframe counting function
+f_countMultiTimeframe() =>
+    // Count on higher timeframes
+    htf1Count = request.security(syminfo.tickerid, htf1, currentCountNumber)
+    htf2Count = request.security(syminfo.tickerid, htf2, currentCountNumber)
+    htf3Count = request.security(syminfo.tickerid, htf3, currentCountNumber)
+    
+    // Store counts
+    array.push(htf1Counts, htf1Count)
+    array.push(htf2Counts, htf2Count)
+    array.push(htf3Counts, htf3Count)
+    
+    // Keep only last 20 counts
+    if array.size(htf1Counts) > 20
+        array.shift(htf1Counts)
+    if array.size(htf2Counts) > 20
+        array.shift(htf2Counts)
+    if array.size(htf3Counts) > 20
+        array.shift(htf3Counts)
 
 // ===== TRANSCRIPT TIME FRAME ALIGNMENT =====
 f_checkTimeFrameAlignment() =>
     // Transcript: higher time frame affects lower time frame
-    // This is a simplified version - full implementation would need multiple timeframes
-    if currentCountNumber == 7 or currentCountNumber == 13 or currentCountNumber == 21
-        "ALIGNED"  // Key sequence numbers align timeframes
+    if array.size(htf1Counts) > 0 and array.size(htf2Counts) > 0
+        currentHTF1 = array.get(htf1Counts, array.size(htf1Counts) - 1)
+        currentHTF2 = array.get(htf2Counts, array.size(htf2Counts) - 1)
+        
+        // Check if key sequence numbers align across timeframes
+        if (currentCountNumber == 7 and currentHTF1 == 13) or 
+           (currentCountNumber == 13 and currentHTF2 == 21) or
+           (currentCountNumber == 21 and currentHTF1 == 31)
+            "ALIGNED"
+        else
+            "MISALIGNED"
     else
-        "MISALIGNED"
+        "UNKNOWN"
 
 // ===== CYCLE WITHIN CYCLE OVERLAP DETECTION =====
 f_detectCycleOverlap() =>
@@ -512,9 +590,35 @@ if enableCasting and countingStarted
                 // Normal candle counting - increment by 1 each candle
                 castForwardCount := castForwardCount + 1
 
+// ===== TRANSCRIPT SPECIFIC TRADING RULES =====
+f_getTranscriptTradingRule(cycleCount) =>
+    // Transcript examples: Entry at 7, exit at 13; Entry at 13, exit at 21
+    switch cycleCount
+        7 => "ENTRY_LONG"   // Transcript: entry at 7
+        13 => "EXIT_LONG"   // Transcript: exit at 13
+        21 => "ENTRY_SHORT" // Transcript: entry at 21
+        31 => "EXIT_SHORT"  // Transcript: exit at 31
+        => "HOLD"
+
+f_applyTranscriptCandleRules() =>
+    // Transcript: Bearish closed candles must be ignored for bullish countings
+    // Bullish closed candles must be ignored for bearish countings
+    if countDirection == "Bullish"
+        // For bullish counting, ignore bearish candles
+        if close < open
+            false  // Don't count bearish candles
+        else
+            true   // Count bullish and doji candles
+    else
+        // For bearish counting, ignore bullish candles
+        if close > open
+            false  // Don't count bullish candles
+        else
+            true   // Count bearish and doji candles
+
 // ===== MULTIPLE CYCLE COUNTING LOGIC (From Transcript) =====
 // Cycles run ENDLESSLY until manually stopped - no maxCandles limit
-if countingStarted and bar_index >= anchorBarIndex
+if countingStarted and bar_index >= anchorBarIndex and f_applyTranscriptCandleRules()
     
     countIncrement = 1
     
@@ -617,6 +721,9 @@ if countingStarted and bar_index >= anchorBarIndex
                     => color.new(#808080, 0)   // Gray for others
                 
                 label.new(bar_index, yBase, labelText, color=color.new(#FFFFFF, 100), textcolor=cycleColor, size=f_getLabelSize())
+    
+    // Multi-timeframe counting (From Transcript)
+    f_countMultiTimeframe()
 
 // ===== CYCLE WITHIN CYCLE COUNTING LOGIC =====
 if countingStarted and enableCycleDetection
@@ -734,7 +841,7 @@ if enableCasting and forwardCastActive
 
 // ===== STATUS TABLE =====
 if barstate.islast
-    var table statusTable = table.new(position.top_right, 2, 29, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    var table statusTable = table.new(position.top_right, 2, 32, bgcolor=color.new(#FFFFFF, 80), border_width=1)
     
     table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
@@ -823,3 +930,12 @@ if barstate.islast
     
     table.cell(statusTable, 0, 28, "Time Align", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 28, f_checkTimeFrameAlignment(), text_color=#00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 29, "Time State", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 29, f_detectTimeContraction(currentCountNumber), text_color=#FF8000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 30, "Distortion", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 30, f_detectTimeDistortion(), text_color=#800080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 31, "Trading Rule", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 31, f_getTranscriptTradingRule(currentCountNumber), text_color=#0080FF, text_size=size.tiny)
