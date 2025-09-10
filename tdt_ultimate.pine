@@ -210,6 +210,67 @@ f_detectMarketCycle() =>
         else
             "Unknown"
 
+// ===== CYCLE WITHIN CYCLE OVERLAP DETECTION =====
+f_detectCycleOverlap() =>
+    if not enableCycleDetection
+        array.new<string>()
+    else
+        cycles = array.new<string>()
+        
+        // Primary cycle detection
+        primaryCycle = f_detectMarketCycle()
+        array.push(cycles, primaryCycle)
+        
+        // Secondary cycle detection (shorter timeframe)
+        shortRange = high - low
+        shortAvgRange = ta.sma(high - low, 10)
+        
+        if shortRange < shortAvgRange * 0.3
+            array.push(cycles, "Micro-Consolidation")
+        else if shortRange > shortAvgRange * 2.0
+            array.push(cycles, "Micro-Expansion")
+        
+        // Tertiary cycle detection (even shorter)
+        microRange = high - low
+        microAvgRange = ta.sma(high - low, 5)
+        
+        if microRange < microAvgRange * 0.2
+            array.push(cycles, "Nano-Consolidation")
+        else if microRange > microAvgRange * 3.0
+            array.push(cycles, "Nano-Expansion")
+        
+        cycles
+
+// ===== CYCLE COUNTING WITHIN CYCLES =====
+f_countCycleNumbers(cycleType) =>
+    switch cycleType
+        "Consolidation" => 
+            consolidationLevels = f_parseSequence(consolidationLength)
+            consolidationLevels
+        "Expansion" => 
+            expansionLevels = f_parseSequence(expansionLength)
+            expansionLevels
+        "Retracement" => 
+            retracementLevels = f_parseSequence(retracementLength)
+            retracementLevels
+        "Reversal" => 
+            reversalLevels = f_parseSequence(reversalLength)
+            reversalLevels
+        "Micro-Consolidation" => 
+            array.from(1, 2, 3, 5, 8)
+        "Micro-Expansion" => 
+            array.from(1, 2, 3, 5, 8)
+        "Nano-Consolidation" => 
+            array.from(1, 2, 3)
+        "Nano-Expansion" => 
+            array.from(1, 2, 3)
+        => array.new<float>()
+
+// ===== CYCLE STATE TRACKING =====
+f_trackCycleState(cycleType, count) =>
+    cycleLevels = f_countCycleNumbers(cycleType)
+    array.includes(cycleLevels, float(count))
+
 // ===== HARMONY/CHAOS DETECTION (From Transcript) =====
 f_detectHarmonyChaos() =>
     if not enableHarmonyChaos
@@ -263,6 +324,18 @@ var bool inTimeDistortion = false
 var int tdCount = 0
 var bool prevWasInside = false
 var int insideCandleStreak = 0
+
+// ===== CYCLE COUNTING VARIABLES =====
+var int consolidationCount = 0
+var int expansionCount = 0
+var int retracementCount = 0
+var int reversalCount = 0
+var int microConsolidationCount = 0
+var int microExpansionCount = 0
+var int nanoConsolidationCount = 0
+var int nanoExpansionCount = 0
+var string lastCycleType = "Unknown"
+var int cycleStartBar = na
 
 // TDT Casting variables
 var bool castingActive = false
@@ -378,6 +451,79 @@ if countingStarted and currentCountNumber <= maxCandles and bar_index >= anchorB
         if not displayOnlySequence or isMainSequence
             label.new(bar_index, yBase, labelText, color=color.new(#FFFFFF, 100), textcolor=mainColor, size=f_getLabelSize())
 
+// ===== CYCLE WITHIN CYCLE COUNTING LOGIC =====
+if countingStarted and enableCycleDetection
+    // Detect current cycle overlaps
+    currentCycles = f_detectCycleOverlap()
+    
+    // Count each cycle type
+    for i = 0 to array.size(currentCycles) - 1
+        cycleType = array.get(currentCycles, i)
+        
+        // Reset count if cycle type changed
+        if cycleType != lastCycleType
+            cycleStartBar := bar_index
+            lastCycleType := cycleType
+        
+        // Increment appropriate counter
+        switch cycleType
+            "Consolidation" => 
+                consolidationCount := consolidationCount + 1
+                if f_trackCycleState(cycleType, consolidationCount)
+                    cycleOffset = (high - low) * 0.08
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "C" + str.tostring(consolidationCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#0000FF, 0), size=f_getLabelSize())
+            "Expansion" => 
+                expansionCount := expansionCount + 1
+                if f_trackCycleState(cycleType, expansionCount)
+                    cycleOffset = (high - low) * 0.08
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "E" + str.tostring(expansionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#00FF00, 0), size=f_getLabelSize())
+            "Retracement" => 
+                retracementCount := retracementCount + 1
+                if f_trackCycleState(cycleType, retracementCount)
+                    cycleOffset = (high - low) * 0.08
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "R" + str.tostring(retracementCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#800080, 0), size=f_getLabelSize())
+            "Reversal" => 
+                reversalCount := reversalCount + 1
+                if f_trackCycleState(cycleType, reversalCount)
+                    cycleOffset = (high - low) * 0.08
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "V" + str.tostring(reversalCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#00FFFF, 0), size=f_getLabelSize())
+            "Micro-Consolidation" => 
+                microConsolidationCount := microConsolidationCount + 1
+                if f_trackCycleState(cycleType, microConsolidationCount)
+                    cycleOffset = (high - low) * 0.05
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "mC" + str.tostring(microConsolidationCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#000080, 0), size=size.tiny)
+            "Micro-Expansion" => 
+                microExpansionCount := microExpansionCount + 1
+                if f_trackCycleState(cycleType, microExpansionCount)
+                    cycleOffset = (high - low) * 0.05
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "mE" + str.tostring(microExpansionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#008000, 0), size=size.tiny)
+            "Nano-Consolidation" => 
+                nanoConsolidationCount := nanoConsolidationCount + 1
+                if f_trackCycleState(cycleType, nanoConsolidationCount)
+                    cycleOffset = (high - low) * 0.03
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "nC" + str.tostring(nanoConsolidationCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#000040, 0), size=size.tiny)
+            "Nano-Expansion" => 
+                nanoExpansionCount := nanoExpansionCount + 1
+                if f_trackCycleState(cycleType, nanoExpansionCount)
+                    cycleOffset = (high - low) * 0.03
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "nE" + str.tostring(nanoExpansionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#004000, 0), size=size.tiny)
+
 // ===== TDT CASTING DISPLAY (From Script) =====
 if enableCasting and countingStarted and castingInitialized
     // Display backward sequence numbers (negative phase)
@@ -421,7 +567,7 @@ if enableCasting and forwardCastActive
 
 // ===== STATUS TABLE =====
 if barstate.islast
-    var table statusTable = table.new(position.top_right, 2, 15, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    var table statusTable = table.new(position.top_right, 2, 23, bgcolor=color.new(#FFFFFF, 80), border_width=1)
     
     table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
@@ -468,3 +614,27 @@ if barstate.islast
     
     table.cell(statusTable, 0, 14, "Multi Inside", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 14, multipleInsideCandles ? "ON" : "OFF", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 15, "Consolidation", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 15, str.tostring(consolidationCount), text_color=#0000FF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 16, "Expansion", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 16, str.tostring(expansionCount), text_color=#00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 17, "Retracement", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 17, str.tostring(retracementCount), text_color=#800080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 18, "Reversal", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 18, str.tostring(reversalCount), text_color=#00FFFF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 19, "Micro-C", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 19, str.tostring(microConsolidationCount), text_color=#000080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 20, "Micro-E", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 20, str.tostring(microExpansionCount), text_color=#008000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 21, "Nano-C", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 21, str.tostring(nanoConsolidationCount), text_color=#000040, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 22, "Nano-E", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 22, str.tostring(nanoExpansionCount), text_color=#004000, text_size=size.tiny)
