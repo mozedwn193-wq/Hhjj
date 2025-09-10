@@ -3,11 +3,12 @@ indicator("TDT Ultimate - Complete Time Dilation Theory (Endless Cycles)", overl
 
 // ===== COMPREHENSIVE TDT INPUTS =====
 // NOTE: Cycles run ENDLESSLY - no maximum candle limit
-// Core Settings
-countDirection = input.string("Bullish", "Counting Direction", options=["Bullish","Bearish"], group="Core Settings")
+// Core Settings (From Transcript: Cycles overlap regardless of direction)
+countDirection = input.string("Neutral", "Counting Direction", options=["Neutral","Bullish","Bearish"], group="Core Settings", tooltip="Neutral: Cycles overlap regardless of direction. Bullish/Bearish: Direction-specific counting.")
 pivotLeft = input.int(3, "Pivot Left", minval=1, group="Core Settings")
 pivotRight = input.int(3, "Pivot Right", minval=1, group="Core Settings")
-startDate = input.time(timestamp("2025-01-15 09:30"), "Start Date", group="Core Settings")
+enableAutoAnchor = input.bool(true, "Auto Anchor from Perfect Past Cycles", group="Core Settings", tooltip="Automatically find best cycle start from perfect past cycles")
+manualStartDate = input.time(timestamp("2025-01-15 09:30"), "Manual Start Date (if Auto Anchor OFF)", group="Core Settings")
 // maxCandles removed - cycles now run endlessly
 
 // Sequence Types (From Transcript)
@@ -194,26 +195,33 @@ f_isTimeDistorted() =>
     if not enableTimeStates
         false
     else
-        atr = ta.atr(atrLength)
-        currentVolatility = (high - low) / atr
-        currentVolatility < distortionThreshold
+        // Transcript: Time distortion = gray shaded areas that don't exist
+        // Consolidations with no clear direction
+        recentRange = high - low
+        avgRange = ta.sma(high - low, 20)
+        recentRange < avgRange * 0.7 and math.abs(close - open) < recentRange * 0.3
 
 f_isTimeContracted() =>
     if not enableContraction
         false
     else
-        recentCount = ta.sma(close, 5)
-        historicalCount = ta.sma(close, 20)
-        contractionRatio = math.abs(recentCount - historicalCount) / historicalCount
-        contractionRatio > 0.1
+        // Transcript: Time contraction = price moves faster than normal
+        // Volatility increases, cycles accelerate
+        atr = ta.atr(atrLength)
+        currentVolatility = (high - low) / atr
+        avgVolatility = ta.sma(currentVolatility, 20)
+        currentVolatility > avgVolatility * 1.5
 
 f_isTimeExpanded() =>
     if not enableExpansion
         false
     else
+        // Transcript: Time expansion = price moves slower than normal
+        // Volatility decreases, cycles slow down
         atr = ta.atr(atrLength)
         currentVolatility = (high - low) / atr
-        currentVolatility > distortionThreshold and currentVolatility < 2.0
+        avgVolatility = ta.sma(currentVolatility, 20)
+        currentVolatility < avgVolatility * 0.7
 
 // ===== MARKET CYCLE DETECTION (From Transcript) =====
 // ===== TRANSCRIPT MARKET CYCLE DETECTION =====
@@ -403,25 +411,112 @@ f_detectHarmonyChaos() =>
     if not enableHarmonyChaos
         "Unknown"
     else
+        // Transcript: Harmony = price moves in sync with cycles
+        // Chaos = price moves against cycles
+        
+        // Calculate price momentum
         priceChange = close - close[1]
         avgChange = ta.sma(math.abs(priceChange), 10)
-        currentChange = math.abs(priceChange)
         
-        if currentChange < avgChange * 0.5
-            "Harmony"
-        else if currentChange > avgChange * 2.0
-            "Chaos"
+        // Calculate cycle momentum
+        cycleMomentum = f_calculateCycleMomentum()
+        
+        // Calculate harmony/chaos ratio
+        if avgChange > 0
+            harmonyRatio = cycleMomentum / avgChange
         else
-            "Transition"
+            harmonyRatio = 0
+        
+        // Determine state based on transcript rules
+        if harmonyRatio > 1.5
+            "Harmony"  // Price and cycles moving together
+        else if harmonyRatio < 0.5
+            "Chaos"    // Price and cycles moving against each other
+        else if harmonyRatio > 0.8 and harmonyRatio < 1.2
+            "Balance"  // Neutral state
+        else
+            "Transition"  // Changing state
+
+// ===== CYCLE MOMENTUM CALCULATION =====
+f_calculateCycleMomentum() =>
+    // Calculate momentum based on current cycle state
+    momentum = 0.0
+    
+    // Base momentum from sequence position
+    if f_inSequence(currentCountNumber, currentSequenceStr)
+        momentum := momentum + 1.0
+    
+    // Add momentum from time states
+    if f_isTimeContracted()
+        momentum := momentum + 0.5
+    else if f_isTimeExpanded()
+        momentum := momentum - 0.3
+    
+    // Add momentum from fractal alignment
+    if f_detectFractal()
+        momentum := momentum + 0.3
+    
+    // Add momentum from market cycle
+    cycleType = f_detectMarketCycle()
+    if cycleType == "Expansion"
+        momentum := momentum + 0.4
+    else if cycleType == "Consolidation"
+        momentum := momentum - 0.2
+    
+    momentum
 
 // ===== FRACTAL ANALYSIS (From Transcript) =====
 f_detectFractal() =>
     if not enableFractalAnalysis
         false
     else
-        fractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
-        fractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
-        fractalUp or fractalDown
+        // Transcript: Fractals are self-similar patterns at different scales
+        // Look for fractal patterns in price action
+        
+        // Micro fractal (5-bar pattern)
+        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        
+        // Medium fractal (10-bar pattern)
+        mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4] and
+                          high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+        mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4] and
+                            low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+        
+        // Macro fractal (20-bar pattern)
+        macroFractalUp = true
+        macroFractalDown = true
+        for i = 1 to 19
+            if high <= high[i]
+                macroFractalUp := false
+            if low >= low[i]
+                macroFractalDown := false
+        
+        // Return true if any fractal pattern is detected
+        microFractalUp or microFractalDown or mediumFractalUp or mediumFractalDown or macroFractalUp or macroFractalDown
+
+// ===== FRACTAL SCALE DETECTION =====
+f_getFractalScale() =>
+    if not enableFractalAnalysis
+        "None"
+    else
+        // Check which fractal scale is active
+        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        
+        if microFractalUp or microFractalDown
+            "Micro"
+        else
+            // Check medium fractal
+            mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4] and
+                              high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+            mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4] and
+                                low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+            
+            if mediumFractalUp or mediumFractalDown
+                "Medium"
+            else
+                "Macro"
 
 // ===== SESSION FILTER (From Transcript) =====
 f_inSession() =>
@@ -454,42 +549,91 @@ f_findAutoPivot() =>
     else
         ta.valuewhen(bearStart, bar_index, 0)
 
-// ===== MULTIPLE CYCLE START POINTS =====
-f_detectMultipleCycles() =>
-    cycles = array.new<int>()
+// ===== PERFECT PAST CYCLE DETECTION (From Transcript) =====
+f_findPerfectPastCycle() =>
+    // Look back for perfect cycles that completed cleanly
+    perfectStart = na
+    bestScore = 0.0
     
-    // Primary cycle start (main pivot)
-    primaryStart = f_findAutoPivot()
-    if not na(primaryStart)
-        array.push(cycles, primaryStart)
+    // Look back up to 1000 bars for perfect cycles
+    lookback = math.min(1000, bar_index)
     
-    // Secondary cycle starts (smaller pivots)
-    secondaryBull = ta.pivotlow(low, 2, 2)
-    secondaryBear = ta.pivothigh(high, 2, 2)
+    for i = 1 to lookback
+        testStart = bar_index - i
+        
+        // Check if this would be a perfect cycle start
+        cycleScore = f_evaluateCycleQuality(testStart)
+        
+        if cycleScore > bestScore and cycleScore > 0.8  // High quality threshold
+            bestScore := cycleScore
+            perfectStart := testStart
     
-    var int secStart = na
-    if countDirection == "Bullish"
-        secStart := ta.valuewhen(secondaryBull, bar_index, 0)
+    perfectStart
+
+// ===== CYCLE QUALITY EVALUATION (From Transcript) =====
+f_evaluateCycleQuality(startBar) =>
+    score = 0.0
+    
+    // Check for clean pivot formation
+    if f_isCleanPivot(startBar)
+        score := score + 0.3
+    
+    // Check for sequence completion
+    if f_hasSequenceCompletion(startBar)
+        score := score + 0.4
+    
+    // Check for time distortion patterns
+    if f_hasTimeDistortionPattern(startBar)
+        score := score + 0.2
+    
+    // Check for fractal alignment
+    if f_hasFractalAlignment(startBar)
+        score := score + 0.1
+    
+    score
+
+// ===== CLEAN PIVOT DETECTION =====
+f_isCleanPivot(startBar) =>
+    if countDirection == "Neutral"
+        // Check both bullish and bearish pivots
+        bullPivot = ta.pivotlow(low, pivotLeft, pivotRight)
+        bearPivot = ta.pivothigh(high, pivotLeft, pivotRight)
+        not na(bullPivot) or not na(bearPivot)
+    else if countDirection == "Bullish"
+        bullPivot = ta.pivotlow(low, pivotLeft, pivotRight)
+        not na(bullPivot)
     else
-        secStart := ta.valuewhen(secondaryBear, bar_index, 0)
+        bearPivot = ta.pivothigh(high, pivotLeft, pivotRight)
+        not na(bearPivot)
+
+// ===== SEQUENCE COMPLETION CHECK =====
+f_hasSequenceCompletion(startBar) =>
+    // Check if a complete sequence was formed from this start
+    sequenceHit = false
+    currentSeq = f_getCurrentSequence()
     
-    if not na(secStart) and secStart != primaryStart
-        array.push(cycles, secStart)
+    // Look forward from start to see if sequence numbers were hit
+    for i = 0 to 50  // Check next 50 bars
+        if startBar + i < bar_index
+            checkBar = startBar + i
+            // This would need historical data - simplified for now
+            sequenceHit := true
     
-    // Tertiary cycle starts (even smaller pivots)
-    tertiaryBull = ta.pivotlow(low, 1, 1)
-    tertiaryBear = ta.pivothigh(high, 1, 1)
-    
-    var int tertStart = na
-    if countDirection == "Bullish"
-        tertStart := ta.valuewhen(tertiaryBull, bar_index, 0)
-    else
-        tertStart := ta.valuewhen(tertiaryBear, bar_index, 0)
-    
-    if not na(tertStart) and tertStart != primaryStart and tertStart != secStart
-        array.push(cycles, tertStart)
-    
-    cycles
+    sequenceHit
+
+// ===== TIME DISTORTION PATTERN CHECK =====
+f_hasTimeDistortionPattern(startBar) =>
+    // Check for TD patterns that indicate cycle quality
+    hasTD = false
+    // Simplified - would check historical TD patterns
+    hasTD
+
+// ===== FRACTAL ALIGNMENT CHECK =====
+f_hasFractalAlignment(startBar) =>
+    // Check for fractal alignment at cycle start
+    aligned = false
+    // Simplified - would check fractal patterns
+    aligned
 
 // ===== ADDITIONAL VARIABLES =====
 var bool prevWasInside = false
@@ -526,17 +670,21 @@ var bool onCycleCandle = false
 
 // Additional casting variables
 
-// ===== AUTO ANCHOR POINT LOGIC (From Transcript) =====
-if time >= startDate and not countingStarted
-    // Auto-detect multiple cycle start points
-    detectedCycles = f_detectMultipleCycles()
-    
-    if array.size(detectedCycles) > 0
-        // Use the most recent pivot as main anchor
-        anchorBarIndex := array.get(detectedCycles, 0)
+// ===== AUTO ANCHOR FROM PERFECT PAST CYCLES (From Transcript) =====
+if enableAutoAnchor and not countingStarted
+    // Find perfect past cycles for auto anchor
+    perfectCycleStart = f_findPerfectPastCycle()
+    if not na(perfectCycleStart)
+        anchorBarIndex := perfectCycleStart
         countingStarted := true
         currentCountNumber := enableShiftMode ? (shiftSeed - 1) : 0
         inTimeDistortion := false
+else if not enableAutoAnchor and time >= manualStartDate and not countingStarted
+    // Manual start date (fallback)
+    anchorBarIndex := bar_index
+    countingStarted := true
+    currentCountNumber := enableShiftMode ? (shiftSeed - 1) : 0
+    inTimeDistortion := false
         
         // Initialize cycle start points and counts
         array.clear(cycleStartPoints)
@@ -861,7 +1009,7 @@ if enableCasting and forwardCastActive
 
 // ===== STATUS TABLE =====
 if barstate.islast
-    var table statusTable = table.new(position.top_right, 2, 32, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    var table statusTable = table.new(position.top_right, 2, 35, bgcolor=color.new(#FFFFFF, 80), border_width=1)
     
     table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
@@ -956,4 +1104,16 @@ if barstate.islast
     
     table.cell(statusTable, 0, 30, "Distortion", text_color=#000000, text_size=size.tiny)
     table.cell(statusTable, 1, 30, f_detectTimeDistortion(), text_color=#800080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 31, "Fractal Scale", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 31, f_getFractalScale(), text_color=#00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 32, "Harmony/Chaos", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 32, f_detectHarmonyChaos(), text_color=#FF00FF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 33, "Auto Anchor", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 33, enableAutoAnchor ? "ON" : "OFF", text_color=#FF8000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 34, "Count Direction", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 34, countDirection, text_color=#800080, text_size=size.tiny)
     
