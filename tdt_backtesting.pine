@@ -52,8 +52,8 @@ f_isInsideBar() =>
 // Check if bar is doji
 f_isDoji() =>
     bodySize = math.abs(close - open)
-    range = high - low
-    range > 0 and (bodySize / range) < 0.2
+    candleRange = high - low
+    candleRange > 0 and (bodySize / candleRange) < 0.2
 
 // Check if bar is eligible for counting
 f_isEligible(isBull, skipInside, skipDoji) =>
