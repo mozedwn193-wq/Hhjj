@@ -1,0 +1,251 @@
+//@version=5
+indicator("TDT Enhanced - Time Dilation Theory", overlay=true, timeframe="", timeframe_gaps=true)
+
+// ===== INPUTS =====
+// Core Settings
+countDirection   = input.string("Bullish", "Counting Direction", options=["Bullish","Bearish"])
+pivotLeft        = input.int(3, "Pivot Left", minval=1)
+pivotRight       = input.int(3, "Pivot Right", minval=1)
+skipInsideBars   = input.bool(true, "Skip Inside Bars (Distortion)")
+skipDojiBars     = input.bool(true, "Skip Doji Bars (Body < 20% of range)")
+
+// Contraction/Expansion Mapping
+enableMapping    = input.bool(true, "Enable Sequence Mapping")
+contractionMode  = input.bool(false, "Contraction Mode (7→9, 13→11/17, 21→17/25)")
+expansionMode    = input.bool(false, "Expansion Mode (Standard 1,3,7,13,21)")
+
+// Session Filters
+enableSession    = input.bool(true, "Enable Session Filter")
+sessionStart     = input.session("0800-1600", "Trading Session")
+timezone         = input.string("UTC", "Timezone")
+
+// Multi-Timeframe
+showHTF          = input.bool(true, "Show Higher TF Overlay")
+htf              = input.timeframe("240", "Higher TF")
+htfCountDirection = input.string("Same", "HTF Direction", options=["Same","Bullish","Bearish"])
+
+// Levels and Alerts
+levelsToMark     = input.string("7,13,21", "Levels (comma-separated)")
+enableAlerts     = input.bool(true, "Enable Alerts")
+enableCSV        = input.bool(false, "Enable CSV Export (Console)")
+
+// Visual Settings
+showCountSeries  = input.bool(true, "Show Count Series")
+showHTFMarkers   = input.bool(true, "Show HTF Markers")
+markerSize       = input.string("Small", "Marker Size", options=["Tiny","Small","Normal","Large"])
+
+// ===== HELPER FUNCTIONS =====
+// Parse levels from comma-separated string
+f_parseLevels(csv) =>
+    levels = array.new<int>()
+    if not na(csv) and csv != ""
+        parts = str.split(str.replace_all(csv, " ", ""), ",")
+        for i = 0 to array.size(parts) - 1
+            val = str.tonumber(array.get(parts, i))
+            if not na(val)
+                array.push(levels, math.round(val))
+    levels
+
+// Check if value is in levels array
+f_inLevels(val, levels) =>
+    result = false
+    for i = 0 to array.size(levels) - 1
+        if array.get(levels, i) == val
+            result := true
+            break
+    result
+
+// Get mapped sequence value
+f_getMappedValue(original, isContraction) =>
+    if not enableMapping
+        original
+    else if isContraction
+        switch original
+            7 => 9
+            13 => math.random(0, 1) > 0.5 ? 11 : 17  // Random between 11/17
+            21 => math.random(0, 1) > 0.5 ? 17 : 25  // Random between 17/25
+            => original
+    else
+        original
+
+// Check if bar is inside bar
+f_isInsideBar() =>
+    high <= high[1] and low >= low[1]
+
+// Check if bar is doji (body < 20% of range)
+f_isDoji() =>
+    bodySize = math.abs(close - open)
+    candleRange = high - low
+    candleRange > 0 and (bodySize / candleRange) < 0.2
+
+// Check if bar is eligible for counting
+f_isEligible(isBull, skipInside, skipDoji) =>
+    isBullClose = close >= open
+    isBearClose = close < open
+    correctDirection = isBull ? isBullClose : isBearClose
+    notInside = skipInside ? not f_isInsideBar() : true
+    notDoji = skipDoji ? not f_isDoji() : true
+    correctDirection and notInside and notDoji
+
+// Session filter
+f_inSession() =>
+    if not enableSession
+        true
+    else
+        time(timeframe.period, sessionStart, timezone)
+
+// Get marker size
+f_getMarkerSize(sizeStr) =>
+    switch sizeStr
+        "Tiny" => size.tiny
+        "Small" => size.small
+        "Normal" => size.normal
+        "Large" => size.large
+        => size.small
+
+// ===== MAIN COUNTING LOGIC =====
+// Parse levels
+levels = f_parseLevels(levelsToMark)
+
+// Direction settings
+isBull = countDirection == "Bullish"
+htfIsBull = htfCountDirection == "Same" ? isBull : (htfCountDirection == "Bullish")
+
+// Find latest start pivot
+bullStart = ta.pivotlow(low, pivotLeft, pivotRight)
+bearStart = ta.pivothigh(high, pivotLeft, pivotRight)
+startBarIndex = nz(isBull ? ta.valuewhen(bullStart, bar_index, 0) : ta.valuewhen(bearStart, bar_index, 0), na)
+
+// Stateful count
+var int count = 0
+var int lastStartIdx = na
+var bool started = false
+var int mappedCount = 0
+
+// Initialize or reset on new pivot confirmation
+newStart = na(startBarIndex) ? false : (na(lastStartIdx) or startBarIndex > lastStartIdx)
+
+if newStart
+    lastStartIdx := startBarIndex
+    count := 0
+    mappedCount := 0
+    started := true
+
+// Increment only after the start pivot's confirmation bar
+canCount = started and bar_index > lastStartIdx + pivotRight and f_inSession()
+
+if canCount and f_isEligible(isBull, skipInsideBars, skipDojiBars)
+    count += 1
+    mappedCount := f_getMappedValue(count, contractionMode)
+
+// Check if we hit a level
+hitLevel = f_inLevels(count, levels)
+hitMappedLevel = f_inLevels(mappedCount, levels)
+
+// ===== HIGHER TIMEFRAME LOGIC =====
+// HTF counting function
+f_htfCount(_isBull, _skipInside, _skipDoji, _pl, _pr) =>
+    var int c = 0
+    var int lastIdx = na
+    var bool st = false
+    
+    bStart = ta.pivotlow(low, _pl, _pr)
+    sStart = ta.pivothigh(high, _pl, _pr)
+    sIdx = nz(_isBull ? ta.valuewhen(bStart, bar_index, 0) : ta.valuewhen(sStart, bar_index, 0), na)
+    
+    nStart = na(sIdx) ? false : (na(lastIdx) or sIdx > lastIdx)
+    
+    if nStart
+        lastIdx := sIdx
+        c := 0
+        st := true
+    
+    canC = st and bar_index > lastIdx + _pr
+    
+    if canC and f_isEligible(_isBull, _skipInside, _skipDoji)
+        c += 1
+    
+    c
+
+// Get HTF count
+htfCount = showHTF ? request.security(syminfo.tickerid, htf, f_htfCount(htfIsBull, skipInsideBars, skipDojiBars, pivotLeft, pivotRight), lookahead=barmerge.lookahead_off) : na
+htfMappedCount = f_getMappedValue(htfCount, contractionMode)
+
+// HTF level hits
+htfHitLevel = showHTF and f_inLevels(htfCount, levels)
+htfHitMappedLevel = showHTF and f_inLevels(htfMappedCount, levels)
+
+// ===== PLOTTING =====
+markerSizeEnum = f_getMarkerSize(markerSize)
+
+// Main count markers
+plotshape(hitLevel and showCountSeries, title="Count Levels", 
+    style=shape.labeldown, text=str.tostring(count), 
+    color=color.new(color.orange, 0), textcolor=color.white, 
+    location=isBull ? location.abovebar : location.belowbar, 
+    size=markerSizeEnum)
+
+// Mapped count markers (different color)
+plotshape(hitMappedLevel and enableMapping and showCountSeries, title="Mapped Levels", 
+    style=shape.labelup, text=str.tostring(mappedCount), 
+    color=color.new(color.purple, 0), textcolor=color.white, 
+    location=isBull ? location.belowbar : location.abovebar, 
+    size=markerSizeEnum)
+
+// HTF markers
+plotshape(htfHitLevel and showHTFMarkers, title="HTF Levels", 
+    style=shape.triangledown, color=color.new(color.aqua, 0), 
+    location=location.abovebar, size=markerSizeEnum, 
+    text="HTF " + str.tostring(htfCount))
+
+plotshape(htfHitMappedLevel and enableMapping and showHTFMarkers, title="HTF Mapped", 
+    style=shape.triangleup, color=color.new(color.lime, 0), 
+    location=location.belowbar, size=markerSizeEnum, 
+    text="HTF " + str.tostring(htfMappedCount))
+
+// Count series line
+plotchar(canCount and showCountSeries ? count : na, title="Count Series", 
+    char="", location=location.top, color=color.new(color.teal, 100))
+
+// ===== ALERTS =====
+if enableAlerts
+    alertcondition(hitLevel, "TDT Count Level Hit", "Count reached level {{plot_0}}")
+    alertcondition(hitMappedLevel, "TDT Mapped Level Hit", "Mapped count reached level {{plot_0}}")
+    alertcondition(htfHitLevel, "TDT HTF Level Hit", "HTF count reached level {{plot_0}}")
+    alertcondition(htfHitMappedLevel, "TDT HTF Mapped Hit", "HTF mapped count reached level {{plot_0}}")
+
+// ===== CSV EXPORT =====
+if enableCSV and barstate.islast
+    csvData = "Bar Index,Time,Count,Mapped Count,HTF Count,HTF Mapped,Level Hit,Mapped Hit,HTF Hit,HTF Mapped Hit\n"
+    csvData += str.tostring(bar_index) + "," + str.tostring(time) + "," + str.tostring(count) + "," + str.tostring(mappedCount) + "," + str.tostring(htfCount) + "," + str.tostring(htfMappedCount) + "," + str.tostring(hitLevel) + "," + str.tostring(hitMappedLevel) + "," + str.tostring(htfHitLevel) + "," + str.tostring(htfHitMappedLevel)
+    
+    log.info("TDT CSV Data:\n" + csvData)
+
+// ===== TABLE DISPLAY =====
+if barstate.islast
+    var table infoTable = table.new(position.top_right, 2, 8, bgcolor=color.new(color.white, 80), border_width=1)
+    
+    table.cell(infoTable, 0, 0, "Setting", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 0, "Value", text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 1, "Direction", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 1, countDirection, text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 2, "Current Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 2, str.tostring(count), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 3, "Mapped Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 3, str.tostring(mappedCount), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 4, "HTF Count", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 4, str.tostring(htfCount), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 5, "HTF Mapped", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 5, str.tostring(htfMappedCount), text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 6, "Session Filter", text_color=color.black, text_size=size.small)
+    table.cell(infoTable, 1, 6, enableSession ? "ON" : "OFF", text_color=color.black, text_size=size.small)
+    
+    table.cell(infoTable, 0, 7, "Mapping Mode", text_color=color.black, text_size=size.small)
+    mappingMode = contractionMode ? "Contraction" : (expansionMode ? "Expansion" : "Standard")
+    table.cell(infoTable, 1, 7, mappingMode, text_color=color.black, text_size=size.small)

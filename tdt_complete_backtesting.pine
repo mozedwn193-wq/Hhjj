@@ -1,0 +1,416 @@
+//@version=5
+strategy("TDT Complete Backtesting Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// ===== COMPREHENSIVE TDT STRATEGY INPUTS =====
+// Core Settings
+countDirection = input.string("Bullish", "Counting Direction", options=["Bullish","Bearish"])
+pivotLeft = input.int(3, "Pivot Left", minval=1)
+pivotRight = input.int(3, "Pivot Right", minval=1)
+
+// Sequence Types
+sequenceType = input.string("Standard", "Sequence Type", options=["Standard","Contraction","Expansion","Rare"])
+standardSequence = input.string("1,3,7,13,21", "Standard Sequence")
+contractionSequence = input.string("1,5,9,17,25", "Contraction Sequence")
+rareSequence = input.string("1,3,6,9,15,24", "Rare Sequence")
+
+// Entry/Exit Strategy
+entryStrategy = input.string("Conservative", "Entry Strategy", options=["Conservative","Moderate","Aggressive"])
+exitStrategy = input.string("Level Based", "Exit Strategy", options=["Level Based","Time Based","Volatility Based"])
+
+// Conservative: Enter at 7,13 | Exit at 21
+// Moderate: Enter at 3,7,13 | Exit at 13,21
+// Aggressive: Enter at 1,3,7 | Exit at 7,13,21
+
+conservativeEntry = input.string("7,13", "Conservative Entry Levels")
+conservativeExit = input.string("21", "Conservative Exit Levels")
+moderateEntry = input.string("3,7,13", "Moderate Entry Levels")
+moderateExit = input.string("13,21", "Moderate Exit Levels")
+aggressiveEntry = input.string("1,3,7", "Aggressive Entry Levels")
+aggressiveExit = input.string("7,13,21", "Aggressive Exit Levels")
+
+// Risk Management
+riskPercent = input.float(2.0, "Risk Per Trade (%)", minval=0.1, maxval=10.0)
+maxTrades = input.int(3, "Max Concurrent Trades", minval=1, maxval=10)
+stopLossPips = input.int(20, "Stop Loss (pips)", minval=1)
+takeProfitPips = input.int(40, "Take Profit (pips)", minval=1)
+
+// Time State Filters
+enableTimeStateFilter = input.bool(true, "Enable Time State Filter")
+tradeInDistortion = input.bool(false, "Trade During Time Distortion")
+tradeInContraction = input.bool(true, "Trade During Time Contraction")
+tradeInExpansion = input.bool(true, "Trade During Time Expansion")
+
+// Market Cycle Filters
+enableCycleFilter = input.bool(true, "Enable Market Cycle Filter")
+tradeConsolidation = input.bool(false, "Trade During Consolidation")
+tradeExpansion = input.bool(true, "Trade During Expansion")
+tradeRetracement = input.bool(true, "Trade During Retracement")
+tradeReversal = input.bool(true, "Trade During Reversal")
+
+// Multi-Timeframe Confluence
+enableMTFConfluence = input.bool(true, "Enable MTF Confluence")
+htf1 = input.timeframe("240", "Higher TF 1")
+htf2 = input.timeframe("D", "Higher TF 2")
+minConfluenceLevels = input.int(2, "Minimum Confluence Levels", minval=1, maxval=3)
+
+// Session and News Filters
+enableSession = input.bool(true, "Enable Session Filter")
+sessionStart = input.session("0800-1600", "Trading Session")
+timezone = input.string("UTC", "Timezone")
+enableNewsFilter = input.bool(false, "Enable News Filter")
+
+// Advanced Features
+enableFractalFilter = input.bool(false, "Enable Fractal Filter")
+enableHarmonyChaosFilter = input.bool(false, "Enable Harmony/Chaos Filter")
+harmonyOnly = input.bool(true, "Trade Only in Harmony (not Chaos)")
+
+// ===== HELPER FUNCTIONS =====
+// Parse levels from comma-separated string
+f_parseLevels(csv) =>
+    levels = array.new<int>()
+    if not na(csv) and csv != ""
+        parts = str.split(str.replace_all(csv, " ", ""), ",")
+        for i = 0 to array.size(parts) - 1
+            val = str.tonumber(array.get(parts, i))
+            if not na(val)
+                array.push(levels, math.round(val))
+    levels
+
+// Check if value is in levels array
+f_inLevels(val, levels) =>
+    result = false
+    for i = 0 to array.size(levels) - 1
+        if array.get(levels, i) == val
+            result := true
+            break
+    result
+
+// Get current sequence based on type
+f_getCurrentSequence() =>
+    switch sequenceType
+        "Standard" => f_parseLevels(standardSequence)
+        "Contraction" => f_parseLevels(contractionSequence)
+        "Expansion" => f_parseLevels(standardSequence)
+        "Rare" => f_parseLevels(rareSequence)
+        => f_parseLevels(standardSequence)
+
+// Get entry/exit levels based on strategy
+f_getEntryLevels() =>
+    switch entryStrategy
+        "Conservative" => f_parseLevels(conservativeEntry)
+        "Moderate" => f_parseLevels(moderateEntry)
+        "Aggressive" => f_parseLevels(aggressiveEntry)
+        => f_parseLevels(conservativeEntry)
+
+f_getExitLevels() =>
+    switch exitStrategy
+        "Level Based" => 
+            switch entryStrategy
+                "Conservative" => f_parseLevels(conservativeExit)
+                "Moderate" => f_parseLevels(moderateExit)
+                "Aggressive" => f_parseLevels(aggressiveExit)
+                => f_parseLevels(conservativeExit)
+        => f_parseLevels(conservativeExit)
+
+// Check if bar is inside bar (time distortion)
+f_isInsideBar() =>
+    high <= high[1] and low >= low[1]
+
+// Check if bar is doji
+f_isDoji() =>
+    bodySize = math.abs(close - open)
+    candleRange = high - low
+    candleRange > 0 and (bodySize / candleRange) < 0.2
+
+// Check if bar is weak (small body)
+f_isWeakBar() =>
+    bodySize = math.abs(close - open)
+    candleRange = high - low
+    candleRange > 0 and (bodySize / candleRange) < 0.3
+
+// Check if bar is eligible for counting
+f_isEligible(isBull, skipInside, skipDoji, skipWeak) =>
+    isBullClose = close >= open
+    isBearClose = close < open
+    correctDirection = isBull ? isBullClose : isBearClose
+    notInside = skipInside ? not f_isInsideBar() : true
+    notDoji = skipDoji ? not f_isDoji() : true
+    notWeak = skipWeak ? not f_isWeakBar() : true
+    correctDirection and notInside and notDoji and notWeak
+
+// Session filter
+f_inSession() =>
+    if not enableSession
+        true
+    else
+        time(timeframe.period, sessionStart, timezone)
+
+// Time distortion detection
+f_isTimeDistorted() =>
+    atr = ta.atr(14)
+    currentVolatility = (high - low) / atr
+    currentVolatility < 0.3
+
+// Time contraction detection
+f_isTimeContracted() =>
+    recentCount = ta.sma(close, 5)
+    historicalCount = ta.sma(close, 20)
+    contractionRatio = math.abs(recentCount - historicalCount) / historicalCount
+    contractionRatio > 0.1
+
+// Time expansion detection
+f_isTimeExpanded() =>
+    atr = ta.atr(14)
+    currentVolatility = (high - low) / atr
+    currentVolatility > 0.3 and currentVolatility < 2.0
+
+// Market cycle detection
+f_detectMarketCycle() =>
+    recentRange = high - low
+    avgRange = ta.sma(high - low, 20)
+    
+    if recentRange < avgRange * 0.5
+        "Consolidation"
+    else if recentRange > avgRange * 1.5
+        "Expansion"
+    else if close < close[1] and close[1] < close[2]
+        "Retracement"
+    else if close > close[1] and close[1] > close[2]
+        "Reversal"
+    else
+        "Unknown"
+
+// Harmony/Chaos detection
+f_detectHarmonyChaos() =>
+    priceChange = close - close[1]
+    avgChange = ta.sma(math.abs(priceChange), 10)
+    currentChange = math.abs(priceChange)
+    
+    if currentChange < avgChange * 0.5
+        "Harmony"
+    else if currentChange > avgChange * 2.0
+        "Chaos"
+    else
+        "Transition"
+
+// Fractal analysis
+f_detectFractal() =>
+    fractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+    fractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+    fractalUp or fractalDown
+
+// Multi-timeframe confluence check
+f_checkMTFConfluence() =>
+    if not enableMTFConfluence
+        true
+    else
+        confluenceCount = 0
+        
+        // Check HTF1
+        htf1Count = request.security(syminfo.tickerid, htf1, f_htfCount(isBull, true, true, true, pivotLeft, pivotRight), lookahead=barmerge.lookahead_off)
+        if f_inLevels(htf1Count, f_getEntryLevels())
+            confluenceCount += 1
+        
+        // Check HTF2
+        htf2Count = request.security(syminfo.tickerid, htf2, f_htfCount(isBull, true, true, true, pivotLeft, pivotRight), lookahead=barmerge.lookahead_off)
+        if f_inLevels(htf2Count, f_getEntryLevels())
+            confluenceCount += 1
+        
+        confluenceCount >= minConfluenceLevels
+
+// HTF counting function
+f_htfCount(_isBull, _skipInside, _skipDoji, _skipWeak, _pl, _pr) =>
+    var int c = 0
+    var int lastIdx = na
+    var bool st = false
+    
+    bStart = ta.pivotlow(low, _pl, _pr)
+    sStart = ta.pivothigh(high, _pl, _pr)
+    sIdx = nz(_isBull ? ta.valuewhen(bStart, bar_index, 0) : ta.valuewhen(sStart, bar_index, 0), na)
+    
+    nStart = na(sIdx) ? false : (na(lastIdx) or sIdx > lastIdx)
+    
+    if nStart
+        lastIdx := sIdx
+        c := 0
+        st := true
+    
+    canC = st and bar_index > lastIdx + _pr
+    
+    if canC and f_isEligible(_isBull, _skipInside, _skipDoji, _skipWeak)
+        c += 1
+    
+    c
+
+// ===== MAIN COUNTING LOGIC =====
+// Parse levels
+currentSequence = f_getCurrentSequence()
+entryLevels = f_getEntryLevels()
+exitLevels = f_getExitLevels()
+
+// Direction settings
+isBull = countDirection == "Bullish"
+
+// Find latest start pivot
+bullStart = ta.pivotlow(low, pivotLeft, pivotRight)
+bearStart = ta.pivothigh(high, pivotLeft, pivotRight)
+startBarIndex = nz(isBull ? ta.valuewhen(bullStart, bar_index, 0) : ta.valuewhen(bearStart, bar_index, 0), na)
+
+// Stateful count
+var int count = 0
+var int lastStartIdx = na
+var bool started = false
+
+// Initialize or reset on new pivot confirmation
+newStart = na(startBarIndex) ? false : (na(lastStartIdx) or startBarIndex > lastStartIdx)
+
+if newStart
+    lastStartIdx := startBarIndex
+    count := 0
+    started := true
+
+// Increment only after the start pivot's confirmation bar
+canCount = started and bar_index > lastStartIdx + pivotRight and f_inSession()
+
+if canCount and f_isEligible(isBull, true, true, true)
+    count += 1
+
+// Check if we hit entry/exit levels
+hitEntryLevel = f_inLevels(count, entryLevels)
+hitExitLevel = f_inLevels(count, exitLevels)
+
+// ===== FILTER CONDITIONS =====
+// Time state filter
+timeStateOK = not enableTimeStateFilter or (
+    (not f_isTimeDistorted() or tradeInDistortion) and
+    (not f_isTimeContracted() or tradeInContraction) and
+    (not f_isTimeExpanded() or tradeInExpansion)
+)
+
+// Market cycle filter
+cycleOK = not enableCycleFilter or (
+    (f_detectMarketCycle() != "Consolidation" or tradeConsolidation) and
+    (f_detectMarketCycle() != "Expansion" or tradeExpansion) and
+    (f_detectMarketCycle() != "Retracement" or tradeRetracement) and
+    (f_detectMarketCycle() != "Reversal" or tradeReversal)
+)
+
+// Harmony/Chaos filter
+harmonyChaosOK = not enableHarmonyChaosFilter or (harmonyOnly ? f_detectHarmonyChaos() == "Harmony" : true)
+
+// Fractal filter
+fractalOK = not enableFractalFilter or f_detectFractal()
+
+// MTF confluence
+mtfConfluenceOK = f_checkMTFConfluence()
+
+// Combined filter
+allFiltersOK = timeStateOK and cycleOK and harmonyChaosOK and fractalOK and mtfConfluenceOK
+
+// ===== STRATEGY LOGIC =====
+// Entry conditions
+longCondition = isBull and hitEntryLevel and strategy.position_size == 0 and strategy.opentrades < maxTrades and allFiltersOK
+shortCondition = not isBull and hitEntryLevel and strategy.position_size == 0 and strategy.opentrades < maxTrades and allFiltersOK
+
+// Exit conditions
+longExitCondition = isBull and (hitExitLevel or strategy.position_size < 0)
+shortExitCondition = not isBull and (hitExitLevel or strategy.position_size > 0)
+
+// Calculate position size based on risk
+pipValue = syminfo.mintick * 10
+riskAmount = strategy.equity * riskPercent / 100
+positionSize = riskAmount / (stopLossPips * pipValue)
+
+// Execute trades
+if longCondition
+    strategy.entry("Long", strategy.long, qty=positionSize)
+    strategy.exit("Long Exit", "Long", stop=close - stopLossPips * pipValue, limit=close + takeProfitPips * pipValue)
+
+if shortCondition
+    strategy.entry("Short", strategy.short, qty=positionSize)
+    strategy.exit("Short Exit", "Short", stop=close + stopLossPips * pipValue, limit=close - takeProfitPips * pipValue)
+
+// Close positions on exit levels
+if longExitCondition and strategy.position_size > 0
+    strategy.close("Long", comment="TDT Exit")
+
+if shortExitCondition and strategy.position_size < 0
+    strategy.close("Short", comment="TDT Exit")
+
+// ===== VISUAL INDICATORS =====
+// Plot entry/exit signals
+plotshape(longCondition, "Long Entry", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Short Entry", shape.triangledown, location.abovebar, color.red, size=size.small)
+plotshape(longExitCondition and strategy.position_size > 0, "Long Exit", shape.xcross, location.abovebar, color.blue, size=size.small)
+plotshape(shortExitCondition and strategy.position_size < 0, "Short Exit", shape.xcross, location.belowbar, color.blue, size=size.small)
+
+// Plot count levels
+plotchar(canCount ? count : na, "Count", "", location.top, color.teal, size=size.tiny)
+
+// Plot filter status
+plotshape(not allFiltersOK, "Filter Blocked", shape.xcross, location.abovebar, color.orange, size=size.tiny)
+
+// ===== PERFORMANCE METRICS =====
+// Calculate key metrics
+totalTrades = strategy.closedtrades
+winningTrades = strategy.wintrades
+losingTrades = strategy.losstrades
+winRate = totalTrades > 0 ? winningTrades / totalTrades * 100 : 0
+profitFactor = strategy.grossloss != 0 ? strategy.grossprofit / math.abs(strategy.grossloss) : 0
+maxDrawdown = strategy.max_drawdown
+avgWin = winningTrades > 0 ? strategy.grossprofit / winningTrades : 0
+avgLoss = losingTrades > 0 ? math.abs(strategy.grossloss) / losingTrades : 0
+
+// ===== TABLE DISPLAY =====
+if barstate.islast
+    var table perfTable = table.new(position.top_left, 2, 15, bgcolor=color.new(color.white, 80), border_width=1)
+    
+    table.cell(perfTable, 0, 0, "Metric", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 0, "Value", text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 1, "Strategy", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 1, entryStrategy, text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 2, "Sequence Type", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 2, sequenceType, text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 3, "Total Trades", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 3, str.tostring(totalTrades), text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 4, "Win Rate", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 4, str.tostring(winRate, "#.##") + "%", text_color=winRate > 50 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 5, "Profit Factor", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 5, str.tostring(profitFactor, "#.##"), text_color=profitFactor > 1 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 6, "Max Drawdown", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 6, str.tostring(maxDrawdown, "#.##") + "%", text_color=color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 7, "Avg Win", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 7, str.tostring(avgWin, "#.##"), text_color=color.green, text_size=size.small)
+    
+    table.cell(perfTable, 0, 8, "Avg Loss", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 8, str.tostring(avgLoss, "#.##"), text_color=color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 9, "Net Profit", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 9, str.tostring(strategy.netprofit, "#.##"), text_color=strategy.netprofit > 0 ? color.green : color.red, text_size=size.small)
+    
+    table.cell(perfTable, 0, 10, "Current Count", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 10, str.tostring(count), text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 11, "Time State", text_color=color.black, text_size=size.small)
+    timeState = f_isTimeDistorted() ? "Distorted" : (f_isTimeContracted() ? "Contracted" : (f_isTimeExpanded() ? "Expanded" : "Normal"))
+    table.cell(perfTable, 1, 11, timeState, text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 12, "Market Cycle", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 12, f_detectMarketCycle(), text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 13, "Harmony/Chaos", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 13, f_detectHarmonyChaos(), text_color=color.black, text_size=size.small)
+    
+    table.cell(perfTable, 0, 14, "Filters OK", text_color=color.black, text_size=size.small)
+    table.cell(perfTable, 1, 14, allFiltersOK ? "YES" : "NO", text_color=allFiltersOK ? color.green : color.red, text_size=size.small)
+
+// ===== CSV EXPORT =====
+if barstate.islast
+    log.info("TDT Complete Backtest CSV Data:\nBar Index: " + str.tostring(bar_index) + "\nTime: " + str.tostring(time) + "\nCount: " + str.tostring(count) + "\nStrategy: " + entryStrategy + "\nSequence Type: " + sequenceType + "\nEntry Hit: " + str.tostring(hitEntryLevel) + "\nExit Hit: " + str.tostring(hitExitLevel) + "\nPosition Size: " + str.tostring(positionSize) + "\nEquity: " + str.tostring(strategy.equity) + "\nNet Profit: " + str.tostring(strategy.netprofit) + "\nTime State: " + timeState + "\nMarket Cycle: " + f_detectMarketCycle() + "\nHarmony Chaos: " + f_detectHarmonyChaos() + "\nFilters OK: " + str.tostring(allFiltersOK))

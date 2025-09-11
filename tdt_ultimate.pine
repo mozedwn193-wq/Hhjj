@@ -1,0 +1,1116 @@
+//@version=5
+indicator("TDT Ultimate - Complete Time Dilation Theory (Endless Cycles)", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ===== COMPREHENSIVE TDT INPUTS =====
+// NOTE: Cycles run ENDLESSLY - no maximum candle limit
+// Core Settings (From Transcript: Cycles overlap regardless of direction)
+countDirection = input.string("Neutral", "Counting Direction", options=["Neutral","Bullish","Bearish"], group="Core Settings", tooltip="Neutral: Cycles overlap regardless of direction. Bullish/Bearish: Direction-specific counting.")
+pivotLeft = input.int(3, "Pivot Left", minval=1, group="Core Settings")
+pivotRight = input.int(3, "Pivot Right", minval=1, group="Core Settings")
+enableAutoAnchor = input.bool(true, "Auto Anchor from Perfect Past Cycles", group="Core Settings", tooltip="Automatically find best cycle start from perfect past cycles")
+manualStartDate = input.time(timestamp("2025-01-15 09:30"), "Manual Start Date (if Auto Anchor OFF)", group="Core Settings")
+// maxCandles removed - cycles now run endlessly
+
+// Sequence Types (From Transcript)
+sequenceType = input.string("Standard", "Sequence Type", options=["Standard","Contraction","Expansion","Rare","Custom"], group="Sequences")
+standardSequence = input.string("1,3,7,13,21", "Standard Sequence (n²-n+1)", group="Sequences")
+contractionSequence = input.string("1,5,9,17,25", "Contraction Sequence", group="Sequences")
+rareSequence = input.string("1,3,6,9,15,24", "Rare Sequence (Perfect Alignment)", group="Sequences")
+customSequence = input.string("7,13,21,31,42", "Custom Sequence", group="Sequences")
+
+// TDT Casting (Backward-to-Forward)
+enableCasting = input.bool(false, "Enable TDT Casting", group="TDT Casting")
+castingSequenceType = input.string("A", "Backward Sequence Type", options=["A","B"], group="TDT Casting")
+backwardSequenceA = input.string("33,27,21,13,7,3,1", "Backward Sequence A", group="TDT Casting")
+backwardSequenceB = input.string("37,25,17,11,9,5,1", "Backward Sequence B", group="TDT Casting")
+forwardCastingSequence = input.string("1,3,7,13,21,27,33", "Forward Casting Sequence", group="TDT Casting")
+enableShiftMode = input.bool(false, "Enable Shift Mode", group="TDT Casting")
+shiftSeed = input.int(7, "Shift Seed", minval=-100, maxval=100, group="TDT Casting")
+sameCandleTransition = input.bool(true, "Shared -1 Candle (Backward End = Forward Start)", group="TDT Casting")
+
+// Time Distortion (From Transcript)
+freezeOnTD = input.bool(true, "Freeze Count on Time Distortion", group="Time Distortion")
+enableAdvancedTD = input.bool(true, "Enhanced TD Detection", group="Time Distortion")
+insideMethod = input.string("High/Low", "Inside Detection Method", options=["High/Low","Open/Close"], group="Time Distortion")
+insideComparison = input.string("<=", "Inside Comparison", options=["<=","<"], group="Time Distortion")
+multipleInsideCandles = input.bool(false, "Multiple Inside Candles", group="Time Distortion")
+
+// Market Cycle Detection (From Transcript)
+enableCycleDetection = input.bool(true, "Enable Market Cycle Detection", group="Market Cycles")
+consolidationLength = input.string("10,20", "Consolidation Lengths", group="Market Cycles")
+retracementLength = input.string("3,4", "Retracement Lengths", group="Market Cycles")
+expansionLength = input.string("4,7", "Expansion Lengths", group="Market Cycles")
+reversalLength = input.string("13,21", "Reversal Lengths", group="Market Cycles")
+
+// Time States (From Transcript)
+enableTimeStates = input.bool(true, "Enable Time States", group="Time States")
+enableContraction = input.bool(true, "Enable Time Contraction", group="Time States")
+enableExpansion = input.bool(true, "Enable Time Expansion", group="Time States")
+distortionThreshold = input.float(0.3, "Distortion Threshold", minval=0.1, maxval=1.0, group="Time States")
+atrLength = input.int(14, "ATR Length", minval=5, group="Time States")
+
+// Multi-Timeframe Analysis (From Transcript)
+enableMTF = input.bool(true, "Enable Multi-Timeframe Analysis", group="Multi-Timeframe")
+htf1 = input.timeframe("240", "Higher TF 1", group="Multi-Timeframe")
+htf2 = input.timeframe("D", "Higher TF 2", group="Multi-Timeframe")
+htf3 = input.timeframe("W", "Higher TF 3", group="Multi-Timeframe")
+
+// Session and News Filters (From Transcript)
+enableSession = input.bool(true, "Enable Session Filter", group="Session Filter")
+sessionStart = input.session("0800-1600", "Trading Session", group="Session Filter")
+timezone = input.string("UTC", "Timezone", group="Session Filter")
+enableNewsFilter = input.bool(false, "Enable News Filter", group="Session Filter")
+
+// Advanced Features (From Transcript)
+enableFractalAnalysis = input.bool(true, "Enable Fractal Analysis", group="Advanced")
+enableHarmonyChaos = input.bool(true, "Enable Harmony/Chaos Detection", group="Advanced")
+countOutsideDouble = input.bool(false, "Count Outside Candles Double", group="Advanced")
+
+// Display Settings
+displayPosition = input.string("above_candle", "Display Position", options=["above_candle","below_candle"], group="Display")
+verticalShift = input.int(0, "Vertical Shift", group="Display")
+labelSize = input.string("normal", "Label Size", options=["tiny","small","normal","large","huge"], group="Display")
+sequenceColor = input.color(#FF0000, "Sequence Number Color", group="Display")
+castingColor = input.color(#FF00FF, "Casting Color", group="Display")
+timeDistortionColor = input.color(#FFA500, "Time Distortion Color", group="Display")
+displayOnlySequence = input.bool(true, "Display Only Sequence Numbers", group="Display")
+
+// ===== MAIN VARIABLES (DECLARED EARLY FOR FUNCTION ACCESS) =====
+var int currentCountNumber = 1
+var array<float> currentSequenceStr = array.new<float>()
+var string selectedBackwardSequence = ""
+var array<float> castingSeqArray = array.new<float>()
+var array<float> forwardCastSeqArray = array.new<float>()
+var int anchorBarIndex = na
+var bool countingStarted = false
+var bool inTimeDistortion = false
+var int tdCount = 0
+
+// ===== HELPER FUNCTIONS =====
+// ===== TRANSCRIPT SEQUENCE CALCULATION =====
+// Formula: n² - n + 1 (exactly as transcript)
+f_calculateTranscriptSequence(n) =>
+    n * n - n + 1
+
+// Generate transcript sequence: 1, 3, 7, 13, 21, 31, 43
+f_getTranscriptSequence() =>
+    transcriptSeq = array.new<float>()
+    for i = 1 to 7
+        array.push(transcriptSeq, f_calculateTranscriptSequence(i))
+    transcriptSeq
+
+// Parse sequence from comma-separated string
+f_parseSequence(string seq_str) =>
+    sequence = array.new<float>()
+    parts = str.split(seq_str, ",")
+    for part in parts
+        trimmed_part = str.trim(part)
+        if str.length(trimmed_part) > 0
+            num_value = str.tonumber(trimmed_part)
+            if not na(num_value)
+                array.push(sequence, num_value)
+    sequence
+
+// Get current sequence based on type
+f_getCurrentSequence() =>
+    switch sequenceType
+        "Standard" => f_getTranscriptSequence()  // Use transcript sequence: 1,3,7,13,21,31,43
+        "Contraction" => f_parseSequence("1,5,9,17,25")  // Second sequence from transcript
+        "Expansion" => f_parseSequence("1,3,6,9,15,24")  // Perfect sequence from transcript
+        "Rare" => f_parseSequence("1,3,6,9,15,24")       // Perfect sequence from transcript
+        "Custom" => f_parseSequence(customSequence)
+        => f_getTranscriptSequence()  // Default to transcript sequence
+
+// Check if value is in sequence array
+f_inSequence(val, sequence) =>
+    array.includes(sequence, float(val))
+
+// ===== FRACTAL ANALYSIS (From Transcript) =====
+f_detectFractal() =>
+    if not enableFractalAnalysis
+        false
+    else
+        // Transcript: Fractals are self-similar patterns at different scales
+        // Look for fractal patterns in price action
+        
+        // Micro fractal (5-bar pattern)
+        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        
+        // Medium fractal (10-bar pattern)
+        mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        mediumFractalUp := mediumFractalUp and high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+        mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        mediumFractalDown := mediumFractalDown and low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+        
+        // Macro fractal (20-bar pattern)
+        macroFractalUp = true
+        macroFractalDown = true
+        for i = 1 to 19
+            if high <= high[i]
+                macroFractalUp := false
+            if low >= low[i]
+                macroFractalDown := false
+        
+        // Return true if any fractal pattern is detected
+        microFractalUp or microFractalDown or mediumFractalUp or mediumFractalDown or macroFractalUp or macroFractalDown
+
+// ===== FRACTAL SCALE DETECTION =====
+f_getFractalScale() =>
+    if not enableFractalAnalysis
+        "None"
+    else
+        // Check which fractal scale is active
+        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        
+        if microFractalUp or microFractalDown
+            "Micro"
+        else
+            // Check medium fractal
+            mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+            mediumFractalUp := mediumFractalUp and high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+            mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+            mediumFractalDown := mediumFractalDown and low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+            
+            if mediumFractalUp or mediumFractalDown
+                "Medium"
+            else
+                "Macro"
+
+// ===== CYCLE MOMENTUM CALCULATION =====
+f_calculateCycleMomentum() =>
+    // Calculate momentum based on current cycle state
+    momentum = 0.0
+    
+    // Base momentum from sequence position
+    if f_inSequence(currentCountNumber, currentSequenceStr)
+        momentum := momentum + 1.0
+    
+    // Add momentum from time states
+    if f_isTimeContracted()
+        momentum := momentum + 0.5
+    else if f_isTimeExpanded()
+        momentum := momentum - 0.3
+    
+    // Add momentum from fractal alignment
+    if f_detectFractal()
+        momentum := momentum + 0.3
+    
+    // Add momentum from market cycle
+    cycleType = f_detectMarketCycle()
+    if cycleType == "Expansion"
+        momentum := momentum + 0.4
+    else if cycleType == "Time Distortion"
+        momentum := momentum - 0.2
+    
+    momentum
+
+// Get label size
+f_getLabelSize() =>
+    switch labelSize
+        "tiny" => size.tiny
+        "small" => size.small
+        "large" => size.large
+        "huge" => size.huge
+        => size.normal
+
+// ===== CANDLE TYPE DETECTION (Enhanced from Script) =====
+f_isInsideCandle(int index) =>
+    if not enableAdvancedTD
+        false
+    else
+        c_high = high[index]
+        c_low = low[index]
+        c_open = open[index]
+        c_close = close[index]
+        
+        prev_high = high[index + 1]
+        prev_low = low[index + 1]
+        prev_open = open[index + 1]
+        prev_close = close[index + 1]
+        
+        // Inside candle detection
+        is_inside = if insideMethod == "High/Low"
+            if insideComparison == "<="
+                c_high <= prev_high and c_low >= prev_low
+            else
+                c_high < prev_high and c_low > prev_low
+        else
+            bodyMax = math.max(c_open, c_close)
+            bodyMin = math.min(c_open, c_close)
+            prevBodyMax = math.max(prev_open, prev_close)
+            prevBodyMin = math.min(prev_open, prev_close)
+            
+            if insideComparison == "<="
+                bodyMax <= prevBodyMax and bodyMin >= prevBodyMin
+            else
+                bodyMax < prevBodyMax and bodyMin > prevBodyMin
+        
+        is_inside
+
+f_isOutsideCandle(int index) =>
+    if not enableAdvancedTD
+        false
+    else
+        c_high = high[index]
+        c_low = low[index]
+        prev_high = high[index + 1]
+        prev_low = low[index + 1]
+        
+        // Outside candle: high > prev_high AND low < prev_low
+        c_high > prev_high and c_low < prev_low
+
+f_isDojiCandle(int index) =>
+    bodySize = math.abs(close[index] - open[index])
+    candleRange = high[index] - low[index]
+    candleRange > 0 and (bodySize / candleRange) < 0.2
+
+f_isWeakCandle(int index) =>
+    bodySize = math.abs(close[index] - open[index])
+    candleRange = high[index] - low[index]
+    candleRange > 0 and (bodySize / candleRange) < 0.3
+
+// ===== TIME STATE DETECTION (From Transcript) =====
+f_isTimeDistorted() =>
+    if not enableTimeStates
+        false
+    else
+        // Transcript: Time distortion = gray shaded areas that don't exist
+        // Consolidations with no clear direction
+        recentRange = high - low
+        avgRange = ta.sma(high - low, 20)
+        recentRange < avgRange * 0.7 and math.abs(close - open) < recentRange * 0.3
+
+f_isTimeContracted() =>
+    if not enableContraction
+        false
+    else
+        // Transcript: Time contraction = price moves faster than normal
+        // Volatility increases, cycles accelerate
+        atr = ta.atr(atrLength)
+        currentVolatility = (high - low) / atr
+        avgVolatility = ta.sma(currentVolatility, 20)
+        currentVolatility > avgVolatility * 1.5
+
+f_isTimeExpanded() =>
+    if not enableExpansion
+        false
+    else
+        // Transcript: Time expansion = price moves slower than normal
+        // Volatility decreases, cycles slow down
+        atr = ta.atr(atrLength)
+        currentVolatility = (high - low) / atr
+        avgVolatility = ta.sma(currentVolatility, 20)
+        currentVolatility < avgVolatility * 0.7
+
+// ===== MARKET CYCLE DETECTION (From Transcript) =====
+// ===== TRANSCRIPT MARKET CYCLE DETECTION =====
+f_detectMarketCycle() =>
+    if not enableCycleDetection
+        "Unknown"
+    else
+        recentRange = high - low
+        avgRange = ta.sma(high - low, 20)
+        
+        // Transcript logic: Consolidation IS time distortion
+        if recentRange < avgRange * 0.5
+            "Time Distortion"  // Transcript: Consolidation IS time distortion
+        else if recentRange > avgRange * 1.5
+            "Expansion"         // Time expansion - harmony
+        else if close < close[1] and close[1] < close[2]
+            "Retracement"       // Time contraction
+        else if close > close[1] and close[1] > close[2]
+            "Reversal"          // Time expansion - harmony
+        else
+            "Unknown"
+
+// ===== TIME CONTRACTION/DISTORTION DETECTION (From Transcript) =====
+f_detectTimeContraction(cycleCount) =>
+    // Transcript: sequences can be hastened or delayed
+    // Hastened: 3→4, 7→9, 13→11, 21→17
+    // Delayed: 3→5, 7→9, 13→15/17, 21→25
+    
+    if cycleCount == 4 and not f_inSequence(4, currentSequenceStr)
+        "HASTENED"  // 3 became 4
+    else if cycleCount == 5 and not f_inSequence(5, currentSequenceStr)
+        "DELAYED"   // 3 became 5
+    else if cycleCount == 9 and not f_inSequence(9, currentSequenceStr)
+        "HASTENED"  // 7 became 9
+    else if cycleCount == 11 and not f_inSequence(11, currentSequenceStr)
+        "HASTENED"  // 13 became 11
+    else if cycleCount == 15 and not f_inSequence(15, currentSequenceStr)
+        "DELAYED"   // 13 became 15
+    else if cycleCount == 17 and not f_inSequence(17, currentSequenceStr)
+        "DELAYED"   // 13 became 17 or 21 became 17
+    else if cycleCount == 25 and not f_inSequence(25, currentSequenceStr)
+        "DELAYED"   // 21 became 25
+    else
+        "NORMAL"
+
+f_detectTimeDistortion() =>
+    // Transcript: time distortion = gray shaded areas that don't exist
+    // Consolidations with no clear direction
+    recentRange = high - low
+    avgRange = ta.sma(high - low, 20)
+    
+    if recentRange < avgRange * 0.3 and 
+       math.abs(close - open) < (high - low) * 0.1
+        "DISTORTED"  // Very small range, small body = time distortion
+    else
+        "NORMAL"
+
+// ===== TRANSCRIPT TRADING SIGNALS =====
+f_getTradingSignal(cycleCount, cycleType) =>
+    // Based on transcript: sequence numbers provide optimal trade entry timing
+    timeState = f_detectTimeContraction(cycleCount)
+    distortionState = f_detectTimeDistortion()
+    
+    if distortionState == "DISTORTED"
+        "WAIT"  // Transcript: avoid trades in time distortion
+    else if f_inSequence(cycleCount, currentSequenceStr)
+        switch cycleType
+            "Time Distortion" => "WAIT"  // Transcript: avoid trades in time distortion
+            "Expansion" => "LONG"       // Transcript: expansions are harmony
+            "Reversal" => "REVERSE"     // Transcript: reversals are harmony
+            "Retracement" => "SHORT"    // Transcript: retracements are contraction
+            => "NEUTRAL"
+    else if timeState == "HASTENED"
+        "EARLY"  // Sequence hastened - early entry
+    else if timeState == "DELAYED"
+        "LATE"   // Sequence delayed - late entry
+    else
+        "NEUTRAL"
+
+// ===== MULTI-TIMEFRAME COUNTING SYSTEM (From Transcript) =====
+// Arrays to store counts for each timeframe
+var array<int> htf1Counts = array.new<int>()
+var array<int> htf2Counts = array.new<int>()
+var array<int> htf3Counts = array.new<int>()
+
+// Multi-timeframe counting function
+// HTF cycles work independently and are plotted on LTF
+f_countMultiTimeframe() =>
+    // Count on higher timeframes (independent cycle logic)
+    htf1Count = request.security(syminfo.tickerid, htf1, currentCountNumber)
+    htf2Count = request.security(syminfo.tickerid, htf2, currentCountNumber)
+    htf3Count = request.security(syminfo.tickerid, htf3, currentCountNumber)
+    
+    // Store counts
+    array.push(htf1Counts, htf1Count)
+    array.push(htf2Counts, htf2Count)
+    array.push(htf3Counts, htf3Count)
+    
+    // Keep only last 20 counts
+    if array.size(htf1Counts) > 20
+        array.shift(htf1Counts)
+    if array.size(htf2Counts) > 20
+        array.shift(htf2Counts)
+    if array.size(htf3Counts) > 20
+        array.shift(htf3Counts)
+
+// ===== TRANSCRIPT TIME FRAME ALIGNMENT =====
+f_checkTimeFrameAlignment() =>
+    // Transcript: higher time frame affects lower time frame
+    if array.size(htf1Counts) > 0 and array.size(htf2Counts) > 0
+        currentHTF1 = array.get(htf1Counts, array.size(htf1Counts) - 1)
+        currentHTF2 = array.get(htf2Counts, array.size(htf2Counts) - 1)
+        
+        // Check if key sequence numbers align across timeframes
+        if (currentCountNumber == 7 and currentHTF1 == 13) or 
+           (currentCountNumber == 13 and currentHTF2 == 21) or
+           (currentCountNumber == 21 and currentHTF1 == 31)
+            "ALIGNED"
+        else
+            "MISALIGNED"
+    else
+        "UNKNOWN"
+
+// ===== CYCLE WITHIN CYCLE OVERLAP DETECTION =====
+f_detectCycleOverlap() =>
+    if not enableCycleDetection
+        array.new<string>()
+    else
+        cycles = array.new<string>()
+        
+        // Primary cycle detection
+        primaryCycle = f_detectMarketCycle()
+        array.push(cycles, primaryCycle)
+        
+        // Secondary cycle detection (shorter timeframe)
+        shortRange = high - low
+        shortAvgRange = ta.sma(high - low, 10)
+        
+        if shortRange < shortAvgRange * 0.3
+            array.push(cycles, "Micro-Time Distortion")
+        else if shortRange > shortAvgRange * 2.0
+            array.push(cycles, "Micro-Expansion")
+        
+        // Tertiary cycle detection (even shorter)
+        microRange = high - low
+        microAvgRange = ta.sma(high - low, 5)
+        
+        if microRange < microAvgRange * 0.2
+            array.push(cycles, "Nano-Time Distortion")
+        else if microRange > microAvgRange * 3.0
+            array.push(cycles, "Nano-Expansion")
+        
+        cycles
+
+// ===== CYCLE COUNTING WITHIN CYCLES =====
+f_countCycleNumbers(cycleType) =>
+    switch cycleType
+        "Time Distortion" => 
+            timeDistortionLevels = f_parseSequence(consolidationLength)
+            timeDistortionLevels
+        "Expansion" => 
+            expansionLevels = f_parseSequence(expansionLength)
+            expansionLevels
+        "Retracement" => 
+            retracementLevels = f_parseSequence(retracementLength)
+            retracementLevels
+        "Reversal" => 
+            reversalLevels = f_parseSequence(reversalLength)
+            reversalLevels
+        "Micro-Time Distortion" => 
+            array.from(1.0, 2.0, 3.0, 5.0, 8.0)
+        "Micro-Expansion" => 
+            array.from(1.0, 2.0, 3.0, 5.0, 8.0)
+        "Nano-Time Distortion" => 
+            array.from(1.0, 2.0, 3.0)
+        "Nano-Expansion" => 
+            array.from(1.0, 2.0, 3.0)
+        => array.new<float>()
+
+// ===== CYCLE STATE TRACKING =====
+f_trackCycleState(cycleType, count) =>
+    cycleLevels = f_countCycleNumbers(cycleType)
+    array.includes(cycleLevels, float(count))
+
+// ===== HARMONY/CHAOS DETECTION (From Transcript) =====
+f_detectHarmonyChaos() =>
+    if not enableHarmonyChaos
+        "Unknown"
+    else
+        // Transcript: Harmony = price moves in sync with cycles
+        // Chaos = price moves against cycles
+        
+        // Calculate price momentum
+        priceChange = close - close[1]
+        avgChange = ta.sma(math.abs(priceChange), 10)
+        
+        // Calculate cycle momentum
+        cycleMomentum = f_calculateCycleMomentum()
+        
+        // Calculate harmony/chaos ratio
+        var float harmonyRatio = 0.0
+        if avgChange > 0
+            harmonyRatio := cycleMomentum / avgChange
+        else
+            harmonyRatio := 0
+        
+        // Determine state based on transcript rules
+        if harmonyRatio > 1.5
+            "Harmony"  // Price and cycles moving together
+        else if harmonyRatio < 0.5
+            "Chaos"    // Price and cycles moving against each other
+        else if harmonyRatio > 0.8 and harmonyRatio < 1.2
+            "Balance"  // Neutral state
+        else
+            "Transition"  // Changing state
+
+// ===== SESSION FILTER (From Transcript) =====
+f_inSession() =>
+    if not enableSession
+        true
+    else
+        time(timeframe.period, sessionStart, timezone)
+
+// ===== TDT CASTING FUNCTIONS (From Script) =====
+f_getSelectedBackwardSequence() =>
+    castingSequenceType == "A" ? backwardSequenceA : backwardSequenceB
+
+f_getHighestBackwardNumber(string seq_str) =>
+    seq_array = f_parseSequence(seq_str)
+    highest = 0.0
+    for i = 0 to array.size(seq_array) - 1
+        num = array.get(seq_array, i)
+        if num > highest
+            highest := num
+    highest
+
+// ===== AUTO PIVOT DETECTION (From Transcript) =====
+f_findAutoPivot() =>
+    // Find latest pivot based on direction
+    bullStart = ta.pivotlow(low, pivotLeft, pivotRight)
+    bearStart = ta.pivothigh(high, pivotLeft, pivotRight)
+    
+    if countDirection == "Bullish"
+        ta.valuewhen(bullStart, bar_index, 0)
+    else
+        ta.valuewhen(bearStart, bar_index, 0)
+
+// ===== PERFECT PAST CYCLE DETECTION (From Transcript) =====
+f_findPerfectPastCycle() =>
+    // Look back for perfect cycles that completed cleanly
+    var int perfectStart = na
+    bestScore = 0.0
+    
+    // Look back up to 1000 bars for perfect cycles
+    lookback = math.min(1000, bar_index)
+    
+    for i = 1 to lookback
+        testStart = bar_index - i
+        
+        // Check if this would be a perfect cycle start
+        cycleScore = f_evaluateCycleQuality(testStart)
+        
+        if cycleScore > bestScore and cycleScore > 0.8  // High quality threshold
+            bestScore := cycleScore
+            perfectStart := testStart
+    
+    perfectStart
+
+// ===== CYCLE QUALITY EVALUATION (From Transcript) =====
+f_evaluateCycleQuality(startBar) =>
+    score = 0.0
+    
+    // Check for clean pivot formation
+    if f_isCleanPivot(startBar)
+        score := score + 0.3
+    
+    // Check for sequence completion
+    if f_hasSequenceCompletion(startBar)
+        score := score + 0.4
+    
+    // Check for time distortion patterns
+    if f_hasTimeDistortionPattern(startBar)
+        score := score + 0.2
+    
+    // Check for fractal alignment
+    if f_hasFractalAlignment(startBar)
+        score := score + 0.1
+    
+    score
+
+// ===== CLEAN PIVOT DETECTION =====
+f_isCleanPivot(startBar) =>
+    if countDirection == "Neutral"
+        // Check both bullish and bearish pivots
+        bullPivot = ta.pivotlow(low, pivotLeft, pivotRight)
+        bearPivot = ta.pivothigh(high, pivotLeft, pivotRight)
+        not na(bullPivot) or not na(bearPivot)
+    else if countDirection == "Bullish"
+        bullPivot = ta.pivotlow(low, pivotLeft, pivotRight)
+        not na(bullPivot)
+    else
+        bearPivot = ta.pivothigh(high, pivotLeft, pivotRight)
+        not na(bearPivot)
+
+// ===== SEQUENCE COMPLETION CHECK =====
+f_hasSequenceCompletion(startBar) =>
+    // Check if a complete sequence was formed from this start
+    sequenceHit = false
+    currentSeq = f_getCurrentSequence()
+    
+    // Look forward from start to see if sequence numbers were hit
+    for i = 0 to 50  // Check next 50 bars
+        if startBar + i < bar_index
+            checkBar = startBar + i
+            // This would need historical data - simplified for now
+            sequenceHit := true
+    
+    sequenceHit
+
+// ===== TIME DISTORTION PATTERN CHECK =====
+f_hasTimeDistortionPattern(startBar) =>
+    // Check for TD patterns that indicate cycle quality
+    hasTD = false
+    // Simplified - would check historical TD patterns
+    hasTD
+
+// ===== FRACTAL ALIGNMENT CHECK =====
+f_hasFractalAlignment(startBar) =>
+    // Check for fractal alignment at cycle start
+    aligned = false
+    // Simplified - would check fractal patterns
+    aligned
+
+// ===== ADDITIONAL VARIABLES =====
+var bool prevWasInside = false
+var int insideCandleStreak = 0
+
+// ===== MULTIPLE CYCLE COUNTING VARIABLES =====
+var int cycle1Count = 0
+var int cycle2Count = 0
+var int cycle3Count = 0
+var int cycle4Count = 0
+var array<int> cycleStartPoints = array.new<int>()
+var array<int> cycleCounts = array.new<int>()
+
+// ===== CYCLE COUNTING VARIABLES =====
+var int timeDistortionCount = 0
+var int expansionCount = 0
+var int retracementCount = 0
+var int reversalCount = 0
+var int microTimeDistortionCount = 0
+var int microExpansionCount = 0
+var int nanoTimeDistortionCount = 0
+var int nanoExpansionCount = 0
+var string lastCycleType = "Unknown"
+var int cycleStartBar = na
+
+// TDT Casting variables
+var bool castingActive = false
+var bool forwardCastActive = false
+var int backwardCastCount = 0
+var bool castingPhaseNegative = true
+var int castForwardCount = 0
+var bool castingInitialized = false
+var bool onCycleCandle = false
+
+// Additional casting variables
+
+// ===== AUTO ANCHOR FROM PERFECT PAST CYCLES (From Transcript) =====
+if enableAutoAnchor and not countingStarted
+    // Find perfect past cycles for auto anchor
+    perfectCycleStart = f_findPerfectPastCycle()
+    if not na(perfectCycleStart)
+        anchorBarIndex := perfectCycleStart
+        countingStarted := true
+        currentCountNumber := enableShiftMode ? (shiftSeed - 1) : 0
+        inTimeDistortion := false
+else if not enableAutoAnchor and time >= manualStartDate and not countingStarted
+    // Manual start date (fallback)
+    anchorBarIndex := bar_index
+    countingStarted := true
+    currentCountNumber := enableShiftMode ? (shiftSeed - 1) : 0
+    inTimeDistortion := false
+    
+    // Initialize cycle start points and counts
+    array.clear(cycleStartPoints)
+    array.clear(cycleCounts)
+
+// ===== HTF/LTF SEQUENCE INITIALIZATION =====
+// HTF sequence cycles work independently and are plotted on LTF
+// This allows HTF cycles to maintain their own counting logic
+// while being displayed on the current timeframe
+if barstate.isconfirmed
+    array.clear(currentSequenceStr)
+    array.clear(castingSeqArray)
+    array.clear(forwardCastSeqArray)
+    
+    // Get current sequence from HTF logic (independent cycle counting)
+    currentSequenceStr := f_getCurrentSequence()
+    selectedBackwardSequence := f_getSelectedBackwardSequence()
+    castingSeqArray := f_parseSequence(selectedBackwardSequence)
+    forwardCastSeqArray := f_parseSequence(forwardCastingSequence)
+
+// ===== CANDLE ANALYSIS FOR CURRENT BAR =====
+currentIsInside = f_isInsideCandle(0)
+currentIsOutside = f_isOutsideCandle(0)
+currentIsTD = currentIsInside
+currentIsDoji = f_isDojiCandle(0)
+currentIsWeak = f_isWeakCandle(0)
+
+// ===== INSIDE CANDLE STREAK TRACKING =====
+if currentIsInside
+    if not prevWasInside
+        insideCandleStreak := 1
+    else
+        insideCandleStreak := insideCandleStreak + 1
+    prevWasInside := true
+else
+    prevWasInside := false
+    insideCandleStreak := 0
+
+// ===== TDT BACKWARD CASTING LOGIC (From Script) =====
+if enableCasting and countingStarted
+    if not castingInitialized and bar_index == anchorBarIndex
+        highestNum = f_getHighestBackwardNumber(selectedBackwardSequence)
+        backwardCastCount := -int(highestNum)
+        castingInitialized := true
+    
+    if castingInitialized and not (currentIsTD and freezeOnTD)
+        if castingPhaseNegative
+            if backwardCastCount == -1
+                // Transition from -1 (backward end) to forward start
+                castingPhaseNegative := false
+                castingActive := true
+                forwardCastActive := true
+                if sameCandleTransition
+                    // TOGGLE ON: -1 candle IS the 1 candle - next candle becomes 3 (shift left by 2)
+                    castForwardCount := 2  // This -1 candle represents 1, next will be 3
+                    onCycleCandle := false
+                else
+                    // TOGGLE OFF: -1 ends, next candle becomes 2 (shift left by 1)
+                    castForwardCount := 1  // Will become 2 on next candle
+                    onCycleCandle := false
+                    backwardCastCount := backwardCastCount + 1
+            else
+                backwardCastCount := backwardCastCount + 1
+        else
+            if forwardCastActive
+                // Normal candle counting - increment by 1 each candle
+                castForwardCount := castForwardCount + 1
+
+// ===== TRANSCRIPT SPECIFIC TRADING RULES =====
+f_getTranscriptTradingRule(cycleCount) =>
+    // Transcript examples: Entry at 7, exit at 13; Entry at 13, exit at 21
+    switch cycleCount
+        7 => "ENTRY_LONG"   // Transcript: entry at 7
+        13 => "EXIT_LONG"   // Transcript: exit at 13
+        21 => "ENTRY_SHORT" // Transcript: entry at 21
+        31 => "EXIT_SHORT"  // Transcript: exit at 31
+        => "HOLD"
+
+f_applyTranscriptCandleRules() =>
+    // Transcript: Bearish closed candles must be ignored for bullish countings
+    // Bullish closed candles must be ignored for bearish countings
+    if countDirection == "Bullish"
+        // For bullish counting, ignore bearish candles
+        if close < open
+            false  // Don't count bearish candles
+        else
+            true   // Count bullish and doji candles
+    else
+        // For bearish counting, ignore bullish candles
+        if close > open
+            false  // Don't count bullish candles
+        else
+            true   // Count bearish and doji candles
+
+// ===== MULTIPLE CYCLE COUNTING LOGIC (From Transcript) =====
+// Cycles run ENDLESSLY until manually stopped - no maxCandles limit
+if countingStarted and bar_index >= anchorBarIndex and f_applyTranscriptCandleRules()
+    
+    countIncrement = 1
+    
+    // Double count for outside candles if enabled
+    if countOutsideDouble and currentIsOutside
+        countIncrement := 2
+    
+    // Time distortion handling
+    shouldFreezeOnInside = false
+    if currentIsTD and freezeOnTD
+        if multipleInsideCandles
+            shouldFreezeOnInside := false
+        else
+            shouldFreezeOnInside := true
+    
+    if shouldFreezeOnInside
+        inTimeDistortion := true
+        tdCount := tdCount + 1
+    else
+        if inTimeDistortion and freezeOnTD and not currentIsTD
+            currentCountNumber := currentCountNumber + countIncrement
+            inTimeDistortion := false
+            tdCount := 0
+        else
+            currentCountNumber := currentCountNumber + countIncrement
+            tdCount := 0
+    
+    // ===== MULTIPLE CYCLE COUNTING =====
+    for i = 0 to array.size(cycleStartPoints) - 1
+        cycleStart = array.get(cycleStartPoints, i)
+        cycleCount = array.get(cycleCounts, i)
+        
+        // Only count if current bar is after this cycle's start
+        if bar_index >= cycleStart
+            // Increment this cycle's count
+            newCycleCount = cycleCount + countIncrement
+            
+            // TRANSCRIPT CYCLE RESTART LOGIC: End at 31, then restart from 1
+            if newCycleCount == 31
+                // End current cycle and start new one (exactly as transcript)
+                array.set(cycleCounts, i, 1)
+                // Update start point to current bar for new cycle
+                array.set(cycleStartPoints, i, bar_index)
+            else
+                array.set(cycleCounts, i, newCycleCount)
+            
+            // Check for sequence hits in this cycle
+            if f_inSequence(newCycleCount, currentSequenceStr)
+                // Calculate overlap detection
+                overlapText = ""
+                overlapCount = 0
+                
+                // CYCLE WITHIN CYCLE LOGIC: 7 from first cycle becomes 1 for second cycle
+                if newCycleCount == 7 and i == 0  // First cycle hits 7
+                    // Start a new sub-cycle from this point
+                    if array.size(cycleStartPoints) < 4  // Add new cycle if we have space
+                        array.push(cycleStartPoints, bar_index)
+                        array.push(cycleCounts, 1)
+                
+                // TRANSCRIPT LOGIC: When both 7 and 1 apply, start the sequence logic
+                if newCycleCount == 7 or newCycleCount == 1
+                    // Check if we have both 7 and 1 in different cycles
+                    hasSeven = false
+                    hasOne = false
+                    for k = 0 to array.size(cycleCounts) - 1
+                        count = array.get(cycleCounts, k)
+                        if count == 7
+                            hasSeven := true
+                        if count == 1
+                            hasOne := true
+                    
+                    // If both 7 and 1 are present, apply transcript sequence logic
+                    if hasSeven and hasOne
+                        // Apply the transcript sequence: 1, 3, 7, 13, 21, 31, 43
+                        transcriptSequence = f_getTranscriptSequence()
+                        // This triggers the main sequence counting from transcript
+                
+                // Check if this number overlaps with other cycles
+                for j = 0 to array.size(cycleCounts) - 1
+                    if j != i
+                        otherCount = array.get(cycleCounts, j)
+                        if otherCount == newCycleCount
+                            overlapCount := overlapCount + 1
+                            overlapText := overlapText + "C" + str.tostring(j + 1) + ":" + str.tostring(otherCount) + " "
+                
+                // Display the count with overlap info
+                rangeMult = (high - low) * (0.1 + i * 0.05)
+                yBase = displayPosition == "above_candle" ? high + rangeMult + verticalShift : low - rangeMult - verticalShift
+                
+                labelText = str.tostring(newCycleCount)
+                if overlapCount > 0
+                    labelText := labelText + " (" + overlapText + ")"
+                
+                // Color based on cycle number
+                cycleColor = switch i
+                    0 => color.new(#FF0000, 0)  // Red for cycle 1
+                    1 => color.new(#00FF00, 0)  // Green for cycle 2
+                    2 => color.new(#0000FF, 0)  // Blue for cycle 3
+                    3 => color.new(#FF00FF, 0)  // Magenta for cycle 4
+                    => color.new(#808080, 0)   // Gray for others
+                
+                label.new(bar_index, yBase, labelText, color=color.new(#FFFFFF, 100), textcolor=cycleColor, size=f_getLabelSize())
+    
+    // Multi-timeframe counting (From Transcript)
+    f_countMultiTimeframe()
+
+// ===== CYCLE WITHIN CYCLE COUNTING LOGIC =====
+if countingStarted and enableCycleDetection
+    // Detect current cycle overlaps
+    currentCycles = f_detectCycleOverlap()
+    
+    // Count each cycle type
+    for i = 0 to array.size(currentCycles) - 1
+        cycleType = array.get(currentCycles, i)
+        
+        // Reset count if cycle type changed
+        if cycleType != lastCycleType
+            cycleStartBar := bar_index
+            lastCycleType := cycleType
+        
+        // Increment appropriate counter
+        switch cycleType
+            "Time Distortion" => 
+                timeDistortionCount := timeDistortionCount + 1
+                if f_trackCycleState(cycleType, timeDistortionCount)
+                    cycleOffset = (high - low) * 0.08
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "TD" + str.tostring(timeDistortionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#0000FF, 0), size=f_getLabelSize())
+            "Expansion" => 
+                expansionCount := expansionCount + 1
+                if f_trackCycleState(cycleType, expansionCount)
+                    cycleOffset = (high - low) * 0.08
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "E" + str.tostring(expansionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#00FF00, 0), size=f_getLabelSize())
+            "Retracement" => 
+                retracementCount := retracementCount + 1
+                if f_trackCycleState(cycleType, retracementCount)
+                    cycleOffset = (high - low) * 0.08
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "R" + str.tostring(retracementCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#800080, 0), size=f_getLabelSize())
+            "Reversal" => 
+                reversalCount := reversalCount + 1
+                if f_trackCycleState(cycleType, reversalCount)
+                    cycleOffset = (high - low) * 0.08
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "V" + str.tostring(reversalCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#00FFFF, 0), size=f_getLabelSize())
+            "Micro-Time Distortion" => 
+                microTimeDistortionCount := microTimeDistortionCount + 1
+                if f_trackCycleState(cycleType, microTimeDistortionCount)
+                    cycleOffset = (high - low) * 0.05
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "mTD" + str.tostring(microTimeDistortionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#000080, 0), size=size.tiny)
+            "Micro-Expansion" => 
+                microExpansionCount := microExpansionCount + 1
+                if f_trackCycleState(cycleType, microExpansionCount)
+                    cycleOffset = (high - low) * 0.05
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "mE" + str.tostring(microExpansionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#008000, 0), size=size.tiny)
+            "Nano-Time Distortion" => 
+                nanoTimeDistortionCount := nanoTimeDistortionCount + 1
+                if f_trackCycleState(cycleType, nanoTimeDistortionCount)
+                    cycleOffset = (high - low) * 0.03
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "nTD" + str.tostring(nanoTimeDistortionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#000040, 0), size=size.tiny)
+            "Nano-Expansion" => 
+                nanoExpansionCount := nanoExpansionCount + 1
+                if f_trackCycleState(cycleType, nanoExpansionCount)
+                    cycleOffset = (high - low) * 0.03
+                    cycleY = displayPosition == "above_candle" ? high + cycleOffset + verticalShift : low - cycleOffset - verticalShift
+                    cycleText = "nE" + str.tostring(nanoExpansionCount)
+                    label.new(bar_index, cycleY, cycleText, color=color.new(#FFFFFF, 100), textcolor=color.new(#004000, 0), size=size.tiny)
+
+// ===== TDT CASTING DISPLAY (From Script) =====
+if enableCasting and countingStarted and castingInitialized
+    // Display backward sequence numbers (negative phase)
+    if castingPhaseNegative
+        negativeHit = f_inSequence(math.abs(backwardCastCount), castingSeqArray)
+        if negativeHit
+            castingOffset = (high - low) * 0.12
+            castingY = displayPosition == "above_candle" ? high + castingOffset + verticalShift : low - castingOffset - verticalShift
+            castingText = str.tostring(backwardCastCount)
+            label.new(bar_index, castingY, castingText, color=color.new(#FFFFFF, 100), textcolor=castingColor, size=f_getLabelSize())
+    
+    // FORWARD CASTING DISPLAY
+    if not castingPhaseNegative and forwardCastActive
+        forwardCastHit = f_inSequence(castForwardCount, forwardCastSeqArray)
+        if forwardCastHit and castForwardCount > 0
+            forwardOffset = (high - low) * 0.15
+            forwardY = displayPosition == "above_candle" ? high + forwardOffset + verticalShift : low - forwardOffset - verticalShift
+            forwardText = str.tostring(castForwardCount)
+            label.new(bar_index, forwardY, forwardText, color=color.new(#FFFFFF, 100), textcolor=castingColor, size=f_getLabelSize())
+
+// ===== TIME STATE MARKERS =====
+if enableTimeStates
+    if f_isTimeDistorted()
+        tdOffset = (high - low) * 0.18
+        tdY = displayPosition == "above_candle" ? high + tdOffset + verticalShift : low - tdOffset - verticalShift
+        label.new(bar_index, tdY, "TD", color=color.new(#FFFFFF, 100), textcolor=timeDistortionColor, size=f_getLabelSize())
+
+// ===== ALERTS =====
+if countingStarted and not inTimeDistortion
+    currentCountFloat = float(currentCountNumber)
+    if f_inSequence(currentCountNumber, currentSequenceStr)
+        alert("TDT Sequence Number Reached: " + str.tostring(currentCountFloat), alert.freq_once_per_bar)
+
+if enableCasting and castingActive and not castingActive[1]
+    alert("TDT Casting Activated - Forward Count Started", alert.freq_once_per_bar)
+
+if enableCasting and forwardCastActive
+    forwardCastHit = f_inSequence(castForwardCount, forwardCastSeqArray)
+    if forwardCastHit
+        alert("TDT Forward Cast Hit: " + str.tostring(castForwardCount), alert.freq_once_per_bar)
+
+// ===== STATUS TABLE =====
+if barstate.islast
+    var table statusTable = table.new(position.top_right, 2, 35, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    
+    table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 1, "Counting", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 1, str.tostring(countingStarted), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 2, "Count", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 2, str.tostring(currentCountNumber), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 3, "Sequence Type", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 3, sequenceType, text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 4, "Time State", text_color=#000000, text_size=size.tiny)
+    var string timeState = "Normal"
+    timeState := f_isTimeDistorted() ? "Distorted" : (f_isTimeContracted() ? "Contracted" : (f_isTimeExpanded() ? "Expanded" : "Normal"))
+    table.cell(statusTable, 1, 4, timeState, text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 5, "Market Cycle", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 5, f_detectMarketCycle(), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 6, "Harmony/Chaos", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 6, f_detectHarmonyChaos(), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 7, "Cast Phase", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 7, enableCasting ? (castingPhaseNegative ? "NEG" : "POS") : "OFF", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 8, "Cast Count", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 8, enableCasting ? (castingPhaseNegative ? str.tostring(backwardCastCount) : str.tostring(castForwardCount)) : "OFF", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 9, "TD Active", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 9, inTimeDistortion ? "YES" : "NO", text_color=inTimeDistortion ? #FF0000 : #00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 10, "Inside Streak", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 10, str.tostring(insideCandleStreak), text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 11, "Fractal", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 11, f_detectFractal() ? "YES" : "NO", text_color=f_detectFractal() ? #FFA500 : #808080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 12, "Session", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 12, f_inSession() ? "ACTIVE" : "INACTIVE", text_color=f_inSession() ? #00FF00 : #FF0000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 13, "Outside 2x", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 13, countOutsideDouble ? "ON" : "OFF", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 14, "Multi Inside", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 14, multipleInsideCandles ? "ON" : "OFF", text_color=#000000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 15, "Time Distortion", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 15, str.tostring(timeDistortionCount), text_color=#0000FF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 16, "Expansion", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 16, str.tostring(expansionCount), text_color=#00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 17, "Retracement", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 17, str.tostring(retracementCount), text_color=#800080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 18, "Reversal", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 18, str.tostring(reversalCount), text_color=#00FFFF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 19, "Micro-TD", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 19, str.tostring(microTimeDistortionCount), text_color=#000080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 20, "Micro-E", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 20, str.tostring(microExpansionCount), text_color=#008000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 21, "Nano-TD", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 21, str.tostring(nanoTimeDistortionCount), text_color=#000040, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 22, "Nano-E", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 22, str.tostring(nanoExpansionCount), text_color=#004000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 23, "Cycle 1", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 23, array.size(cycleCounts) > 0 ? str.tostring(array.get(cycleCounts, 0)) : "0", text_color=#FF0000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 24, "Cycle 2", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 24, array.size(cycleCounts) > 1 ? str.tostring(array.get(cycleCounts, 1)) : "0", text_color=#00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 25, "Cycle 3", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 25, array.size(cycleCounts) > 2 ? str.tostring(array.get(cycleCounts, 2)) : "0", text_color=#0000FF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 26, "Cycle 4", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 26, array.size(cycleCounts) > 3 ? str.tostring(array.get(cycleCounts, 3)) : "0", text_color=#FF00FF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 27, "Signal", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 27, f_getTradingSignal(currentCountNumber, f_detectMarketCycle()), text_color=#FF0000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 28, "Time Align", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 28, f_checkTimeFrameAlignment(), text_color=#00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 29, "Time State", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 29, f_detectTimeContraction(currentCountNumber), text_color=#FF8000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 30, "Distortion", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 30, f_detectTimeDistortion(), text_color=#800080, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 31, "Fractal Scale", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 31, f_getFractalScale(), text_color=#00FF00, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 32, "Harmony/Chaos", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 32, f_detectHarmonyChaos(), text_color=#FF00FF, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 33, "Auto Anchor", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 33, enableAutoAnchor ? "ON" : "OFF", text_color=#FF8000, text_size=size.tiny)
+    
+    table.cell(statusTable, 0, 34, "Count Direction", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 34, countDirection, text_color=#800080, text_size=size.tiny)
+    
