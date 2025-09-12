@@ -92,6 +92,23 @@ var g_TOUCH = "Touch Options"
 use_wick_touch = input.bool(true, "Use Wick Touch", group=g_TOUCH)
 use_body_touch = input.bool(true, "Use Body Touch", group=g_TOUCH)
 
+// Declare globals for sweep and CISD so they are always defined
+var bool h_swept = false
+var bool l_swept = false
+var float h0 = na
+var float l0 = na
+var float h1 = na
+var float l1 = na
+var int t0 = na
+var int t1 = na
+
+var bool bull_alarm = false
+var bool bear_alarm = false
+var float bull_level = na
+var float bear_level = na
+var int bull_index = na
+var int bear_index = na
+
 // NEW: Sweep Detection Options
 var g_SWEEP = "Sweep Detection"
 enable_sweep = input.bool(true, "Enable Sweep Detection", group=g_SWEEP)
@@ -111,6 +128,8 @@ cisd_line_color = input.color(color.navy, "CISD Line Color", group=g_CISD)
 cisd_box_color = input.color(color.new(color.navy, 50), "CISD Box Color", group=g_CISD)
 alert_on_cisd_bull = input.bool(false, "Alert on Bullish CISD", group=g_CISD)
 alert_on_cisd_bear = input.bool(false, "Alert on Bearish CISD", group=g_CISD)
+confirm_crt_touches_with_cisd = input.bool(false, "Confirm CRT touches with CISD", group=g_CISD)
+confirm_touch_labels_only = input.bool(true, "Only confirm labels (not lines)", group=g_CISD)
 
 // Modified process_tf function
 process_tf(tf) =>
@@ -183,8 +202,8 @@ detect_sweep(tf) =>
     var float c0 = close
     var float o1 = open[1]
     var float c1 = close[1]
-    var float t0 = time
-    var float t1 = time[1]
+    var int t0 = time
+    var int t1 = time[1]
     
     // Get HTF data
     [htfOpen, htfHigh, htfLow, htfClose, htfTime] = request.security(syminfo.tickerid, tf, [open, high, low, close, time], barmerge.gaps_off, barmerge.lookahead_on)
@@ -436,13 +455,28 @@ checkAndCreateLabel(show, bullishTouch, bearishTouch, tfText) =>
         manageLabelCount("BT-" + tfText, high, bearishBgColor, bearishTextColor, getLabelStyle(bearishLabelStyle), getLabelSize(labelSize))
 
 // Apply labels for each timeframe
-checkAndCreateLabel(show_m30_labels, bullishTouch1, bearishTouch1, "M30")
-checkAndCreateLabel(show_h1_labels, bullishTouch2, bearishTouch2, "H1")
-checkAndCreateLabel(show_h2_labels, bullishTouch3, bearishTouch3, "H2")
-checkAndCreateLabel(show_h4_labels, bullishTouch4, bearishTouch4, "H4")
-checkAndCreateLabel(show_daily_labels, bullishTouch5, bearishTouch5, "D")
-checkAndCreateLabel(show_weekly_labels, bullishTouch6, bearishTouch6, "W")
-checkAndCreateLabel(show_monthly_labels, bullishTouch7, bearishTouch7, "M")
+eff_bt1 = bullishTouch1 and (not confirm_crt_touches_with_cisd or (enable_cisd and bull_alarm))
+eff_br1 = bearishTouch1 and (not confirm_crt_touches_with_cisd or (enable_cisd and bear_alarm))
+eff_bt2 = bullishTouch2 and (not confirm_crt_touches_with_cisd or (enable_cisd and bull_alarm))
+eff_br2 = bearishTouch2 and (not confirm_crt_touches_with_cisd or (enable_cisd and bear_alarm))
+eff_bt3 = bullishTouch3 and (not confirm_crt_touches_with_cisd or (enable_cisd and bull_alarm))
+eff_br3 = bearishTouch3 and (not confirm_crt_touches_with_cisd or (enable_cisd and bear_alarm))
+eff_bt4 = bullishTouch4 and (not confirm_crt_touches_with_cisd or (enable_cisd and bull_alarm))
+eff_br4 = bearishTouch4 and (not confirm_crt_touches_with_cisd or (enable_cisd and bear_alarm))
+eff_bt5 = bullishTouch5 and (not confirm_crt_touches_with_cisd or (enable_cisd and bull_alarm))
+eff_br5 = bearishTouch5 and (not confirm_crt_touches_with_cisd or (enable_cisd and bear_alarm))
+eff_bt6 = bullishTouch6 and (not confirm_crt_touches_with_cisd or (enable_cisd and bull_alarm))
+eff_br6 = bearishTouch6 and (not confirm_crt_touches_with_cisd or (enable_cisd and bear_alarm))
+eff_bt7 = bullishTouch7 and (not confirm_crt_touches_with_cisd or (enable_cisd and bull_alarm))
+eff_br7 = bearishTouch7 and (not confirm_crt_touches_with_cisd or (enable_cisd and bear_alarm))
+
+checkAndCreateLabel(show_m30_labels, eff_bt1, eff_br1, "M30")
+checkAndCreateLabel(show_h1_labels, eff_bt2, eff_br2, "H1")
+checkAndCreateLabel(show_h2_labels, eff_bt3, eff_br3, "H2")
+checkAndCreateLabel(show_h4_labels, eff_bt4, eff_br4, "H4")
+checkAndCreateLabel(show_daily_labels, eff_bt5, eff_br5, "D")
+checkAndCreateLabel(show_weekly_labels, eff_bt6, eff_br6, "W")
+checkAndCreateLabel(show_monthly_labels, eff_bt7, eff_br7, "M")
 
 // NEW: Plot CISD Shapes
 if enable_cisd
