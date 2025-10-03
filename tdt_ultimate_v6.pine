@@ -1,0 +1,1213 @@
+//@version=6
+indicator("TDT Ultimate v6 - Complete Time Dilation Theory", shorttitle="TDTv6", overlay=true, max_labels_count=500, max_lines_count=300, max_boxes_count=200)
+
+// =========================================================
+// 1) SHARED HELPERS
+// =========================================================
+
+// Parse comma-separated sequence into array<float>
+f_parse_sequence(string _seq_str) =>
+    _arr = array.new_float()
+    _parts = str.split(_seq_str, ",")
+    for _part in _parts
+        _value = str.tonumber(str.trim(_part))
+        if not na(_value)
+            array.push(_arr, _value)
+    _arr
+
+// Convert label size from either "size.*" or simple strings (tiny, small, normal, large, huge)
+f_str_to_size(string _size_str) =>
+    // Accept both styles
+    _s = str.trim(_size_str)
+    switch _s
+        "size.auto"   => size.auto
+        "size.tiny"   => size.tiny
+        "size.small"  => size.small
+        "size.large"  => size.large
+        "size.huge"   => size.huge
+        "auto"        => size.auto
+        "tiny"        => size.tiny
+        "small"       => size.small
+        "large"       => size.large
+        "huge"        => size.huge
+        => size.normal
+
+// Floating point equality with tolerance
+f_levels_equal(float level1, float level2, float tolerance = 0.0001) =>
+    math.abs(level1 - level2) <= tolerance
+
+// Line style from string
+f_str_to_line_style(string _style_str) =>
+    switch _style_str
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
+
+// ATR (shared)
+atr_val = ta.atr(14)
+
+// =========================================================
+// 2) SECTION: ORIGINAL TDT INDICATOR (ANCHOR, TD, MTF, FVG/EOB)
+// =========================================================
+
+grp_core = "1. Core Settings"
+i_mode = input.string("Forward Only", "Counting Mode", options=["Forward Only", "Backward-to-Forward Mirror"], group=grp_core)
+i_sequence_str = input.string("7,13,21,31,42", "Sequence 1 (comma-separated)", group=grp_core)
+i_sequence_str_2 = input.string("1,5,9,11,17,25,37", "Sequence 2 (comma-separated)", group=grp_core)
+i_sequence_str_3 = input.string("1,7,13,21,31,43,57", "Sequence 3 (comma-separated)", group=grp_core)
+i_sequence_str_4 = input.string("1,2,3,5,8,13,21", "Sequence 4 (comma-separated)", group=grp_core)
+i_sequence_str_5 = input.string("1,4,9,16,25,36,49", "Sequence 5 (comma-separated)", group=grp_core)
+i_active_sequence = input.string("Sequence 1", "Active Forward Sequence", options=["Sequence 1", "Sequence 2", "Sequence 3", "Sequence 4", "Sequence 5"], group=grp_core)
+
+grp_anchor = "2. Anchor Point Settings"
+i_anchor_type = input.string("Time", "Anchor Type", options=["Time", "Highest High", "Lowest Low"], group=grp_anchor, tooltip="Time: Manual time. HH/LL: First new HH/LL after manual time.")
+i_lookback = input.int(50, "Lookback Period", minval=1, group=grp_anchor)
+i_manual_anchor_time = input.time(timestamp("2025-08-08T09:00:00"), "Manual Anchor Point", group=grp_anchor, confirm=true)
+i_show_anchor_line = input.bool(true, "Show Anchor Line", group=grp_anchor)
+i_anchor_line_color = input.color(color.new(color.black, 0), "Anchor Line Color", group=grp_anchor)
+
+grp_back = "3. Backward Counting"
+i_enable_backward = input.bool(true, "Enable Backward Counting", group=grp_back)
+i_backward_seq_str = input.string("7,13,21,33", "Backward Sequence", group=grp_back)
+i_backward_lookback = input.int(100, "Backward Lookback Bars", group=grp_back)
+
+grp_shift = "4. Shift Mode"
+i_enable_shift = input.bool(false, "Enable Shift Mode", group=grp_shift)
+i_shift_start_val = input.int(7, "Start Count At", group=grp_shift, minval=1)
+
+grp_td = "5. Time Distortion (TD)"
+i_enable_td = input.bool(false, "Enable Time Distortion", group=grp_td)
+i_body_threshold = input.float(0.1, "Body % of Range Threshold", group=grp_td)
+i_highlight_td = input.bool(false, "Highlight TD Background", group=grp_td)
+i_td_enable_small_body = input.bool(true, "Detect Small Body as TD", group=grp_td)
+i_td_enable_inside_bar = input.bool(true, "Detect Inside Bars as TD", group=grp_td)
+
+grp_future = "6. Future Projections"
+i_enable_future = input.bool(true, "Enable Future Projections", group=grp_future)
+i_future_count = input.int(3, "Number of Projections to Show", group=grp_future)
+
+grp_mtf = "7. Multi-Timeframe (MTF)"
+i_enable_mtf = input.bool(false, "Enable MTF Counting", group=grp_mtf)
+i_mtf_timeframe = input.timeframe("60", "Higher Timeframe", group=grp_mtf)
+i_mtf_sequence_str_1 = input.string("1,7,13,21,33", "MTF Sequence 1", group=grp_mtf)
+i_mtf_sequence_str_2 = input.string("1,4,8,15,23,34,46", "MTF Sequence 2", group=grp_mtf)
+i_mtf_sequence_str_3 = input.string("1,2,3,5,8,13,21", "MTF Sequence 3", group=grp_mtf)
+i_mtf_sequence_str_4 = input.string("1,4,9,16,25,36,49", "MTF Sequence 4", group=grp_mtf)
+i_active_mtf_sequence = input.string("MTF Sequence 1", "Active MTF 1 Sequence", options=["MTF Sequence 1", "MTF Sequence 2", "MTF Sequence 3", "MTF Sequence 4"], group=grp_mtf)
+i_active_mtf_sequence_2 = input.string("MTF Sequence 1", "Active MTF 2 Sequence", options=["MTF Sequence 1", "MTF Sequence 2", "MTF Sequence 3", "MTF Sequence 4"], group=grp_mtf)
+i_mtf1_enable_shift = input.bool(false, "MTF 1 Enable Shift Mode", group=grp_mtf)
+i_mtf1_shift_start_val = input.int(1, "MTF 1 Start Count At", minval=1, group=grp_mtf)
+i_enable_mtf_2 = input.bool(false, "Enable Second MTF Counting", group=grp_mtf)
+i_mtf_timeframe_2 = input.timeframe("D", "Higher Timeframe 2", group=grp_mtf)
+i_mtf2_enable_shift = input.bool(false, "MTF 2 Enable Shift Mode", group=grp_mtf)
+i_mtf2_shift_start_val = input.int(1, "MTF 2 Start Count At", minval=1, group=grp_mtf)
+
+grp_visuals = "8. Visuals"
+i_label_color = input.color(color.new(color.gray, 0), "Label Color", group=grp_visuals)
+i_sequence_label_color = input.color(color.new(color.red, 0), "Sequence Label Color", group=grp_visuals)
+i_label_size_str = input.string("size.normal", "Label Size", options=["size.auto", "size.tiny", "size.small", "size.normal", "size.large", "size.huge"], group=grp_visuals)
+i_mtf_label_color = input.color(color.new(color.gray, 0), "MTF Label Color", group=grp_visuals)
+i_mtf_sequence_label_color = input.color(color.new(color.blue, 0), "MTF Sequence Label Color", group=grp_visuals)
+i_mtf_label_format = input.string("TF: Count", "MTF Label Format", options=["TF: Count", "Custom Format"], group=grp_visuals)
+i_mtf_custom_format_string = input.string("{tf}: {count}", "Custom MTF Format String", group=grp_visuals)
+i_label_vertical_offset = input.float(0.0, "Label Vertical Offset (ATR)", group=grp_visuals)
+i_show_normal_count_labels = input.bool(true, "Show Non-Sequence Count Labels", group=grp_visuals)
+
+// Concepts: THE LINE (FVG) and EOB
+grp_concepts = "9. Concepts"
+i_enable_the_line = input.bool(false, "Enable THE LINE", group=grp_concepts)
+i_enable_eob = input.bool(false, "Enable Enhanced Order Blocks (EOB)", group=grp_concepts)
+
+grp_line_settings = "9.1 THE LINE Settings"
+i_line_max_projections = input.int(5, "Max LINE Projections", minval=1, maxval=10, group=grp_line_settings)
+i_line_show_mitigated = input.bool(true, "Show Mitigated LINEs", group=grp_line_settings)
+i_line_mitigation_type = input.string("Wick or Body", "LINE Mitigation Type", options=["Wick or Body", "Body Close Only"], group=grp_line_settings)
+i_line_enable_mtf = input.bool(true, "Enable MTF for LINE", group=grp_line_settings)
+i_line_mtf_timeframe_1 = input.timeframe("240", "LINE HTF 1", group=grp_line_settings)
+i_line_mtf_timeframe_2 = input.timeframe("D", "LINE HTF 2", group=grp_line_settings)
+i_line_mtf_show_current_tf = input.bool(true, "Show Current TF LINEs", group=grp_line_settings)
+
+grp_line_visuals = "9.2 THE LINE Visuals"
+i_line_color_current_tf = input.color(color.aqua, "Current TF LINE Color", group=grp_line_visuals)
+i_line_color_mtf1 = input.color(color.teal, "HTF 1 LINE Color", group=grp_line_visuals)
+i_line_color_mtf2 = input.color(color.navy, "HTF 2 LINE Color", group=grp_line_visuals)
+i_line_color_mitigated = input.color(color.gray, "Mitigated LINE Color", group=grp_line_visuals)
+i_line_width = input.int(1, "LINE Width", minval=1, maxval=4, group=grp_line_visuals)
+i_line_style = input.string("Solid", "LINE Style", options=["Solid", "Dashed", "Dotted"], group=grp_line_visuals)
+i_line_label_enabled = input.bool(true, "Show LINE Labels", group=grp_line_visuals)
+i_line_label_size_str = input.string("size.tiny", "LINE Label Size", options=["size.auto", "size.tiny", "size.small", "size.normal"], group=grp_line_visuals)
+
+grp_eob_settings = "9.3 EOB Settings"
+i_eob_max_projections = input.int(3, "Max EOB Projections", minval=1, maxval=8, group=grp_eob_settings)
+i_eob_show_mitigated = input.bool(true, "Show Mitigated EOBs", group=grp_eob_settings)
+i_eob_mitigation_type = input.string("Body Close Only", "EOB Mitigation Type", options=["Body Close Only"], group=grp_eob_settings)
+i_eob_enable_mtf = input.bool(true, "Enable MTF for EOB", group=grp_eob_settings)
+i_eob_mtf_timeframe_1 = input.timeframe("D", "EOB HTF 1", group=grp_eob_settings)
+i_eob_mtf_timeframe_2 = input.timeframe("W", "EOB HTF 2", group=grp_eob_settings)
+i_eob_mtf_show_current_tf = input.bool(true, "Show Current TF EOBs", group=grp_eob_settings)
+
+grp_eob_visuals = "9.4 EOB Visuals"
+i_eob_color_bullish_current_tf = input.color(color.new(color.green, 80), "Current TF Bullish EOB Color", group=grp_eob_visuals)
+i_eob_color_bearish_current_tf = input.color(color.new(color.red, 80), "Current TF Bearish EOB Color", group=grp_eob_visuals)
+i_eob_color_bullish_mtf1 = input.color(color.new(color.lime, 70), "HTF 1 Bullish EOB Color", group=grp_eob_visuals)
+i_eob_color_bearish_mtf1 = input.color(color.new(color.maroon, 70), "HTF 1 Bearish EOB Color", group=grp_eob_visuals)
+i_eob_color_bullish_mtf2 = input.color(color.new(color.olive, 60), "HTF 2 Bullish EOB Color", group=grp_eob_visuals)
+i_eob_color_bearish_mtf2 = input.color(color.new(color.fuchsia, 60), "HTF 2 Bearish EOB Color", group=grp_eob_visuals)
+i_eob_color_mitigated = input.color(color.new(color.gray, 90), "Mitigated EOB Color", group=grp_eob_visuals)
+i_eob_label_enabled = input.bool(true, "Show EOB Labels", group=grp_eob_visuals)
+i_eob_label_size_str = input.string("size.tiny", "EOB Label Size", options=["size.auto", "size.tiny", "size.small", "size.normal"], group=grp_eob_visuals)
+
+// TD detection (shared from original)
+f_is_distorted_candle(int _offset = 0) =>
+    _candle_range = high[_offset] - low[_offset]
+    _body_size = math.abs(close[_offset] - open[_offset])
+    _is_small_body = i_td_enable_small_body and (_candle_range > 0 ? (_body_size / _candle_range) <= i_body_threshold : false)
+    _is_inside_bar = i_td_enable_inside_bar and (high[_offset] <= high[_offset + 1] and low[_offset] >= low[_offset + 1])
+    _is_small_body or _is_inside_bar
+
+// FVG line detection
+f_detect_fvg_line_series(series float _open, series float _high, series float _low, series float _close) =>
+    if bar_index < 2
+        [false, na, false]
+    else
+        bool is_bullish_fvg = _low[0] > _high[2] and _low[1] > _high[2]
+        bool is_bearish_fvg = _high[0] < _low[2] and _high[1] < _low[2]
+
+        float fvg_line_level = na
+        bool is_fvg_valid = false
+        bool is_bullish_fvg_type = false
+
+        if is_bullish_fvg
+            fvg_line_level := _high[2]
+            is_fvg_valid := true
+            is_bullish_fvg_type := true
+        else if is_bearish_fvg
+            fvg_line_level := _low[2]
+            is_fvg_valid := true
+            is_bullish_fvg_type := false
+        [is_fvg_valid, fvg_line_level, is_bullish_fvg_type]
+
+// EOB detection
+f_detect_eob_series(series float _open, series float _high, series float _low, series float _close) =>
+    if bar_index < 1
+        [false, na, na, false]
+    else
+        bool is_bearish_eob = (_close[1] > _open[1]) and (_close[0] < _open[1]) and (_low[0] < _low[1])
+        bool is_bullish_eob = (_close[1] < _open[1]) and (_close[0] > _open[1]) and (_high[0] > _high[1])
+
+        float eob_high_level = na
+        float eob_low_level = na
+        bool is_eob_valid = false
+        bool is_bullish_eob_type = false
+
+        if is_bearish_eob
+            eob_high_level := _high[1]
+            eob_low_level := _low[1]
+            is_eob_valid := true
+            is_bullish_eob_type := false
+        else if is_bullish_eob
+            eob_high_level := _high[1]
+            eob_low_level := _low[1]
+            is_eob_valid := true
+            is_bullish_eob_type := true
+        [is_eob_valid, eob_high_level, eob_low_level, is_bullish_eob_type]
+
+// Build sequences
+array<float> sequence_array = f_parse_sequence(i_sequence_str)
+array<float> sequence_array_2 = f_parse_sequence(i_sequence_str_2)
+array<float> sequence_array_3 = f_parse_sequence(i_sequence_str_3)
+array<float> sequence_array_4 = f_parse_sequence(i_sequence_str_4)
+array<float> sequence_array_5 = f_parse_sequence(i_sequence_str_5)
+array<float> backward_sequence_array = f_parse_sequence(i_backward_seq_str)
+array<float> mtf_sequence_array_1 = f_parse_sequence(i_mtf_sequence_str_1)
+array<float> mtf_sequence_array_2 = f_parse_sequence(i_mtf_sequence_str_2)
+array<float> mtf_sequence_array_3 = f_parse_sequence(i_mtf_sequence_str_3)
+array<float> mtf_sequence_array_4 = f_parse_sequence(i_mtf_sequence_str_4)
+
+array<float> current_sequence_array = switch i_active_sequence
+    "Sequence 2" => sequence_array_2
+    "Sequence 3" => sequence_array_3
+    "Sequence 4" => sequence_array_4
+    "Sequence 5" => sequence_array_5
+    => sequence_array
+
+array<float> current_mtf_sequence_array = switch i_active_mtf_sequence
+    "MTF Sequence 2" => mtf_sequence_array_2
+    "MTF Sequence 3" => mtf_sequence_array_3
+    "MTF Sequence 4" => mtf_sequence_array_4
+    => mtf_sequence_array_1
+
+array<float> current_mtf_sequence_array_2 = switch i_active_mtf_sequence_2
+    "MTF Sequence 2" => mtf_sequence_array_2
+    "MTF Sequence 3" => mtf_sequence_array_3
+    "MTF Sequence 4" => mtf_sequence_array_4
+    => mtf_sequence_array_1
+
+// State
+string current_mode = i_mode
+var int  final_anchor_bar = na
+var bool is_counting = false
+var int  candle_count_forward = 0
+var int  candle_count_backward_mirror = 0
+var int  mtf_candle_count = 0
+var int  mtf_candle_count_2 = 0
+var float manual_anchor_price = na
+
+// Anchor line
+var line anchor_line = na
+
+// Types
+type LineData
+    line  line_id
+    label label_id
+    float level
+    int   start_bar_index
+    bool  is_bullish
+    bool  is_mitigated
+    int   mitigation_bar_index
+    string timeframe
+
+var array<LineData> active_lines = array.new<LineData>()
+
+type EOBData
+    box   box_id
+    label label_id
+    float high_level
+    float low_level
+    int   start_bar_index
+    bool  is_bullish
+    bool  is_mitigated
+    int   mitigation_bar_index
+    string timeframe
+
+var array<EOBData> active_eobs = array.new<EOBData>()
+
+// Cleanup (bounded objects)
+f_cleanup_line_objects(int max_size) =>
+    while array.size(active_lines) >= max_size
+        if array.size(active_lines) > 0
+            _old_data = array.get(active_lines, 0)
+            if not na(_old_data.line_id)
+                line.delete(_old_data.line_id)
+            if not na(_old_data.label_id)
+                label.delete(_old_data.label_id)
+            array.remove(active_lines, 0)
+        else
+            break
+    true
+
+f_cleanup_eob_objects(int max_size) =>
+    while array.size(active_eobs) >= max_size
+        if array.size(active_eobs) > 0
+            _old_data = array.get(active_eobs, 0)
+            if not na(_old_data.box_id)
+                box.delete(_old_data.box_id)
+            if not na(_old_data.label_id)
+                label.delete(_old_data.label_id)
+            array.remove(active_eobs, 0)
+        else
+            break
+    true
+
+// Highest/Lowest
+is_new_high = high == ta.highest(high, i_lookback)
+is_new_low = low == ta.lowest(low, i_lookback)
+
+// Anchor line draw
+if i_show_anchor_line
+    if na(anchor_line)
+        anchor_line := line.new(x1=i_manual_anchor_time, x2=i_manual_anchor_time, y1=low, y2=high, color=i_anchor_line_color, width=1, extend=extend.both, xloc=xloc.bar_time, style=line.style_dashed)
+    else
+        line.set_x1(anchor_line, i_manual_anchor_time)
+        line.set_x2(anchor_line, i_manual_anchor_time)
+
+// Anchor price
+if na(manual_anchor_price)
+    if time == i_manual_anchor_time or (time[1] < i_manual_anchor_time and time >= i_manual_anchor_time)
+        manual_anchor_price := open
+
+// Anchor + mode logic
+if current_mode == "Forward Only"
+    if na(final_anchor_bar)
+        bool anchor_found = false
+        if time == i_manual_anchor_time or (time[1] < i_manual_anchor_time and time >= i_manual_anchor_time)
+            if i_anchor_type == "Time"
+                anchor_found := true
+            else if i_anchor_type == "Highest High" and is_new_high
+                anchor_found := true
+            else if i_anchor_type == "Lowest Low" and is_new_low
+                anchor_found := true
+        if anchor_found
+            final_anchor_bar := bar_index
+            is_counting := true
+            if i_enable_shift
+                candle_count_forward := i_shift_start_val - 1
+            if i_enable_backward
+                for ii = 1 to i_backward_lookback
+                    if array.includes(backward_sequence_array, ii)
+                        label.new(bar_index - ii, low[ii] - i_label_vertical_offset * atr_val, "-" + str.tostring(ii), color=color.new(color.white, 100), textcolor=color.purple, style=label.style_label_up)
+else if current_mode == "Backward-to-Forward Mirror"
+    if na(final_anchor_bar)
+        bool anchor_found = false
+        if time == i_manual_anchor_time or (time[1] < i_manual_anchor_time and time >= i_manual_anchor_time)
+            if i_anchor_type == "Time"
+                anchor_found := true
+            else if i_anchor_type == "Highest High" and is_new_high
+                anchor_found := true
+            else if i_anchor_type == "Lowest Low" and is_new_low
+                anchor_found := true
+        if anchor_found
+            final_anchor_bar := bar_index
+            is_counting := true
+            label.new(final_anchor_bar, high + i_label_vertical_offset * atr_val, "ANCHOR", style=label.style_arrowdown, color=color.new(color.orange, 0), textcolor=color.white, size=size.normal)
+            candle_count_forward := i_enable_shift ? i_shift_start_val - 1 : 0
+            candle_count_backward_mirror := i_enable_shift ? i_shift_start_val - 1 : 0
+            if i_enable_backward
+                for ii = 1 to i_backward_lookback
+                    if array.includes(backward_sequence_array, ii)
+                        label.new(bar_index - ii, low[ii] - i_label_vertical_offset * atr_val, "M-" + str.tostring(ii), color=color.new(color.white, 100), textcolor=color.fuchsia, style=label.style_label_up, size=f_str_to_size(i_label_size_str))
+
+// Counting & labels
+bool is_in_counting_phase = is_counting and bar_index >= final_anchor_bar
+bool is_td = is_in_counting_phase and i_enable_td and f_is_distorted_candle()
+bgcolor(i_highlight_td and is_td ? color.new(color.yellow, 85) : na)
+
+if is_in_counting_phase
+    if not is_td
+        candle_count_forward += 1
+        if current_mode == "Backward-to-Forward Mirror"
+            candle_count_backward_mirror += 1
+
+    bool is_in_sequence = array.includes(current_sequence_array, candle_count_forward)
+    if (is_td or is_in_sequence or i_show_normal_count_labels) and candle_count_forward > 0
+        label_color = is_in_sequence ? i_sequence_label_color : i_label_color
+        _label_text = is_td ? "TD" : str.tostring(candle_count_forward)
+        label_size_val = f_str_to_size(i_label_size_str)
+        label.new(bar_index, high + i_label_vertical_offset * atr_val, _label_text, color=color.new(color.white, 100), textcolor=is_td ? color.orange : label_color, style=label.style_label_down, size=label_size_val)
+
+    if current_mode == "Backward-to-Forward Mirror"
+        bool is_in_backward_sequence = array.includes(backward_sequence_array, candle_count_backward_mirror)
+        if is_in_backward_sequence and candle_count_backward_mirror > 0
+            label_size_val = f_str_to_size(i_label_size_str)
+            label.new(bar_index, low - i_label_vertical_offset * atr_val, "M" + str.tostring(candle_count_backward_mirror), color=color.new(color.white, 100), textcolor=color.fuchsia, style=label.style_label_up, size=label_size_val)
+
+// THE LINE: pre-calc security
+[htf1_is_fvg_valid, htf1_fvg_line_level, htf1_is_bullish_fvg_type] = request.security(syminfo.tickerid, i_line_mtf_timeframe_1, f_detect_fvg_line_series(open, high, low, close), lookahead=barmerge.lookahead_on)
+[htf2_is_fvg_valid, htf2_fvg_line_level, htf2_is_bullish_fvg_type] = request.security(syminfo.tickerid, i_line_mtf_timeframe_2, f_detect_fvg_line_series(open, high, low, close), lookahead=barmerge.lookahead_on)
+
+if i_enable_the_line
+    [is_fvg_valid, fvg_line_level, is_bullish_fvg_type] = f_detect_fvg_line_series(open, high, low, close)
+
+    if i_line_mtf_show_current_tf and is_fvg_valid and not na(fvg_line_level) and bar_index >= 2
+        bool is_new_line_on_current_tf = true
+        // Check existing
+        for idx = 0 to array.size(active_lines) - 1
+            _ld = array.get(active_lines, idx)
+            if f_levels_equal(_ld.level, fvg_line_level) and not _ld.is_mitigated and _ld.timeframe == "Current"
+                is_new_line_on_current_tf := false
+                break
+        if is_new_line_on_current_tf
+            f_cleanup_line_objects(i_line_max_projections)
+            if array.size(active_lines) < i_line_max_projections
+                line_style_val = f_str_to_line_style(i_line_style)
+                newLine = line.new(bar_index, fvg_line_level, bar_index + 1, fvg_line_level, xloc=xloc.bar_index, extend=extend.right, color=i_line_color_current_tf, style=line_style_val, width=i_line_width)
+                newLabel = na
+                if i_line_label_enabled
+                    label_size_line = f_str_to_size(i_line_label_size_str)
+                    label_text = "Current LINE"
+                    label_y_offset = is_bullish_fvg_type ? atr_val * 0.5 : -atr_val * 0.5
+                    newLabel := label.new(bar_index, fvg_line_level + label_y_offset, label_text, xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=i_line_color_current_tf, size=label_size_line, style=is_bullish_fvg_type ? label.style_label_up : label.style_label_down)
+                array.push(active_lines, LineData.new(newLine, newLabel, fvg_line_level, bar_index, is_bullish_fvg_type, false, na, "Current"))
+
+    if i_line_enable_mtf
+        bool is_new_htf1_bar_for_line = ta.change(time(i_line_mtf_timeframe_1)) != 0
+        if htf1_is_fvg_valid and not na(htf1_fvg_line_level) and is_new_htf1_bar_for_line
+            bool line_exists = false
+            for idx = 0 to array.size(active_lines) - 1
+                _ld = array.get(active_lines, idx)
+                if f_levels_equal(_ld.level, htf1_fvg_line_level) and not _ld.is_mitigated and _ld.timeframe == i_line_mtf_timeframe_1
+                    line_exists := true
+                    break
+            if not line_exists
+                f_cleanup_line_objects(i_line_max_projections)
+                if array.size(active_lines) < i_line_max_projections
+                    line_style_val = f_str_to_line_style(i_line_style)
+                    newLineMTF1 = line.new(bar_index, htf1_fvg_line_level, bar_index + 1, htf1_fvg_line_level, xloc=xloc.bar_index, extend=extend.right, color=i_line_color_mtf1, style=line_style_val, width=i_line_width)
+                    newLabelMTF1 = na
+                    if i_line_label_enabled
+                        label_size_line = f_str_to_size(i_line_label_size_str)
+                        label_text = i_line_mtf_timeframe_1 + " LINE"
+                        label_y_offset = htf1_is_bullish_fvg_type ? atr_val * 0.5 : -atr_val * 0.5
+                        newLabelMTF1 := label.new(bar_index, htf1_fvg_line_level + label_y_offset, label_text, xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=i_line_color_mtf1, size=label_size_line, style=htf1_is_bullish_fvg_type ? label.style_label_up : label.style_label_down)
+                    array.push(active_lines, LineData.new(newLineMTF1, newLabelMTF1, htf1_fvg_line_level, bar_index, htf1_is_bullish_fvg_type, false, na, i_line_mtf_timeframe_1))
+
+        bool is_new_htf2_bar_for_line = ta.change(time(i_line_mtf_timeframe_2)) != 0
+        if htf2_is_fvg_valid and not na(htf2_fvg_line_level) and is_new_htf2_bar_for_line
+            bool line_exists2 = false
+            for idx = 0 to array.size(active_lines) - 1
+                _ld = array.get(active_lines, idx)
+                if f_levels_equal(_ld.level, htf2_fvg_line_level) and not _ld.is_mitigated and _ld.timeframe == i_line_mtf_timeframe_2
+                    line_exists2 := true
+                    break
+            if not line_exists2
+                f_cleanup_line_objects(i_line_max_projections)
+                if array.size(active_lines) < i_line_max_projections
+                    line_style_val = f_str_to_line_style(i_line_style)
+                    newLineMTF2 = line.new(bar_index, htf2_fvg_line_level, bar_index + 1, htf2_fvg_line_level, xloc=xloc.bar_index, extend=extend.right, color=i_line_color_mtf2, style=line_style_val, width=i_line_width)
+                    newLabelMTF2 = na
+                    if i_line_label_enabled
+                        label_size_line = f_str_to_size(i_line_label_size_str)
+                        label_text = i_line_mtf_timeframe_2 + " LINE"
+                        label_y_offset = htf2_is_bullish_fvg_type ? atr_val * 0.5 : -atr_val * 0.5
+                        newLabelMTF2 := label.new(bar_index, htf2_fvg_line_level + label_y_offset, label_text, xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=i_line_color_mtf2, size=label_size_line, style=htf2_is_bullish_fvg_type ? label.style_label_up : label.style_label_down)
+                    array.push(active_lines, LineData.new(newLineMTF2, newLabelMTF2, htf2_fvg_line_level, bar_index, htf2_is_bullish_fvg_type, false, na, i_line_mtf_timeframe_2))
+
+    // Mitigation
+    if array.size(active_lines) > 0
+        for _i = 0 to array.size(active_lines) - 1
+            _line_data = array.get(active_lines, _i)
+            if not _line_data.is_mitigated
+                bool mitigated = false
+                if i_line_mitigation_type == "Wick or Body"
+                    if _line_data.is_bullish
+                        mitigated := low <= _line_data.level
+                    else
+                        mitigated := high >= _line_data.level
+                else
+                    if _line_data.is_bullish
+                        mitigated := close <= _line_data.level
+                    else
+                        mitigated := close >= _line_data.level
+                if mitigated
+                    _line_data.is_mitigated := true
+                    _line_data.mitigation_bar_index := bar_index
+                    array.set(active_lines, _i, _line_data)
+                    line.set_xy2(_line_data.line_id, bar_index, _line_data.level)
+                    line.set_extend(_line_data.line_id, extend.none)
+                    line.set_color(_line_data.line_id, i_line_color_mitigated)
+                    if not na(_line_data.label_id)
+                        label.set_text(_line_data.label_id, label.get_text(_line_data.label_id) + " (M)")
+                        label.set_textcolor(_line_data.label_id, i_line_color_mitigated)
+
+// EOB: pre-calc security
+[htf1_is_eob_valid, htf1_eob_high, htf1_eob_low, htf1_is_bullish_eob_type] = request.security(syminfo.tickerid, i_eob_mtf_timeframe_1, f_detect_eob_series(open, high, low, close), lookahead=barmerge.lookahead_on)
+[htf2_is_eob_valid, htf2_eob_high, htf2_eob_low, htf2_is_bullish_eob_type] = request.security(syminfo.tickerid, i_eob_mtf_timeframe_2, f_detect_eob_series(open, high, low, close), lookahead=barmerge.lookahead_on)
+
+if i_enable_eob
+    [is_eob_valid, eob_high_level, eob_low_level, is_bullish_eob_type] = f_detect_eob_series(open, high, low, close)
+    if i_eob_mtf_show_current_tf and is_eob_valid and not na(eob_high_level) and bar_index >= 1
+        bool is_new_eob_on_current_tf = true
+        for idx = 0 to array.size(active_eobs) - 1
+            _e = array.get(active_eobs, idx)
+            if f_levels_equal(_e.high_level, eob_high_level) and f_levels_equal(_e.low_level, eob_low_level) and not _e.is_mitigated and _e.timeframe == "Current"
+                is_new_eob_on_current_tf := false
+                break
+        if is_new_eob_on_current_tf
+            f_cleanup_eob_objects(i_eob_max_projections)
+            if array.size(active_eobs) < i_eob_max_projections
+                eobColor = is_bullish_eob_type ? i_eob_color_bullish_current_tf : i_eob_color_bearish_current_tf
+                newBox = box.new(bar_index, eob_high_level, bar_index + 1, eob_low_level, xloc=xloc.bar_index, extend=extend.right, border_color=eobColor, border_width=1, bgcolor=eobColor)
+                newEOBLabel = na
+                if i_eob_label_enabled
+                    label_size_eob = f_str_to_size(i_eob_label_size_str)
+                    label_text = "Current EOB"
+                    eob_mid = (eob_high_level + eob_low_level) / 2
+                    newEOBLabel := label.new(bar_index, eob_mid, label_text, xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=eobColor, size=label_size_eob, style=label.style_label_right)
+                array.push(active_eobs, EOBData.new(newBox, newEOBLabel, eob_high_level, eob_low_level, bar_index, is_bullish_eob_type, false, na, "Current"))
+
+    if i_eob_enable_mtf
+        bool is_new_htf1_eob_bar = ta.change(time(i_eob_mtf_timeframe_1)) != 0
+        if htf1_is_eob_valid and not na(htf1_eob_high) and is_new_htf1_eob_bar
+            bool eob_exists = false
+            for idx = 0 to array.size(active_eobs) - 1
+                _e = array.get(active_eobs, idx)
+                if f_levels_equal(_e.high_level, htf1_eob_high) and f_levels_equal(_e.low_level, htf1_eob_low) and not _e.is_mitigated and _e.timeframe == i_eob_mtf_timeframe_1
+                    eob_exists := true
+                    break
+            if not eob_exists
+                f_cleanup_eob_objects(i_eob_max_projections)
+                if array.size(active_eobs) < i_eob_max_projections
+                    eobColorMTF1 = htf1_is_bullish_eob_type ? i_eob_color_bullish_mtf1 : i_eob_color_bearish_mtf1
+                    newBoxMTF1 = box.new(bar_index, htf1_eob_high, bar_index + 1, htf1_eob_low, xloc=xloc.bar_index, extend=extend.right, border_color=eobColorMTF1, border_width=1, bgcolor=eobColorMTF1)
+                    newEOBLabelMTF1 = na
+                    if i_eob_label_enabled
+                        label_size_eob = f_str_to_size(i_eob_label_size_str)
+                        label_text = i_eob_mtf_timeframe_1 + " EOB"
+                        eob_mid = (htf1_eob_high + htf1_eob_low) / 2
+                        newEOBLabelMTF1 := label.new(bar_index, eob_mid, label_text, xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=eobColorMTF1, size=label_size_eob, style=label.style_label_right)
+                    array.push(active_eobs, EOBData.new(newBoxMTF1, newEOBLabelMTF1, htf1_eob_high, htf1_eob_low, bar_index, htf1_is_bullish_eob_type, false, na, i_eob_mtf_timeframe_1))
+
+        bool is_new_htf2_eob_bar = ta.change(time(i_eob_mtf_timeframe_2)) != 0
+        if htf2_is_eob_valid and not na(htf2_eob_high) and is_new_htf2_eob_bar
+            bool eob_exists2 = false
+            for idx = 0 to array.size(active_eobs) - 1
+                _e = array.get(active_eobs, idx)
+                if f_levels_equal(_e.high_level, htf2_eob_high) and f_levels_equal(_e.low_level, htf2_eob_low) and not _e.is_mitigated and _e.timeframe == i_eob_mtf_timeframe_2
+                    eob_exists2 := true
+                    break
+            if not eob_exists2
+                f_cleanup_eob_objects(i_eob_max_projections)
+                if array.size(active_eobs) < i_eob_max_projections
+                    eobColorMTF2 = htf2_is_bullish_eob_type ? i_eob_color_bullish_mtf2 : i_eob_color_bearish_mtf2
+                    newBoxMTF2 = box.new(bar_index, htf2_eob_high, bar_index + 1, htf2_eob_low, xloc=xloc.bar_index, extend=extend.right, border_color=eobColorMTF2, border_width=1, bgcolor=eobColorMTF2)
+                    newEOBLabelMTF2 = na
+                    if i_eob_label_enabled
+                        label_size_eob = f_str_to_size(i_eob_label_size_str)
+                        label_text = i_eob_mtf_timeframe_2 + " EOB"
+                        eob_mid = (htf2_eob_high + htf2_eob_low) / 2
+                        newEOBLabelMTF2 := label.new(bar_index, eob_mid, label_text, xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=eobColorMTF2, size=label_size_eob, style=label.style_label_right)
+                    array.push(active_eobs, EOBData.new(newBoxMTF2, newEOBLabelMTF2, htf2_eob_high, htf2_eob_low, bar_index, htf2_is_bullish_eob_type, false, na, i_eob_mtf_timeframe_2))
+
+    // EOB mitigation (body close only semantics applied per option)
+    if array.size(active_eobs) > 0
+        for _i = 0 to array.size(active_eobs) - 1
+            _eob = array.get(active_eobs, _i)
+            if not _eob.is_mitigated
+                bool mitigated = false
+                if _eob.is_bullish
+                    mitigated := close < _eob.high_level
+                else
+                    mitigated := close > _eob.low_level
+                if mitigated
+                    _eob.is_mitigated := true
+                    _eob.mitigation_bar_index := bar_index
+                    array.set(active_eobs, _i, _eob)
+                    box.set_right(_eob.box_id, bar_index)
+                    box.set_extend(_eob.box_id, extend.none)
+                    box.set_bgcolor(_eob.box_id, i_eob_color_mitigated)
+                    box.set_border_color(_eob.box_id, i_eob_color_mitigated)
+                    if not na(_eob.label_id)
+                        label.set_text(_eob.label_id, label.get_text(_eob.label_id) + " (M)")
+                        label.set_textcolor(_eob.label_id, i_eob_color_mitigated)
+
+// MTF counting labels (original)
+_htf_time = request.security(syminfo.tickerid, i_mtf_timeframe, time, lookahead=barmerge.lookahead_on)
+bool is_new_htf_bar = _htf_time != _htf_time[1]
+if i_enable_mtf and is_counting and bar_index >= final_anchor_bar and is_new_htf_bar
+    if i_mtf1_enable_shift and mtf_candle_count == 0
+        mtf_candle_count := i_mtf1_shift_start_val - 1
+    mtf_candle_count += 1
+    bool is_in_mtf_sequence = array.includes(current_mtf_sequence_array, mtf_candle_count)
+    if is_in_mtf_sequence
+        _label_text_mtf = i_mtf_label_format == "Custom Format" ? str.replace(str.replace(i_mtf_custom_format_string, "{tf}", i_mtf_timeframe), "{count}", str.tostring(mtf_candle_count)) : i_mtf_timeframe + ": " + str.tostring(mtf_candle_count)
+        label.new(bar_index, high + i_label_vertical_offset * atr_val, _label_text_mtf, style=label.style_label_down, color=color.new(color.white, 100), textcolor=is_in_mtf_sequence ? i_mtf_sequence_label_color : i_mtf_label_color)
+
+_htf_time_2 = request.security(syminfo.tickerid, i_mtf_timeframe_2, time, lookahead=barmerge.lookahead_on)
+bool is_new_htf_bar_2 = _htf_time_2 != _htf_time_2[1]
+if i_enable_mtf_2 and is_counting and bar_index >= final_anchor_bar and is_new_htf_bar_2
+    if i_mtf2_enable_shift and mtf_candle_count_2 == 0
+        mtf_candle_count_2 := i_mtf2_shift_start_val - 1
+    mtf_candle_count_2 += 1
+    bool is_in_mtf_sequence_2 = array.includes(current_mtf_sequence_array_2, mtf_candle_count_2)
+    if is_in_mtf_sequence_2
+        _label_text_mtf_2 = i_mtf_label_format == "Custom Format" ? str.replace(str.replace(i_mtf_custom_format_string, "{tf}", i_mtf_timeframe_2), "{count}", str.tostring(mtf_candle_count_2)) : i_mtf_timeframe_2 + ": " + str.tostring(mtf_candle_count_2)
+        label.new(bar_index, high + i_label_vertical_offset * atr_val, _label_text_mtf_2, style=label.style_label_down, color=color.new(color.white, 100), textcolor=is_in_mtf_sequence_2 ? i_mtf_sequence_label_color : i_mtf_label_color)
+
+// Future projections (original)
+if i_enable_future and is_counting and barstate.islast
+    _projections_shown = 0
+    _future_bar_offset = 1
+    _projected_count = candle_count_forward
+    while (_projections_shown < i_future_count and _future_bar_offset < 200)
+        _projected_count += 1
+        if array.includes(current_sequence_array, _projected_count)
+            label.new(bar_index + _future_bar_offset, close + i_label_vertical_offset * atr_val, "+" + str.tostring(_projected_count), color=color.new(color.white, 100), textcolor=color.blue, style=label.style_label_down)
+            _projections_shown += 1
+        _future_bar_offset += 1
+
+    if i_enable_mtf
+        _projections_shown_mtf = 0
+        _future_bar_offset_mtf = 1
+        _projected_count_mtf = mtf_candle_count
+        while (_projections_shown_mtf < i_future_count and _future_bar_offset_mtf < 200)
+            _projected_count_mtf += 1
+            if array.includes(current_mtf_sequence_array, _projected_count_mtf)
+                label.new(bar_index + _future_bar_offset_mtf, close + i_label_vertical_offset * atr_val, "MTF+" + str.tostring(_projected_count_mtf), color=color.new(color.white, 100), textcolor=i_mtf_sequence_label_color, style=label.style_label_down)
+                _projections_shown_mtf += 1
+            _future_bar_offset_mtf += 1
+
+    if i_enable_mtf_2
+        _projections_shown_mtf_2 = 0
+        _future_bar_offset_mtf_2 = 1
+        _projected_count_mtf_2 = mtf_candle_count_2
+        while (_projections_shown_mtf_2 < i_future_count and _future_bar_offset_mtf_2 < 200)
+            _projected_count_mtf_2 += 1
+            if array.includes(current_mtf_sequence_array_2, _projected_count_mtf_2)
+                label.new(bar_index + _future_bar_offset_mtf_2, close + i_label_vertical_offset * atr_val, "MTF2+" + str.tostring(_projected_count_mtf_2), color=color.new(color.white, 100), textcolor=i_mtf_sequence_label_color, style=label.style_label_down)
+                _projections_shown_mtf_2 += 1
+            _future_bar_offset_mtf_2 += 1
+
+// =========================================================
+// 3) SECTION: TDT ULTIMATE (ENDLESS CYCLES, CASTING, STATES)
+// =========================================================
+
+u_grp_toggle = "U0. Master Toggle"
+u_enable = input.bool(true, "Enable TDT Ultimate", group=u_grp_toggle)
+
+// Core settings
+u_grp_core = "U1. Core Settings"
+u_countDirection = input.string("Neutral", "Counting Direction", options=["Neutral","Bullish","Bearish"], group=u_grp_core)
+u_pivotLeft = input.int(3, "Pivot Left", minval=1, group=u_grp_core)
+u_pivotRight = input.int(3, "Pivot Right", minval=1, group=u_grp_core)
+u_enableAutoAnchor = input.bool(true, "Auto Anchor from Perfect Past Cycles", group=u_grp_core)
+u_manualStartDate = input.time(timestamp("2025-01-15 09:30"), "Manual Start Date (if Auto OFF)", group=u_grp_core)
+
+// Sequences
+u_grp_seq = "U2. Sequences"
+u_sequenceType = input.string("Standard", "Sequence Type", options=["Standard","Contraction","Expansion","Rare","Custom"], group=u_grp_seq)
+u_standardSequence = input.string("1,3,7,13,21", "Standard (n²-n+1)", group=u_grp_seq)
+u_contractionSequence = input.string("1,5,9,17,25", "Contraction", group=u_grp_seq)
+u_rareSequence = input.string("1,3,6,9,15,24", "Rare (Perfect)", group=u_grp_seq)
+u_customSequence = input.string("7,13,21,31,42", "Custom", group=u_grp_seq)
+
+// Casting
+u_grp_cast = "U3. TDT Casting"
+u_enableCasting = input.bool(false, "Enable TDT Casting", group=u_grp_cast)
+u_castingSequenceType = input.string("A", "Backward Sequence Type", options=["A","B"], group=u_grp_cast)
+u_backwardSequenceA = input.string("33,27,21,13,7,3,1", "Backward Sequence A", group=u_grp_cast)
+u_backwardSequenceB = input.string("37,25,17,11,9,5,1", "Backward Sequence B", group=u_grp_cast)
+u_forwardCastingSequence = input.string("1,3,7,13,21,27,33", "Forward Casting Sequence", group=u_grp_cast)
+u_enableShiftMode = input.bool(false, "Enable Shift Mode", group=u_grp_cast)
+u_shiftSeed = input.int(7, "Shift Seed", minval=-100, maxval=100, group=u_grp_cast)
+u_sameCandleTransition = input.bool(true, "Shared -1 Candle (Backward End = Forward Start)", group=u_grp_cast)
+
+// Time Distortion / Advanced TD
+u_grp_td = "U4. Time Distortion"
+u_freezeOnTD = input.bool(true, "Freeze Count on Time Distortion", group=u_grp_td)
+u_enableAdvancedTD = input.bool(true, "Enhanced TD Detection", group=u_grp_td)
+u_insideMethod = input.string("High/Low", "Inside Detection Method", options=["High/Low","Open/Close"], group=u_grp_td)
+u_insideComparison = input.string("<=", "Inside Comparison", options=["<=","<"], group=u_grp_td)
+u_multipleInsideCandles = input.bool(false, "Multiple Inside Candles", group=u_grp_td)
+
+// Market cycles
+u_grp_mc = "U5. Market Cycles"
+u_enableCycleDetection = input.bool(true, "Enable Market Cycle Detection", group=u_grp_mc)
+u_consolidationLength = input.string("10,20", "Consolidation Lengths", group=u_grp_mc)
+u_retracementLength = input.string("3,4", "Retracement Lengths", group=u_grp_mc)
+u_expansionLength = input.string("4,7", "Expansion Lengths", group=u_grp_mc)
+u_reversalLength = input.string("13,21", "Reversal Lengths", group=u_grp_mc)
+
+// Time states
+u_grp_ts = "U6. Time States"
+u_enableTimeStates = input.bool(true, "Enable Time States", group=u_grp_ts)
+u_enableContraction = input.bool(true, "Enable Time Contraction", group=u_grp_ts)
+u_enableExpansion = input.bool(true, "Enable Time Expansion", group=u_grp_ts)
+u_distortionThreshold = input.float(0.3, "Distortion Threshold", minval=0.1, maxval=1.0, group=u_grp_ts)
+u_atrLength = input.int(14, "ATR Length", minval=5, group=u_grp_ts)
+
+// MTF (Ultimate)
+u_grp_mtf = "U7. Multi-Timeframe (Ultimate)"
+u_enableMTF = input.bool(true, "Enable Multi-Timeframe Analysis", group=u_grp_mtf)
+u_htf1 = input.timeframe("240", "Higher TF 1", group=u_grp_mtf)
+u_htf2 = input.timeframe("D", "Higher TF 2", group=u_grp_mtf)
+u_htf3 = input.timeframe("W", "Higher TF 3", group=u_grp_mtf)
+
+// Session and News
+u_grp_session = "U8. Session Filter"
+u_enableSession = input.bool(true, "Enable Session Filter", group=u_grp_session)
+u_sessionStart = input.session("0800-1600", "Trading Session", group=u_grp_session)
+u_timezone = input.string("UTC", "Timezone", group=u_grp_session)
+u_enableNewsFilter = input.bool(false, "Enable News Filter", group=u_grp_session)
+
+// Advanced
+u_grp_adv = "U9. Advanced"
+u_enableFractalAnalysis = input.bool(true, "Enable Fractal Analysis", group=u_grp_adv)
+u_enableHarmonyChaos = input.bool(true, "Enable Harmony/Chaos Detection", group=u_grp_adv)
+u_countOutsideDouble = input.bool(false, "Count Outside Candles Double", group=u_grp_adv)
+
+// Display
+u_grp_disp = "U10. Display"
+u_displayPosition = input.string("above_candle", "Display Position", options=["above_candle","below_candle"], group=u_grp_disp)
+u_verticalShift = input.int(0, "Vertical Shift", group=u_grp_disp)
+u_labelSizeSimple = input.string("normal", "Label Size", options=["tiny","small","normal","large","huge"], group=u_grp_disp)
+u_sequenceColor = input.color(#FF0000, "Sequence Number Color", group=u_grp_disp)
+u_castingColor = input.color(#FF00FF, "Casting Color", group=u_grp_disp)
+u_timeDistortionColor = input.color(#FFA500, "Time Distortion Color", group=u_grp_disp)
+u_displayOnlySequence = input.bool(true, "Display Only Sequence Numbers", group=u_grp_disp)
+
+// ===== MAIN VARS (Ultimate)
+var int u_currentCountNumber = 1
+var array<float> u_currentSequenceStr = array.new_float()
+var string u_selectedBackwardSequence = ""
+var array<float> u_castingSeqArray = array.new_float()
+var array<float> u_forwardCastSeqArray = array.new_float()
+var int u_anchorBarIndex = na
+var bool u_countingStarted = false
+var bool u_inTimeDistortion = false
+var int u_tdCount = 0
+
+// ===== Ultimate helpers
+f_calculateTranscriptSequence(n) => n * n - n + 1
+
+f_getTranscriptSequence() =>
+    _t = array.new_float()
+    for i = 1 to 7
+        array.push(_t, f_calculateTranscriptSequence(i))
+    _t
+
+f_parseSequence(string seq_str) => f_parse_sequence(seq_str)
+
+f_getCurrentSequence() =>
+    switch u_sequenceType
+        "Standard" => f_getTranscriptSequence()
+        "Contraction" => f_parseSequence(u_contractionSequence)
+        "Expansion" => f_parseSequence(u_rareSequence)
+        "Rare" => f_parseSequence(u_rareSequence)
+        "Custom" => f_parseSequence(u_customSequence)
+        => f_getTranscriptSequence()
+
+f_inSequence(val, sequence) => array.includes(sequence, float(val))
+
+// Advanced TD candle types
+f_isInsideCandle(int index) =>
+    if not u_enableAdvancedTD
+        false
+    else
+        c_high = high[index]
+        c_low = low[index]
+        c_open = open[index]
+        c_close = close[index]
+        prev_high = high[index + 1]
+        prev_low = low[index + 1]
+        prev_open = open[index + 1]
+        prev_close = close[index + 1]
+        is_inside = if u_insideMethod == "High/Low"
+            if u_insideComparison == "<="
+                c_high <= prev_high and c_low >= prev_low
+            else
+                c_high < prev_high and c_low > prev_low
+        else
+            bodyMax = math.max(c_open, c_close)
+            bodyMin = math.min(c_open, c_close)
+            prevBodyMax = math.max(prev_open, prev_close)
+            prevBodyMin = math.min(prev_open, prev_close)
+            if u_insideComparison == "<="
+                bodyMax <= prevBodyMax and bodyMin >= prevBodyMin
+            else
+                bodyMax < prevBodyMax and bodyMin > prevBodyMin
+        is_inside
+
+f_isOutsideCandle(int index) =>
+    if not u_enableAdvancedTD
+        false
+    else
+        c_high = high[index]
+        c_low = low[index]
+        prev_high = high[index + 1]
+        prev_low = low[index + 1]
+        c_high > prev_high and c_low < prev_low
+
+f_isDojiCandle(int index) =>
+    bodySize = math.abs(close[index] - open[index])
+    candleRange = high[index] - low[index]
+    candleRange > 0 and (bodySize / candleRange) < 0.2
+
+f_isWeakCandle(int index) =>
+    bodySize = math.abs(close[index] - open[index])
+    candleRange = high[index] - low[index]
+    candleRange > 0 and (bodySize / candleRange) < 0.3
+
+// Time state detection
+f_isTimeDistorted() =>
+    if not u_enableTimeStates
+        false
+    else
+        recentRange = high - low
+        avgRange = ta.sma(high - low, 20)
+        recentRange < avgRange * 0.7 and math.abs(close - open) < recentRange * 0.3
+
+f_isTimeContracted() =>
+    if not u_enableContraction
+        false
+    else
+        atrv = ta.atr(u_atrLength)
+        currentVolatility = (high - low) / atrv
+        avgVolatility = ta.sma(currentVolatility, 20)
+        currentVolatility > avgVolatility * 1.5
+
+f_isTimeExpanded() =>
+    if not u_enableExpansion
+        false
+    else
+        atrv = ta.atr(u_atrLength)
+        currentVolatility = (high - low) / atrv
+        avgVolatility = ta.sma(currentVolatility, 20)
+        currentVolatility < avgVolatility * 0.7
+
+// Market cycle
+f_detectMarketCycle() =>
+    if not u_enableCycleDetection
+        "Unknown"
+    else
+        recentRange = high - low
+        avgRange = ta.sma(high - low, 20)
+        if recentRange < avgRange * 0.5
+            "Time Distortion"
+        else if recentRange > avgRange * 1.5
+            "Expansion"
+        else if close < close[1] and close[1] < close[2]
+            "Retracement"
+        else if close > close[1] and close[1] > close[2]
+            "Reversal"
+        else
+            "Unknown"
+
+// Cycle momentum
+f_calculateCycleMomentum() =>
+    momentum = 0.0
+    if f_inSequence(u_currentCountNumber, u_currentSequenceStr)
+        momentum += 1.0
+    if f_isTimeContracted()
+        momentum += 0.5
+    else if f_isTimeExpanded()
+        momentum -= 0.3
+    if u_enableFractalAnalysis and (f_detectFractal())
+        momentum += 0.3
+    cycleType = f_detectMarketCycle()
+    if cycleType == "Expansion"
+        momentum += 0.4
+    else if cycleType == "Time Distortion"
+        momentum -= 0.2
+    momentum
+
+// Fractals
+f_detectFractal() =>
+    if not u_enableFractalAnalysis
+        false
+    else
+        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        mediumFractalUp := mediumFractalUp and high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+        mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        mediumFractalDown := mediumFractalDown and low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+        macroFractalUp = true
+        macroFractalDown = true
+        for i = 1 to 19
+            if high <= high[i]
+                macroFractalUp := false
+            if low >= low[i]
+                macroFractalDown := false
+        microFractalUp or microFractalDown or mediumFractalUp or mediumFractalDown or macroFractalUp or macroFractalDown
+
+f_getFractalScale() =>
+    if not u_enableFractalAnalysis
+        "None"
+    else
+        microFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+        microFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+        if microFractalUp or microFractalDown
+            "Micro"
+        else
+            mediumFractalUp = high > high[1] and high > high[2] and high > high[3] and high > high[4]
+            mediumFractalUp := mediumFractalUp and high > high[5] and high > high[6] and high > high[7] and high > high[8] and high > high[9]
+            mediumFractalDown = low < low[1] and low < low[2] and low < low[3] and low < low[4]
+            mediumFractalDown := mediumFractalDown and low < low[5] and low < low[6] and low < low[7] and low < low[8] and low < low[9]
+            if mediumFractalUp or mediumFractalDown
+                "Medium"
+            else
+                "Macro"
+
+// Harmony/Chaos
+f_detectHarmonyChaos() =>
+    if not u_enableHarmonyChaos
+        "Unknown"
+    else
+        priceChange = close - close[1]
+        avgChange = ta.sma(math.abs(priceChange), 10)
+        cycleMomentum = f_calculateCycleMomentum()
+        float harmonyRatio = 0.0
+        if avgChange > 0
+            harmonyRatio := cycleMomentum / avgChange
+        else
+            harmonyRatio := 0
+        if harmonyRatio > 1.5
+            "Harmony"
+        else if harmonyRatio < 0.5
+            "Chaos"
+        else if harmonyRatio > 0.8 and harmonyRatio < 1.2
+            "Balance"
+        else
+            "Transition"
+
+// Session
+f_inSession() =>
+    if not u_enableSession
+        true
+    else
+        time(timeframe.period, u_sessionStart, u_timezone)
+
+// Casting helpers
+f_getSelectedBackwardSequence() => u_castingSequenceType == "A" ? u_backwardSequenceA : u_backwardSequenceB
+
+f_getHighestBackwardNumber(string seq_str) =>
+    seq_array = f_parseSequence(seq_str)
+    highest = 0.0
+    for i = 0 to array.size(seq_array) - 1
+        num = array.get(seq_array, i)
+        if num > highest
+            highest := num
+    highest
+
+// Auto pivot / anchor
+f_findAutoPivot() =>
+    bullPivotSrc = ta.pivotlow(low, u_pivotLeft, u_pivotRight)
+    bearPivotSrc = ta.pivothigh(high, u_pivotLeft, u_pivotRight)
+    if u_countDirection == "Bullish"
+        ta.valuewhen(not na(bullPivotSrc), bar_index, 0)
+    else if u_countDirection == "Bearish"
+        ta.valuewhen(not na(bearPivotSrc), bar_index, 0)
+    else
+        // Prefer most recent of either
+        bullIdx = ta.valuewhen(not na(bullPivotSrc), bar_index, 0)
+        bearIdx = ta.valuewhen(not na(bearPivotSrc), bar_index, 0)
+        na(bullIdx) ? bearIdx : (na(bearIdx) ? bullIdx : (bullIdx > bearIdx ? bullIdx : bearIdx))
+
+// Perfect past cycle (simplified scoring)
+f_findPerfectPastCycle() =>
+    var int perfectStart = na
+    bestScore = 0.0
+    lookback = math.min(1000, bar_index)
+    for i = 1 to lookback
+        testStart = bar_index - i
+        cycleScore = f_evaluateCycleQuality(testStart)
+        if cycleScore > bestScore and cycleScore > 0.8
+            bestScore := cycleScore
+            perfectStart := testStart
+    perfectStart
+
+f_evaluateCycleQuality(startBar) =>
+    score = 0.0
+    if f_isCleanPivot(startBar)
+        score += 0.3
+    if f_hasSequenceCompletion(startBar)
+        score += 0.4
+    if f_hasTimeDistortionPattern(startBar)
+        score += 0.2
+    if f_hasFractalAlignment(startBar)
+        score += 0.1
+    score
+
+f_isCleanPivot(startBar) =>
+    bullPivot = ta.pivotlow(low, u_pivotLeft, u_pivotRight)
+    bearPivot = ta.pivothigh(high, u_pivotLeft, u_pivotRight)
+    if u_countDirection == "Neutral"
+        not na(bullPivot) or not na(bearPivot)
+    else if u_countDirection == "Bullish"
+        not na(bullPivot)
+    else
+        not na(bearPivot)
+
+f_hasSequenceCompletion(startBar) =>
+    // Placeholder true if enough bars passed
+    startBar < bar_index - 10
+
+f_hasTimeDistortionPattern(startBar) => false
+
+f_hasFractalAlignment(startBar) => false
+
+// Additional vars
+var bool u_prevWasInside = false
+var int u_insideCandleStreak = 0
+var int u_timeDistortionCount = 0
+var int u_expansionCount = 0
+var int u_retracementCount = 0
+var int u_reversalCount = 0
+var int u_microTimeDistortionCount = 0
+var int u_microExpansionCount = 0
+var int u_nanoTimeDistortionCount = 0
+var int u_nanoExpansionCount = 0
+var string u_lastCycleType = "Unknown"
+var int u_cycleStartBar = na
+
+// Casting vars
+var bool u_castingActive = false
+var bool u_forwardCastActive = false
+var int u_backwardCastCount = 0
+var bool u_castingPhaseNegative = true
+var int u_castForwardCount = 0
+var bool u_castingInitialized = false
+var bool u_onCycleCandle = false
+
+// Initialization (per confirmed bar)
+if barstate.isconfirmed and u_enable
+    array.clear(u_currentSequenceStr)
+    array.clear(u_castingSeqArray)
+    array.clear(u_forwardCastSeqArray)
+    u_currentSequenceStr := f_getCurrentSequence()
+    u_selectedBackwardSequence := f_getSelectedBackwardSequence()
+    u_castingSeqArray := f_parseSequence(u_selectedBackwardSequence)
+    u_forwardCastSeqArray := f_parseSequence(u_forwardCastingSequence)
+
+// Start conditions (auto anchor or manual)
+if u_enable and not u_countingStarted
+    if u_enableAutoAnchor
+        perfectCycleStart = f_findPerfectPastCycle()
+        if not na(perfectCycleStart)
+            u_anchorBarIndex := perfectCycleStart
+            u_countingStarted := true
+            u_currentCountNumber := u_enableShiftMode ? (u_shiftSeed - 1) : 0
+            u_inTimeDistortion := false
+    else if time >= u_manualStartDate
+        u_anchorBarIndex := bar_index
+        u_countingStarted := true
+        u_currentCountNumber := u_enableShiftMode ? (u_shiftSeed - 1) : 0
+        u_inTimeDistortion := false
+
+// Candle analysis (Ultimate)
+u_currentIsInside = f_isInsideCandle(0)
+u_currentIsOutside = f_isOutsideCandle(0)
+u_currentIsDoji = f_isDojiCandle(0)
+u_currentIsWeak = f_isWeakCandle(0)
+u_currentIsTD = u_currentIsInside
+
+if u_currentIsInside
+    if not u_prevWasInside
+        u_insideCandleStreak := 1
+    else
+        u_insideCandleStreak += 1
+    u_prevWasInside := true
+else
+    u_prevWasInside := false
+    u_insideCandleStreak := 0
+
+// Apply candle rules by direction
+f_applyTranscriptCandleRules() =>
+    if u_countDirection == "Bullish"
+        close >= open
+    else if u_countDirection == "Bearish"
+        close <= open
+    else
+        true
+
+// Casting selection
+f_inSequenceUltimate(val, arr) => array.includes(arr, float(val))
+
+// Counting (Ultimate)
+if u_enable and u_countingStarted and bar_index >= u_anchorBarIndex and f_applyTranscriptCandleRules()
+    countIncrement = 1
+    if u_countOutsideDouble and u_currentIsOutside
+        countIncrement := 2
+    shouldFreezeOnInside = false
+    if u_currentIsTD and u_freezeOnTD
+        if u_multipleInsideCandles
+            shouldFreezeOnInside := false
+        else
+            shouldFreezeOnInside := true
+    if shouldFreezeOnInside
+        u_inTimeDistortion := true
+        u_tdCount += 1
+    else
+        if u_inTimeDistortion and u_freezeOnTD and not u_currentIsTD
+            u_currentCountNumber += countIncrement
+            u_inTimeDistortion := false
+            u_tdCount := 0
+        else
+            u_currentCountNumber += countIncrement
+            u_tdCount := 0
+
+    // Casting engine
+    if u_enableCasting
+        if not u_castingInitialized and bar_index == u_anchorBarIndex
+            highestNum = f_getHighestBackwardNumber(u_selectedBackwardSequence)
+            u_backwardCastCount := -int(highestNum)
+            u_castingInitialized := true
+        if u_castingInitialized and not (u_currentIsTD and u_freezeOnTD)
+            if u_castingPhaseNegative
+                if u_backwardCastCount == -1
+                    u_castingPhaseNegative := false
+                    u_castingActive := true
+                    u_forwardCastActive := true
+                    if u_sameCandleTransition
+                        u_castForwardCount := 2
+                        u_onCycleCandle := false
+                    else
+                        u_castForwardCount := 1
+                        u_onCycleCandle := false
+                        u_backwardCastCount += 1
+                else
+                    u_backwardCastCount += 1
+            else
+                if u_forwardCastActive
+                    u_castForwardCount += 1
+
+// Display (Ultimate) - counts and casting
+if u_enable and u_countingStarted
+    // Sequence hit
+    if f_inSequence(u_currentCountNumber, u_currentSequenceStr) or not u_displayOnlySequence
+        rangeMult = (high - low) * 0.10
+        yBase = u_displayPosition == "above_candle" ? high + rangeMult + u_verticalShift : low - rangeMult - u_verticalShift
+        label.new(bar_index, yBase, str.tostring(u_currentCountNumber), color=color.new(#FFFFFF, 100), textcolor=u_sequenceColor, size=f_str_to_size(u_labelSizeSimple))
+
+    // Casting display
+    if u_enableCasting and u_castingInitialized
+        if u_castingPhaseNegative
+            negativeHit = f_inSequenceUltimate(math.abs(u_backwardCastCount), u_castingSeqArray)
+            if negativeHit
+                castingOffset = (high - low) * 0.12
+                castingY = u_displayPosition == "above_candle" ? high + castingOffset + u_verticalShift : low - castingOffset - u_verticalShift
+                castingText = str.tostring(u_backwardCastCount)
+                label.new(bar_index, castingY, castingText, color=color.new(#FFFFFF, 100), textcolor=u_castingColor, size=f_str_to_size(u_labelSizeSimple))
+        if not u_castingPhaseNegative and u_forwardCastActive
+            forwardCastHit = f_inSequenceUltimate(u_castForwardCount, u_forwardCastSeqArray)
+            if forwardCastHit and u_castForwardCount > 0
+                forwardOffset = (high - low) * 0.15
+                forwardY = u_displayPosition == "above_candle" ? high + forwardOffset + u_verticalShift : low - forwardOffset - u_verticalShift
+                forwardText = str.tostring(u_castForwardCount)
+                label.new(bar_index, forwardY, forwardText, color=color.new(#FFFFFF, 100), textcolor=u_castingColor, size=f_str_to_size(u_labelSizeSimple))
+
+// Time state markers
+if u_enable and u_enableTimeStates and f_isTimeDistorted()
+    tdOffset = (high - low) * 0.18
+    tdY = u_displayPosition == "above_candle" ? high + tdOffset + u_verticalShift : low - tdOffset - u_verticalShift
+    label.new(bar_index, tdY, "TD", color=color.new(#FFFFFF, 100), textcolor=u_timeDistortionColor, size=f_str_to_size(u_labelSizeSimple))
+
+// Alerts (Ultimate)
+if u_enable and u_countingStarted and not u_inTimeDistortion
+    if f_inSequence(u_currentCountNumber, u_currentSequenceStr)
+        alert("TDT Sequence Number Reached: " + str.tostring(float(u_currentCountNumber)), alert.freq_once_per_bar)
+if u_enable and u_enableCasting and u_castingActive and not u_castingActive[1]
+    alert("TDT Casting Activated - Forward Count Started", alert.freq_once_per_bar)
+if u_enable and u_enableCasting and u_forwardCastActive
+    forwardCastHit = f_inSequenceUltimate(u_castForwardCount, u_forwardCastSeqArray)
+    if forwardCastHit
+        alert("TDT Forward Cast Hit: " + str.tostring(u_castForwardCount), alert.freq_once_per_bar)
+
+// Status table (Ultimate)
+if u_enable and barstate.islast
+    var table statusTable = table.new(position.top_right, 2, 35, bgcolor=color.new(#FFFFFF, 80), border_width=1)
+    table.cell(statusTable, 0, 0, "Status", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 0, "Value", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 1, "Counting", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 1, str.tostring(u_countingStarted), text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 2, "Count", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 2, str.tostring(u_currentCountNumber), text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 3, "Sequence Type", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 3, u_sequenceType, text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 4, "Time State", text_color=#000000, text_size=size.tiny)
+    var string timeState = "Normal"
+    timeState := f_isTimeDistorted() ? "Distorted" : (f_isTimeContracted() ? "Contracted" : (f_isTimeExpanded() ? "Expanded" : "Normal"))
+    table.cell(statusTable, 1, 4, timeState, text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 5, "Market Cycle", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 5, f_detectMarketCycle(), text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 6, "Harmony/Chaos", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 6, f_detectHarmonyChaos(), text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 7, "Cast Phase", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 7, u_enableCasting ? (u_castingPhaseNegative ? "NEG" : "POS") : "OFF", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 8, "Cast Count", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 8, u_enableCasting ? (u_castingPhaseNegative ? str.tostring(u_backwardCastCount) : str.tostring(u_castForwardCount)) : "OFF", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 9, "TD Active", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 9, u_inTimeDistortion ? "YES" : "NO", text_color=u_inTimeDistortion ? #FF0000 : #00FF00, text_size=size.tiny)
+    table.cell(statusTable, 0, 10, "Inside Streak", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 10, str.tostring(u_insideCandleStreak), text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 11, "Fractal", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 11, f_detectFractal() ? "YES" : "NO", text_color=f_detectFractal() ? #FFA500 : #808080, text_size=size.tiny)
+    table.cell(statusTable, 0, 12, "Session", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 12, f_inSession() ? "ACTIVE" : "INACTIVE", text_color=f_inSession() ? #00FF00 : #FF0000, text_size=size.tiny)
+    table.cell(statusTable, 0, 13, "Outside 2x", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 13, u_countOutsideDouble ? "ON" : "OFF", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 0, 14, "Multi Inside", text_color=#000000, text_size=size.tiny)
+    table.cell(statusTable, 1, 14, u_multipleInsideCandles ? "ON" : "OFF", text_color=#000000, text_size=size.tiny)
+
+// End of file
+
